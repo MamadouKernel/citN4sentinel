@@ -1,0 +1,362 @@
+@page "/admin/environnements/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Connectivity
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+@inject ConnectivityTester Tester
+@inject NavisConfigImporter Importer
+
+<PageTitle>@(_env?.Code ?? "Environnement") - N4 Sentinel</PageTitle>
+
+@if (_env is null)
+{
+    <p class="text-secondary">Chargement...</p>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+        <div>
+            <a href="/admin/environnements" class="text-decoration-none small">&larr; Environnements</a>
+            <h1 class="h3 mb-1 mt-1">
+                <code>@_env.Code</code> @_env.Name
+                @if (_env.IsProduction)
+                {
+                    <span class="badge bg-danger ms-2">PRODUCTION</span>
+                }
+            </h1>
+            <div class="text-secondary">
+                <StatutBadge Statut="_env.Status" />
+                <span class="ms-2">@_env.Kind &middot; criticite @_env.Criticality &middot; @_env.TimeZoneId</span>
+            </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-primary" @onclick="TesterConfiguration" disabled="@_testEnCours">
+                @(_testEnCours ? "Test en cours..." : "Tester la configuration")
+            </button>
+            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                <button class="btn btn-outline-secondary" @onclick="() => _importOuvert = !_importOuvert">
+                    Importer Navis-Config.json
+                </button>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    @* ---------------- Cycle de validation ---------------- *@
+    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+        @{ var transitions = ReferentialService.AllowedTransitions(_env.Status); }
+        @if (transitions.Count > 0)
+        {
+            <div class="card mb-4">
+                <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+                    <span class="text-secondary">Faire evoluer le statut :</span>
+                    @foreach (var cible in transitions)
+                    {
+                        <button class="btn btn-sm btn-outline-primary"
+                                @onclick="() => ChangerStatut(cible)">@cible</button>
+                    }
+                    @if (_env.Status != LifecycleStatus.Actif)
+                    {
+                        <span class="text-secondary small ms-auto">
+                            Un environnement doit etre <strong>Valide</strong> ou <strong>Actif</strong>
+                            pour qu'une operation puisse y etre lancee.
+                        </span>
+                    }
+                </div>
+            </div>
+        }
+    </AuthorizeView>
+
+    @if (_messageStatut is not null)
+    {
+        <div class="alert @(_statutEnErreur ? "alert-danger" : "alert-success")">@_messageStatut</div>
+    }
+
+    @* ---------------- Import ---------------- *@
+    @if (_importOuvert)
+    {
+        <div class="card mb-4">
+            <div class="card-header"><strong>Importer l'inventaire depuis Navis-Config.json</strong></div>
+            <div class="card-body">
+                <p class="text-secondary">
+                    Le fichier de configuration de vos scripts d'exploitation decrit deja l'ecosysteme reel :
+                    noms d'hotes, noms exacts des services Windows, chemins de journaux et marqueurs de
+                    demarrage. L'importer evite une double saisie et, surtout, tout ecart entre ce que
+                    pilotent les scripts et ce que croit l'application.
+                </p>
+                <p class="text-secondary">
+                    Les elements importes arrivent en <strong>Brouillon</strong> : l'import alimente le
+                    referentiel, il ne le valide pas.
+                </p>
+                <InputFile OnChange="ChargerFichier" class="form-control" accept=".json" />
+
+                @if (_rapportImport is not null)
+                {
+                    <div class="alert @(_rapportImport.Succeeded ? "alert-success" : "alert-danger") mt-3">
+                        <div>
+                            <strong>@_rapportImport.ServersCreated</strong> serveur(s) cree(s),
+                            <strong>@_rapportImport.ComponentsCreated</strong> composant(s) cree(s).
+                            @if (_rapportImport.ServersSkipped + _rapportImport.ComponentsSkipped > 0)
+                            {
+                                <text>
+                                    @(_rapportImport.ServersSkipped + _rapportImport.ComponentsSkipped)
+                                    element(s) deja present(s), ignore(s).
+                                </text>
+                            }
+                        </div>
+                        @foreach (var e in _rapportImport.Errors)
+                        {
+                            <div class="mt-2">@e</div>
+                        }
+                        @if (_rapportImport.Warnings.Count > 0)
+                        {
+                            <ul class="mt-2 mb-0 small">
+                                @foreach (var w in _rapportImport.Warnings)
+                                {
+                                    <li>@w</li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* ---------------- Rapport de test (FR-007) ---------------- *@
+    @if (_rapport is not null)
+    {
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <strong>Test de configuration</strong>
+                <span class="small text-secondary">
+                    @_rapport.Results.Count controle(s) en @_rapport.Duration.TotalSeconds.ToString("0.0") s
+                    &middot; aucune action mutative
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-2 flex-wrap mb-3">
+                    <span class="badge bg-success">@_rapport.Satisfied satisfait(s)</span>
+                    <span class="badge bg-warning text-dark">@_rapport.Warnings avertissement(s)</span>
+                    <span class="badge bg-danger">@_rapport.Blocking bloquant(s)</span>
+                    <span class="badge bg-secondary">@_rapport.Unverifiable non verifiable(s)</span>
+                </div>
+
+                @if (!_rapport.CanActivate)
+                {
+                    <div class="alert alert-danger">
+                        Cet environnement ne peut pas etre active tant qu'un controle bloquant subsiste.
+                        Les avertissements, eux, doivent etre compris - pas necessairement corriges.
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr><th>Cible</th><th>Controle</th><th>Resultat</th><th>Detail</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in _rapport.Results)
+                            {
+                                <tr>
+                                    <td class="text-nowrap"><code>@r.Target</code></td>
+                                    <td class="text-nowrap">@r.CheckName</td>
+                                    <td class="text-nowrap"><span class="badge @ClasseResultat(r.Outcome)">@LibelleResultat(r.Outcome)</span></td>
+                                    <td>
+                                        @r.Message
+                                        @if (r.Recommendation is not null)
+                                        {
+                                            <div class="small text-secondary mt-1">@r.Recommendation</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ---------------- Serveurs ---------------- *@
+    <h2 class="h5 mt-4">Serveurs <span class="text-secondary fw-normal">(@_serveurs.Count)</span></h2>
+    @if (_serveurs.Count == 0)
+    {
+        <p class="text-secondary">Aucun serveur declare.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr><th>Hote</th><th>IP</th><th>Port WinRM</th><th>Statut</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _serveurs)
+                    {
+                        <tr>
+                            <td><code>@s.HostName</code></td>
+                            <td>@(s.IpAddress ?? "-")</td>
+                            <td>@s.WinRmPort</td>
+                            <td><StatutBadge Statut="s.Status" /></td>
+                            <td class="small text-secondary">@s.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* ---------------- Composants ---------------- *@
+    <h2 class="h5 mt-4">Composants <span class="text-secondary fw-normal">(@_composants.Count)</span></h2>
+    @if (_composants.Count == 0)
+    {
+        <p class="text-secondary">Aucun composant declare.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Ordre</th><th>Nom logique</th><th>Role</th><th>Serveur</th>
+                        <th>Service Windows</th><th>Pilotage</th><th>Preuve</th><th>Statut</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _composants)
+                    {
+                        <tr>
+                            <td>@(c.StartOrder == 0 ? "-" : c.StartOrder.ToString())</td>
+                            <td>@c.LogicalName</td>
+                            <td class="text-nowrap">@c.Role</td>
+                            <td><code>@(c.Server?.HostName ?? "-")</code></td>
+                            <td class="small">@(c.WindowsServiceName ?? "-")</td>
+                            <td>
+                                @if (c.ControlMode == ControlMode.Pilotable)
+                                {
+                                    <span class="badge bg-primary">Pilotable</span>
+                                }
+                                else if (c.ControlMode == ControlMode.SuperviseSeulement)
+                                {
+                                    <span class="badge bg-secondary">Supervise</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-light text-dark">Non supervise</span>
+                                }
+                            </td>
+                            <td>
+                                @if (c.Readiness.IsProvable)
+                                {
+                                    <span class="badge bg-success" title="@c.Readiness.LogPath">Configuree</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark"
+                                          title="Sans marqueur, l'etat restera 'A confirmer'">Absente</span>
+                                }
+                            </td>
+                            <td><StatutBadge Statut="c.Status" /></td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary"
+                                   href="@($"/admin/composants/{c.Id}")">Editer</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private N4Environment? _env;
+    private List<N4Server> _serveurs = [];
+    private List<N4Component> _composants = [];
+
+    private EnvironmentTestReport? _rapport;
+    private bool _testEnCours;
+
+    private bool _importOuvert;
+    private ImportReport? _rapportImport;
+
+    private string? _messageStatut;
+    private bool _statutEnErreur;
+
+    protected override async Task OnParametersSetAsync() => await Recharger();
+
+    private async Task Recharger()
+    {
+        _env = await Referential.GetEnvironmentAsync(Id);
+        if (_env is null) return;
+        _serveurs = await Referential.GetServersAsync(Id);
+        _composants = await Referential.GetComponentsAsync(Id);
+    }
+
+    private async Task TesterConfiguration()
+    {
+        _testEnCours = true;
+        _rapport = null;
+        try
+        {
+            _rapport = await Tester.TestEnvironmentAsync(Id);
+        }
+        finally
+        {
+            _testEnCours = false;
+        }
+    }
+
+    private async Task ChangerStatut(LifecycleStatus cible)
+    {
+        var erreur = await Referential.ChangeEnvironmentStatusAsync(Id, cible);
+        _statutEnErreur = erreur is not null;
+        _messageStatut = erreur ?? $"Statut porte a {cible}.";
+        await Recharger();
+    }
+
+    private async Task ChargerFichier(InputFileChangeEventArgs e)
+    {
+        _rapportImport = null;
+        var fichier = e.File;
+        if (fichier is null) return;
+
+        // Garde-fou de taille : un Navis-Config.json fait quelques kilo-octets.
+        // Au-dela, ce n'est pas le bon fichier (SEC-007).
+        if (fichier.Size > 512 * 1024)
+        {
+            _rapportImport = new ImportReport();
+            _rapportImport.Errors.Add("Fichier trop volumineux (512 Ko maximum). Un Navis-Config.json fait quelques kilo-octets.");
+            return;
+        }
+
+        using var lecteur = new StreamReader(fichier.OpenReadStream(512 * 1024));
+        var json = await lecteur.ReadToEndAsync();
+
+        _rapportImport = await Importer.ImportAsync(Id, json);
+        await Recharger();
+    }
+
+    private static string ClasseResultat(CheckOutcome o) => o switch
+    {
+        CheckOutcome.Satisfait => "bg-success",
+        CheckOutcome.Avertissement => "bg-warning text-dark",
+        CheckOutcome.Bloquant => "bg-danger",
+        CheckOutcome.NonApplicable => "bg-light text-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string LibelleResultat(CheckOutcome o) => o switch
+    {
+        CheckOutcome.Satisfait => "Satisfait",
+        CheckOutcome.Avertissement => "Avertissement",
+        CheckOutcome.Bloquant => "Bloquant",
+        CheckOutcome.NonApplicable => "Non applicable",
+        _ => "Non verifiable"
+    };
+}

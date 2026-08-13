@@ -1,0 +1,43 @@
+@using N4Sentinel.Domain
+
+@*
+    Statut du cycle de validation. La couleur seule ne suffit pas : le libelle
+    est toujours present, conformement a l'exigence d'accessibilite du cahier
+    des charges (NFR-009, FR-055).
+*@
+
+<span class="badge @Classe" title="@Explication">@Libelle</span>
+
+@code {
+    [Parameter, EditorRequired] public LifecycleStatus Statut { get; set; }
+
+    private string Classe => Statut switch
+    {
+        LifecycleStatus.Brouillon => "bg-secondary",
+        LifecycleStatus.AValider => "bg-warning text-dark",
+        LifecycleStatus.Valide => "bg-info text-dark",
+        LifecycleStatus.Actif => "bg-success",
+        LifecycleStatus.Desactive => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    private string Libelle => Statut switch
+    {
+        LifecycleStatus.Brouillon => "Brouillon",
+        LifecycleStatus.AValider => "A valider",
+        LifecycleStatus.Valide => "Valide",
+        LifecycleStatus.Actif => "Actif",
+        LifecycleStatus.Desactive => "Desactive",
+        _ => Statut.ToString()
+    };
+
+    private string Explication => Statut switch
+    {
+        LifecycleStatus.Brouillon => "En cours de saisie. Aucune operation possible.",
+        LifecycleStatus.AValider => "Soumis a validation. Aucune operation possible.",
+        LifecycleStatus.Valide => "Valide, pas encore actif.",
+        LifecycleStatus.Actif => "Utilisable pour une operation.",
+        LifecycleStatus.Desactive => "Retire du service.",
+        _ => ""
+    };
+}

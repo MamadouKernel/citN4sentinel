@@ -7,8 +7,29 @@ using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Web.Components;
 using N4Sentinel.Web.Components.Account;
 using N4Sentinel.Web.Security;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ---------------------------------------------------------------------------
+// Journalisation structuree (NFR-006, NFR-008)
+// ---------------------------------------------------------------------------
+// Console pour l'exploitation courante, fichier journalier conserve 30 jours
+// pour l'analyse a posteriori. Chaque ligne porte un identifiant de correlation
+// permettant de relier les evenements d'une meme operation.
+builder.Host.UseSerilog((context, services, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "N4Sentinel")
+    .WriteTo.Console(outputTemplate:
+        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File(
+        path: Path.Combine(AppContext.BaseDirectory, "logs", "n4sentinel-.log"),
+        rollingInterval: Serilog.RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        outputTemplate:
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}"));
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -70,10 +91,13 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 builder.Services.AddN4SentinelAuthorization();
 
-// A REMPLACER EN S1 par un expediteur SMTP reel : tant que cet expediteur ne
-// fait rien, le second facteur par e-mail exige en V1 ne peut pas etre
-// delivre, et la confirmation de compte non plus (SEC-001).
-builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+// Messagerie : confirmation de compte, reinitialisation et code de second
+// facteur (SEC-001). Sans serveur configure, l'expediteur journalise au lieu
+// d'envoyer, et le signale a chaque appel.
+var smtpOptions = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>() ?? new SmtpOptions();
+builder.Services.AddSingleton(smtpOptions);
+builder.Services.AddSingleton<SmtpEmailSender>();
+builder.Services.AddSingleton<IEmailSender<ApplicationUser>>(sp => sp.GetRequiredService<SmtpEmailSender>());
 
 var app = builder.Build();
 
@@ -99,6 +123,7 @@ else
     app.UseHsts();
 }
 
+app.UseSerilogRequestLogging();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 app.UseAntiforgery();

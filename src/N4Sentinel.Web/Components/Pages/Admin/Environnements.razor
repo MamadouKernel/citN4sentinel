@@ -1,0 +1,203 @@
+@page "/admin/environnements"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+
+<PageTitle>Environnements - N4 Sentinel</PageTitle>
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="h3 mb-1">Environnements</h1>
+        <p class="text-secondary mb-0">
+            Chaque environnement possede sa propre cartographie, ses composants et ses regles.
+            Aucune action technique n'est autorisee sur un composant qui n'y est pas declare.
+        </p>
+    </div>
+    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+        <button class="btn btn-primary" @onclick="NouvelEnvironnement">Nouvel environnement</button>
+    </AuthorizeView>
+</div>
+
+@if (_environnements is null)
+{
+    <p class="text-secondary">Chargement...</p>
+}
+else if (_environnements.Count == 0)
+{
+    <div class="alert alert-info">
+        <strong>Aucun environnement declare.</strong>
+        <p class="mb-0 mt-2">
+            Commencez par creer l'environnement UAT, puis importez l'inventaire depuis le
+            fichier <code>Navis-Config.json</code> de vos scripts d'exploitation : c'est plus
+            rapide et plus sur que de ressaisir les noms d'hotes a la main.
+        </p>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nom</th>
+                    <th>Type</th>
+                    <th>Criticite</th>
+                    <th>Statut</th>
+                    <th>Composants</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var env in _environnements)
+                {
+                    <tr>
+                        <td>
+                            <code>@env.Code</code>
+                            @if (env.IsProduction)
+                            {
+                                <span class="badge bg-danger ms-2">PRODUCTION</span>
+                            }
+                        </td>
+                        <td>@env.Name</td>
+                        <td>@env.Kind</td>
+                        <td>@env.Criticality</td>
+                        <td><StatutBadge Statut="env.Status" /></td>
+                        <td>@(_compteurs.TryGetValue(env.Id, out var n) ? n : 0)</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="@($"/admin/environnements/{env.Id}")">Ouvrir</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_edition is not null)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            <strong>@(_estNouveau ? "Nouvel environnement" : $"Modifier {_edition.Code}")</strong>
+        </div>
+        <div class="card-body">
+            <EditForm Model="_edition" OnValidSubmit="Enregistrer" FormName="environnement">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Code</label>
+                        <input class="form-control" @bind="_edition.Code" placeholder="UAT" />
+                        <div class="form-text">Affiche partout dans l'interface.</div>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Nom</label>
+                        <input class="form-control" @bind="_edition.Name" placeholder="Environnement de recette N4" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" @bind="_edition.Kind">
+                            @foreach (var k in Enum.GetValues<EnvironmentKind>())
+                            {
+                                <option value="@k">@k</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Criticite</label>
+                        <select class="form-select" @bind="_edition.Criticality">
+                            @foreach (var c in Enum.GetValues<CriticalityLevel>())
+                            {
+                                <option value="@c">@c</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Fuseau horaire</label>
+                        <input class="form-control" @bind="_edition.TimeZoneId" />
+                        <div class="form-text">Sert a aligner les horodatages collectes.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Responsable technique</label>
+                        <input class="form-control" @bind="_edition.TechnicalOwner" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="2" @bind="_edition.Description"></textarea>
+                    </div>
+                </div>
+
+                @if (_erreur is not null)
+                {
+                    <div class="alert alert-danger mt-3 mb-0">@_erreur</div>
+                }
+
+                <div class="mt-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="Annuler">Annuler</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<N4Environment>? _environnements;
+    private Dictionary<Guid, int> _compteurs = [];
+    private N4Environment? _edition;
+    private bool _estNouveau;
+    private string? _erreur;
+
+    protected override async Task OnInitializedAsync() => await Recharger();
+
+    private async Task Recharger()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        _compteurs = [];
+        foreach (var env in _environnements)
+            _compteurs[env.Id] = await Referential.CountComponentsAsync(env.Id);
+    }
+
+    private void NouvelEnvironnement()
+    {
+        _edition = new N4Environment { Code = "", Name = "" };
+        _estNouveau = true;
+        _erreur = null;
+    }
+
+    private void Annuler()
+    {
+        _edition = null;
+        _erreur = null;
+    }
+
+    private async Task Enregistrer()
+    {
+        _erreur = null;
+        if (_edition is null) return;
+
+        if (string.IsNullOrWhiteSpace(_edition.Code) || string.IsNullOrWhiteSpace(_edition.Name))
+        {
+            _erreur = "Le code et le nom sont obligatoires.";
+            return;
+        }
+
+        try
+        {
+            await Referential.SaveEnvironmentAsync(_edition);
+            _edition = null;
+            await Recharger();
+        }
+        catch (Exception ex)
+        {
+            // Cas le plus frequent : violation de l'unicite du code.
+            _erreur = ex.InnerException?.Message.Contains("IX_Environments_Code") == true
+                ? "Ce code est deja utilise par un autre environnement."
+                : $"Enregistrement impossible : {ex.InnerException?.Message ?? ex.Message}";
+        }
+    }
+}

@@ -2,7 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Connectivity;
 using N4Sentinel.Infrastructure.Persistence;
+using N4Sentinel.Infrastructure.Referential;
 
 namespace N4Sentinel.Infrastructure;
 
@@ -46,7 +48,14 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserContext, SystemUserContext>();
         services.AddScoped<AuditingInterceptor>();
 
-        services.AddDbContext<N4SentinelDbContext>((sp, options) =>
+        // Fabrique plutot que contexte injecte directement : dans Blazor Server,
+        // un composant peut declencher plusieurs operations concurrentes sur le
+        // meme circuit, ce qu'un DbContext partage ne supporte pas. Chaque ecran
+        // ouvre son propre contexte, le temps de sa requete.
+        // Fabrique enregistree a PORTEE DE REQUETE, et non en singleton comme
+        // par defaut : l'intercepteur d'audit doit connaitre l'utilisateur
+        // courant, ce qu'un service singleton ne peut pas resoudre.
+        services.AddDbContextFactory<N4SentinelDbContext>((sp, options) =>
         {
             options.UseSqlServer(connectionString, sql =>
             {
@@ -57,9 +66,17 @@ public static class DependencyInjection
                 sql.CommandTimeout(60);
             });
             options.AddInterceptors(sp.GetRequiredService<AuditingInterceptor>());
-        });
+        }, lifetime: ServiceLifetime.Scoped);
+
+        // Identity attend un contexte a portee de requete : on le derive de la
+        // fabrique, de sorte qu'il n'existe qu'une seule configuration.
+        services.AddScoped<N4SentinelDbContext>(sp =>
+            sp.GetRequiredService<IDbContextFactory<N4SentinelDbContext>>().CreateDbContext());
 
         services.AddScoped<DatabaseSeeder>();
+        services.AddScoped<ReferentialService>();
+        services.AddScoped<ConnectivityTester>();
+        services.AddScoped<NavisConfigImporter>();
 
         return services;
     }

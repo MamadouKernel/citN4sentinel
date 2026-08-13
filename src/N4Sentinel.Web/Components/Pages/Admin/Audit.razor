@@ -1,0 +1,133 @@
+@page "/admin/audit"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAuditer)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+
+<PageTitle>Journal d'audit - N4 Sentinel</PageTitle>
+
+<h1 class="h3 mb-1">Journal d'audit</h1>
+<p class="text-secondary">
+    Toute creation, modification et suppression du referentiel est tracee, avec son auteur,
+    son heure et son origine. Ces entrees ne sont modifiables par personne depuis l'application.
+</p>
+
+<div class="d-flex gap-3 align-items-end flex-wrap mb-3">
+    <div>
+        <label class="form-label mb-1">Environnement</label>
+        <select class="form-select" @bind="_filtreEnv" @bind:after="Recharger">
+            <option value="">Tous</option>
+            @foreach (var e in _environnements)
+            {
+                <option value="@e.Id">@e.Code - @e.Name</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label mb-1">Nombre de lignes</label>
+        <select class="form-select" @bind="_limite" @bind:after="Recharger">
+            <option value="50">50</option>
+            <option value="200">200</option>
+            <option value="1000">1000</option>
+        </select>
+    </div>
+    <button class="btn btn-outline-secondary" @onclick="Recharger">Rafraichir</button>
+</div>
+
+@if (_entrees is null)
+{
+    <p class="text-secondary">Chargement...</p>
+}
+else if (_entrees.Count == 0)
+{
+    <div class="alert alert-info mb-0">
+        Aucune entree. Le journal se remplit des la premiere modification du referentiel.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Horodatage</th><th>Acteur</th><th>Origine</th>
+                    <th>Action</th><th>Objet</th><th>Issue</th><th>Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in _entrees)
+                {
+                    <tr>
+                        <td class="text-nowrap small">@a.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</td>
+                        <td class="small">@a.Actor</td>
+                        <td class="small text-secondary">@(a.ActorIpAddress ?? "-")</td>
+                        <td class="text-nowrap">@LibelleAction(a.Action)</td>
+                        <td>
+                            <div>@a.EntityLabel</div>
+                            <div class="small text-secondary">@a.EntityType</div>
+                        </td>
+                        <td>
+                            <span class="badge @(a.Outcome == AuditOutcome.Succes ? "bg-success" :
+                                                 a.Outcome == AuditOutcome.Refuse ? "bg-warning text-dark" : "bg-danger")">
+                                @a.Outcome
+                            </span>
+                        </td>
+                        <td>
+                            @if (a.AfterJson is not null || a.BeforeJson is not null)
+                            {
+                                <details>
+                                    <summary class="small text-secondary" style="cursor:pointer">Voir</summary>
+                                    @if (a.BeforeJson is not null)
+                                    {
+                                        <div class="small mt-1"><strong>Avant :</strong>
+                                            <code class="d-block text-break">@a.BeforeJson</code></div>
+                                    }
+                                    @if (a.AfterJson is not null)
+                                    {
+                                        <div class="small mt-1"><strong>Apres :</strong>
+                                            <code class="d-block text-break">@a.AfterJson</code></div>
+                                    }
+                                </details>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<AuditEntry>? _entrees;
+    private List<N4Environment> _environnements = [];
+    private string _filtreEnv = "";
+    private int _limite = 200;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        await Recharger();
+    }
+
+    private async Task Recharger()
+    {
+        Guid? env = Guid.TryParse(_filtreEnv, out var g) ? g : null;
+        _entrees = await Referential.GetAuditEntriesAsync(env, _limite);
+    }
+
+    private static string LibelleAction(AuditAction a) => a switch
+    {
+        AuditAction.Creation => "Creation",
+        AuditAction.Modification => "Modification",
+        AuditAction.Suppression => "Suppression",
+        AuditAction.ChangementDeStatut => "Changement de statut",
+        AuditAction.Connexion => "Connexion",
+        AuditAction.TestDeConfiguration => "Test de configuration",
+        AuditAction.TentativeNonAutorisee => "Tentative non autorisee",
+        AuditAction.ExecutionOperation => "Execution",
+        AuditAction.Contournement => "Contournement",
+        _ => a.ToString()
+    };
+}

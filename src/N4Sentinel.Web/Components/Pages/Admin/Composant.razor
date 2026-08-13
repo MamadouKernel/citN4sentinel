@@ -1,0 +1,259 @@
+@page "/admin/composants/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+
+<PageTitle>@(_c?.LogicalName ?? "Composant") - N4 Sentinel</PageTitle>
+
+@if (_c is null)
+{
+    <p class="text-secondary">Chargement...</p>
+}
+else
+{
+    <a href="@($"/admin/environnements/{_c.EnvironmentId}")" class="text-decoration-none small">
+        &larr; @(_c.Environment?.Code ?? "Environnement")
+    </a>
+    <h1 class="h3 mt-1 mb-4">@_c.LogicalName</h1>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><strong>Identification</strong></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Nom logique</label>
+                        <input class="form-control" @bind="_c.LogicalName" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Role</label>
+                        <select class="form-select" @bind="_c.Role">
+                            @foreach (var r in Enum.GetValues<ComponentRole>())
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                        <div class="form-text">
+                            Determine le workflow applicable. Une action sur XPS, un noeud Cluster ou
+                            le Center ne se traite jamais comme un redemarrage Windows generique.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Service Windows</label>
+                        <input class="form-control" @bind="_c.WindowsServiceName"
+                               placeholder="Navis N4 Cluster Node" />
+                        <div class="form-text">
+                            Nom EXACT. Sur le serveur :
+                            <code>Get-Service | Where-Object { $_.DisplayName -like '*Navis*' }</code>
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label">Port applicatif</label>
+                            <input type="number" class="form-control" @bind="_c.Port" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Ordre de demarrage</label>
+                            <input type="number" class="form-control" @bind="_c.StartOrder" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Criticite</label>
+                            <select class="form-select" @bind="_c.Criticality">
+                                @foreach (var v in Enum.GetValues<CriticalityLevel>())
+                                {
+                                    <option value="@v">@v</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Mode de pilotage</label>
+                            <select class="form-select" @bind="_c.ControlMode">
+                                @foreach (var v in Enum.GetValues<ControlMode>())
+                                {
+                                    <option value="@v">@v</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Statut</label>
+                            <select class="form-select" @bind="_c.Status">
+                                @foreach (var v in Enum.GetValues<LifecycleStatus>())
+                                {
+                                    <option value="@v">@v</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <strong>Preuve de demarrage</strong>
+                    @if (_c.Readiness.IsProvable)
+                    {
+                        <span class="badge bg-success ms-2">Exploitable</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning text-dark ms-2">Incomplete</span>
+                    }
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary small">
+                        Un service Windows <code>Running</code> ne prouve rien : il signale que Windows a
+                        lance le processus, pas que la JVM N4 a charge sa configuration, ouvert la base,
+                        rejoint le cluster et initialise son tier web. La preuve est le marqueur ecrit
+                        dans le journal applicatif. Sans lui, l'etat de ce composant restera
+                        <strong>A confirmer</strong>.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label">Chemin du journal</label>
+                        <input class="form-control" @bind="_c.Readiness.LogPath"
+                               placeholder="C:\ProgramData\Navis\*\logs\navis-apex.log" />
+                        <div class="form-text">
+                            Chemin local tel que le SERVEUR le voit, jamais un chemin UNC.
+                            Le caractere <code>*</code> est accepte : plusieurs journaux N4 sont
+                            horodates dans leur nom, et celui de XPS repart a zero a chaque demarrage.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Marqueurs de demarrage</label>
+                        <textarea class="form-control" rows="3"
+                                  @bind="_marqueurs" placeholder="Web tier servlet .*initialized"></textarea>
+                        <div class="form-text">
+                            Une expression reguliere par ligne. La premiere qui apparait apres le
+                            lancement vaut preuve. Relevez-les sur un demarrage reussi avec
+                            <code>Find-N4ReadinessPattern.ps1</code>.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Signatures d'echec</label>
+                        <textarea class="form-control" rows="2" @bind="_erreurs"></textarea>
+                        <div class="form-text">
+                            Des qu'une apparait, l'attente cesse au lieu de consommer tout le delai.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Lignes a ignorer</label>
+                        <textarea class="form-control" rows="2" @bind="_ignores"></textarea>
+                        <div class="form-text">Neutralise une erreur connue et sans consequence au demarrage.</div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label">Delai service (s)</label>
+                            <input type="number" class="form-control"
+                                   @bind="_c.Readiness.ServiceRunningTimeoutSeconds" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Delai preuve (s)</label>
+                            <input type="number" class="form-control"
+                                   @bind="_c.Readiness.LogReadyTimeoutSeconds" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Delai d'arret (s)</label>
+                            <input type="number" class="form-control"
+                                   @bind="_c.Readiness.StopTimeoutSeconds" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Observation apres marqueur (s)</label>
+                            <input type="number" class="form-control"
+                                   @bind="_c.Readiness.PostReadySettleSeconds" />
+                        </div>
+                    </div>
+                    <div class="form-text mt-2">
+                        Delais volontairement genereux : un delai trop court transforme un demarrage
+                        lent mais normal en faux incident, et pousse a relancer un composant qui
+                        chargeait simplement.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="alert @(_enErreur ? "alert-danger" : "alert-success") mt-4">@_message</div>
+    }
+
+    <div class="mt-4 d-flex gap-2">
+        <button class="btn btn-primary" @onclick="Enregistrer">Enregistrer</button>
+        <a class="btn btn-outline-secondary" href="@($"/admin/environnements/{_c.EnvironmentId}")">Retour</a>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private N4Component? _c;
+    private string _marqueurs = "";
+    private string _erreurs = "";
+    private string _ignores = "";
+    private string? _message;
+    private bool _enErreur;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _c = await Referential.GetComponentAsync(Id);
+        if (_c is null) return;
+        _marqueurs = string.Join(Environment.NewLine, _c.Readiness.ReadyPatterns);
+        _erreurs = string.Join(Environment.NewLine, _c.Readiness.ErrorPatterns);
+        _ignores = string.Join(Environment.NewLine, _c.Readiness.IgnorePatterns);
+    }
+
+    private async Task Enregistrer()
+    {
+        if (_c is null) return;
+        _message = null;
+
+        _c.Readiness.ReadyPatterns = Decouper(_marqueurs);
+        _c.Readiness.ErrorPatterns = Decouper(_erreurs);
+        _c.Readiness.IgnorePatterns = Decouper(_ignores);
+
+        // Une expression reguliere invalide ne doit pas etre decouverte au
+        // milieu d'un demarrage de production : on la refuse a la saisie.
+        foreach (var motif in _c.Readiness.ReadyPatterns
+                     .Concat(_c.Readiness.ErrorPatterns)
+                     .Concat(_c.Readiness.IgnorePatterns))
+        {
+            try { _ = System.Text.RegularExpressions.Regex.Match("", motif); }
+            catch (ArgumentException ex)
+            {
+                _enErreur = true;
+                _message = $"Expression reguliere invalide : « {motif} » - {ex.Message}";
+                return;
+            }
+        }
+
+        try
+        {
+            // Le serveur est deja rattache : on evite qu'EF tente de le reinserer.
+            _c.Server = null;
+            _c.Environment = null;
+            await Referential.SaveComponentAsync(_c);
+            _enErreur = false;
+            _message = "Composant enregistre.";
+            _c = await Referential.GetComponentAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            _enErreur = true;
+            _message = $"Enregistrement impossible : {ex.InnerException?.Message ?? ex.Message}";
+        }
+    }
+
+    private static List<string> Decouper(string texte) =>
+        texte.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+             .ToList();
+}
