@@ -1,4 +1,4 @@
-﻿@page "/Account/Manage/ResetAuthenticator"
+@page "/Account/Manage/ResetAuthenticator"
 
 @using Microsoft.AspNetCore.Identity
 @using N4Sentinel.Infrastructure.Identity
@@ -8,24 +8,44 @@
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<ResetAuthenticator> Logger
 
-<PageTitle>Reset authenticator key</PageTitle>
+<PageTitle>Réinitialiser les clés d'authentificateur — N4 Sentinel</PageTitle>
 
-<StatusMessage />
-<h3>Reset authenticator key</h3>
-<div class="alert alert-warning" role="alert">
-    <p>
-        <span class="glyphicon glyphicon-warning-sign"></span>
-        <strong>If you reset your authenticator key your authenticator app will not work until you reconfigure it.</strong>
-    </p>
-    <p>
-        This process disables 2FA until you verify your authenticator app.
-        If you do not complete your authenticator app configuration you may lose access to your account.
-    </p>
-</div>
-<div>
-    <form @formname="reset-authenticator" @onsubmit="OnSubmitAsync" method="post">
+<div class="space-y-6 max-w-xl">
+    <div class="border-b border-slate-800 pb-4">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="bi bi-arrow-repeat text-amber-400"></i>
+            Réinitialiser les clés d'authentificateur (TOTP)
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Re-générez une nouvelle clé secrète pour votre application TOTP (Microsoft Authenticator / Google Authenticator).
+        </p>
+    </div>
+
+    <StatusMessage />
+
+    <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2">
+        <div class="font-bold flex items-center gap-2 text-amber-400">
+            <i class="bi bi-exclamation-triangle-fill text-base"></i>
+            Attention : Votre application actuelle cessera de fonctionner
+        </div>
+        <p class="leading-relaxed text-amber-200/90">
+            Si vous réinitialisez la clé, les codes générés par votre application d'authentification actuelle ne fonctionneront plus.
+            Le second facteur sera désactivé jusqu'à ce que vous scanniez le nouveau QR Code et validiez un code de confirmation.
+        </p>
+    </div>
+
+    <form @formname="reset-authenticator" @onsubmit="OnSubmitAsync" method="post" class="space-y-4">
         <AntiforgeryToken />
-        <button class="btn btn-danger" type="submit">Reset authenticator key</button>
+        
+        <div class="flex items-center gap-3 pt-2">
+            <button class="py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-600/30 transition flex items-center gap-2" type="submit">
+                <i class="bi bi-arrow-counterclockwise"></i>
+                <span>Réinitialiser la clé secrète d'authentification</span>
+            </button>
+            <a href="Account/Manage/TwoFactorAuthentication" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                Annuler
+            </a>
+        </div>
     </form>
 </div>
 
@@ -45,13 +65,13 @@
         await UserManager.SetTwoFactorEnabledAsync(user, false);
         await UserManager.ResetAuthenticatorKeyAsync(user);
         var userId = await UserManager.GetUserIdAsync(user);
-        Logger.LogInformation("User with ID '{UserId}' has reset their authentication app key.", userId);
+        Logger.LogInformation("L'utilisateur {UserId} a réinitialisé la clé de son application d'authentification.", userId);
 
         await SignInManager.RefreshSignInAsync(user);
 
         RedirectManager.RedirectToWithStatus(
             "Account/Manage/EnableAuthenticator",
-            "Your authenticator app key has been reset, you will need to configure your authenticator app using the new key.",
+            "Votre clé d'authentification a été réinitialisée. Scannez le nouveau QR Code ci-dessous pour reconfigurer votre application.",
             HttpContext);
     }
 }

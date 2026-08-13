@@ -3,13 +3,15 @@
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Connectivity
 @using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
 @using N4Sentinel.Web.State
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject ReferentialService Referential
-@inject ConnectivityTester Tester
 @inject NavisConfigImporter Importer
+@inject ConnectivityTester Tester
 @inject CurrentEnvironmentState EnvState
+@inject NavigationManager Nav
 
 <PageTitle>@(_env?.Code ?? "Environnement") — N4 Sentinel</PageTitle>
 
@@ -17,66 +19,78 @@
 {
     <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
         <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-        <div>Chargement des détails de l'environnement...</div>
+        <div>Chargement de l'environnement...</div>
     </div>
 }
 else
 {
     <div class="space-y-6">
-        <!-- Header & Breadcrumb -->
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-                <a href="/admin/environnements" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+        <!-- Header Banner -->
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-6 rounded-3xl bg-slate-900/60 border border-slate-800">
+            <div class="space-y-1">
+                <a href="/admin/environnements" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
                     <i class="bi bi-arrow-left"></i> Retour aux environnements
                 </a>
-                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-                    <span class="font-mono text-sky-400">@_env.Code</span>
-                    <span>@_env.Name</span>
-                    @if (_env.IsProduction)
-                    {
-                        <span class="px-2 py-0.5 rounded text-xs font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30">PROD</span>
-                    }
-                </h1>
-                <div class="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_env.Code</h1>
                     <StatutBadge Statut="_env.Status" />
-                    <span>&middot; Type @_env.Kind</span>
-                    <span>&middot; Criticité @_env.Criticality</span>
-                    <span>&middot; @_env.TimeZoneId</span>
                 </div>
+                <p class="text-xs text-slate-400">@_env.Name</p>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                <a href="@($"/admin/environnements/{Id}/mise-en-service")"
-                   class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 transition inline-flex items-center gap-2">
-                    <i class="bi bi-list-check"></i>
-                    <span>Mise en service</span>
-                </a>
-                <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition disabled:opacity-50 inline-flex items-center gap-2" @onclick="TesterConfiguration" disabled="@_testEnCours">
-                    <i class="bi bi-play-circle-fill"></i>
-                    <span>@(_testEnCours ? "Test en cours..." : "Tester la configuration")</span>
+                <button class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition"
+                        @onclick="TesterConfiguration" disabled="@_testEnCours">
+                    @if (_testEnCours)
+                    {
+                        <span class="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></span>
+                        <span>Test en cours...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-shield-check text-emerald-400"></i>
+                        <span>Tester la configuration</span>
+                    }
                 </button>
+
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
-                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition inline-flex items-center gap-2" @onclick="() => _importOuvert = !_importOuvert">
-                        <i class="bi bi-file-earmark-arrow-up-fill"></i>
-                        <span>Importer Navis-Config.json</span>
+                    <button class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs transition"
+                            @onclick="() => _importOuvert = !_importOuvert">
+                        <i class="bi bi-file-earmark-arrow-up"></i>
+                        <span>Import Navis-Config.json</span>
                     </button>
                 </AuthorizeView>
             </div>
         </div>
 
-        <!-- Validation Lifecycle Status Bar -->
+        <!-- Status Change Toolbar -->
         <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
-            @{ var transitions = ReferentialService.AllowedTransitions(_env.Status); }
-            @if (transitions.Count > 0)
+            @if (_env.Status != LifecycleStatus.Desactive)
             {
-                <div class="glass-card p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div class="flex items-center gap-2 text-xs font-semibold text-slate-300">
-                        <span>Évolution du cycle de vie :</span>
-                        <div class="flex gap-2">
-                            @foreach (var cible in transitions)
+                <div class="p-4 rounded-2xl bg-slate-900/40 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs font-bold text-slate-300">Changer le statut :</span>
+                        <div class="flex gap-1.5 flex-wrap">
+                            @if (_env.Status == LifecycleStatus.Brouillon)
                             {
-                                <button class="px-3 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-bold transition"
-                                        @onclick="() => ChangerStatut(cible)">@cible</button>
+                                <button class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition"
+                                        @onclick="() => ChangerStatut(LifecycleStatus.Valide)">
+                                    Passer en Validé
+                                </button>
+                            }
+                            @if (_env.Status == LifecycleStatus.Valide)
+                            {
+                                <button class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                                        @onclick="() => ChangerStatut(LifecycleStatus.Actif)">
+                                    Activer l'environnement
+                                </button>
+                            }
+                            @if (_env.Status == LifecycleStatus.Actif)
+                            {
+                                <button class="px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs transition"
+                                        @onclick="() => ChangerStatut(LifecycleStatus.Desactive)">
+                                    Désactiver
+                                </button>
                             }
                         </div>
                     </div>
@@ -95,19 +109,51 @@ else
             <div class="p-3.5 rounded-xl text-xs font-semibold border @_statutEnErreurClass">@_messageStatut</div>
         }
 
-        <!-- Import Card -->
+        <!-- Import Card with Template Download & JSON Preview -->
         @if (_importOuvert)
         {
-            <div class="glass-card p-6 rounded-2xl border border-slate-700 space-y-4">
-                <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-file-earmark-code-fill text-sky-400"></i>
-                    Importer l'inventaire réel depuis Navis-Config.json
-                </h3>
+            <div class="glass-card p-6 rounded-2xl border border-slate-700 space-y-5 shadow-2xl">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-file-earmark-code-fill text-sky-400"></i>
+                        Importer l'inventaire réel depuis Navis-Config.json
+                    </h3>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <a href="@_sampleJsonDataUri" download="Navis-Config-Modele.json"
+                           class="px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                            <i class="bi bi-download"></i>
+                            <span>Télécharger le modèle JSON</span>
+                        </a>
+                        <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition flex items-center gap-1.5"
+                                @onclick="() => _afficherStructureModele = !_afficherStructureModele">
+                            <i class="bi bi-code-slash"></i>
+                            <span>@(_afficherStructureModele ? "Masquer la structure" : "Voir la structure")</span>
+                        </button>
+                    </div>
+                </div>
+
                 <p class="text-xs text-slate-400 leading-relaxed">
-                    Le fichier <code class="text-sky-400">Navis-Config.json</code> de vos scripts d'exploitation contient l'inventaire réel des hôtes, des services Windows, des chemins de logs et des marqueurs de démarrage.
+                    Le fichier <code class="text-sky-400">Navis-Config.json</code> alimente directement le référentiel avec vos hôtes réels, vos services Windows, vos chemins de logs et vos marqueurs de démarrage.
                 </p>
-                
-                <InputFile OnChange="ChargerFichier" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500 cursor-pointer" accept=".json" />
+
+                @if (_afficherStructureModele)
+                {
+                    <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                        <div class="flex items-center justify-between text-slate-300 font-bold border-b border-slate-800 pb-2">
+                            <span class="flex items-center gap-1.5">
+                                <i class="bi bi-journal-code text-amber-400"></i>
+                                Modèle de structure JSON (Navis-Config.json) :
+                            </span>
+                            <span class="text-[10px] text-sky-400 font-mono">Format JSON standard UTF-8</span>
+                        </div>
+                        <pre class="p-3.5 rounded-lg bg-slate-900 text-emerald-400 font-mono text-[11px] overflow-x-auto select-all max-h-64 border border-slate-800">@_sampleJsonText</pre>
+                    </div>
+                }
+
+                <div class="space-y-2">
+                    <label class="block text-xs font-semibold text-slate-300">Sélectionnez votre fichier JSON rempli à importer :</label>
+                    <InputFile OnChange="ChargerFichier" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-600 file:text-white hover:file:bg-sky-500 cursor-pointer" accept=".json" />
+                </div>
 
                 @if (_rapportImport is not null)
                 {
@@ -138,36 +184,47 @@ else
                     </span>
                 </div>
                 <div class="p-5 space-y-4">
-                    <div class="flex flex-wrap gap-2 text-xs font-semibold">
-                        <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">@_rapport.Satisfied satisfait(s)</span>
-                        <span class="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">@_rapport.Warnings avertissement(s)</span>
-                        <span class="px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">@_rapport.Blocking bloquant(s)</span>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-center">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold mb-0.5">Satisfaits</div>
+                            <div class="font-extrabold text-sm text-emerald-400">@_rapport.Satisfied</div>
+                        </div>
+                        <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-center">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold mb-0.5">Avertissements</div>
+                            <div class="font-extrabold text-sm text-amber-400">@_rapport.Warnings</div>
+                        </div>
+                        <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-center">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold mb-0.5">Bloquants</div>
+                            <div class="font-extrabold text-sm text-rose-400">@_rapport.Blocking</div>
+                        </div>
+                        <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-center">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold mb-0.5">Non Vérifiables</div>
+                            <div class="font-extrabold text-sm text-slate-400">@_rapport.Unverifiable</div>
+                        </div>
                     </div>
 
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-xs text-slate-300">
-                            <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
-                                <tr>
-                                    <th class="py-2.5 px-3">Cible</th>
-                                    <th class="py-2.5 px-3">Contrôle</th>
-                                    <th class="py-2.5 px-3">Résultat</th>
-                                    <th class="py-2.5 px-3">Détail</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-800/60">
-                                @foreach (var r in _rapport.Results)
-                                {
-                                    <tr class="hover:bg-slate-800/40">
-                                        <td class="py-3 px-3 font-mono text-white font-bold">@r.Target</td>
-                                        <td class="py-3 px-3 font-semibold">@r.CheckName</td>
-                                        <td class="py-3 px-3">
-                                            <span class="px-2 py-0.5 rounded text-[10px] font-bold @ClasseOutcome(r.Outcome)">@LibelleOutcome(r.Outcome)</span>
-                                        </td>
-                                        <td class="py-3 px-3 text-slate-300">@r.Message</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                    <div class="divide-y divide-slate-800 border-t border-slate-800">
+                        @foreach (var res in _rapport.Results)
+                        {
+                            <div class="py-3 flex items-start justify-between gap-4 text-xs">
+                                <div class="space-y-0.5">
+                                    <div class="font-bold text-white">@res.Target — @res.CheckName</div>
+                                    <div class="text-slate-400 text-[11px]">@res.Message</div>
+                                    @if (res.Recommendation is not null)
+                                    {
+                                        <div class="text-sky-400 text-[11px] font-mono">Recommandation : @res.Recommendation</div>
+                                    }
+                                </div>
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold shrink-0 @(res.Outcome switch {
+                                    CheckOutcome.Satisfait => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+                                    CheckOutcome.Avertissement => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+                                    CheckOutcome.Bloquant => "bg-rose-500/10 text-rose-400 border border-rose-500/20",
+                                    _ => "bg-slate-500/10 text-slate-400 border border-slate-500/20"
+                                })">
+                                    @res.Outcome
+                                </span>
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
@@ -182,7 +239,7 @@ else
                 </h3>
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
                     <a href="@($"/admin/environnements/{Id}/serveurs/nouveau")"
-                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition">
+                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition shadow-md">
                         <i class="bi bi-plus-lg"></i> Ajouter un serveur
                     </a>
                 </AuthorizeView>
@@ -220,8 +277,7 @@ else
                         {
                             <tr>
                                 <td colspan="6" class="py-6 px-4 text-center text-slate-400">
-                                    Aucun serveur déclaré. Ajoutez-en un, ou importez l'inventaire depuis
-                                    <code class="text-sky-400">Navis-Config.json</code>.
+                                    Aucun serveur déclaré. Cliquez sur <strong class="text-white">Ajouter un serveur</strong> ou importez votre fichier <code class="text-sky-400">Navis-Config.json</code>.
                                 </td>
                             </tr>
                         }
@@ -279,6 +335,14 @@ else
                                 </td>
                             </tr>
                         }
+                        @if (_composants.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="8" class="py-6 px-4 text-center text-slate-400">
+                                    Aucun composant déclaré dans cet environnement.
+                                </td>
+                            </tr>
+                        }
                     </tbody>
                 </table>
             </div>
@@ -297,10 +361,51 @@ else
     private bool _testEnCours;
 
     private bool _importOuvert;
+    private bool _afficherStructureModele;
     private ImportReport? _rapportImport;
 
     private string? _messageStatut;
     private bool _statutEnErreur;
+
+    private static readonly string _sampleJsonText = @"{
+  ""_comment"": ""Fichier de configuration Navis N4 - modifiez librement sans toucher au code PowerShell. Ajoutez ou retirez autant d'entrees que necessaire dans ClusterNodes."",
+
+  ""CenterNode"": ""N4CENTER01"",
+  ""StandbyNode"": ""N4STANDBY01"",
+
+  ""ClusterNodes"": [
+    ""N4CLUSTER01"",
+    ""N4CLUSTER02"",
+    ""N4CLUSTER03""
+  ],
+
+  ""_bridgeXpsNote"": ""Bridge et XPS tournent sur le meme serveur physique dans cet environnement - c'est volontaire, les deux champs pointent vers le meme hote."",
+  ""BridgeHost"": ""N4XPSBRIDGE01"",
+  ""XPSHost"": ""N4XPSBRIDGE01"",
+  ""ECN4Host"": ""N4ECN401"",
+
+  ""ServiceNames"": {
+    ""Center"": ""Navis N4 Center Node"",
+    ""Cluster"": ""Navis N4 Cluster Node"",
+    ""Standby"": ""Navis N4 Center Node"",
+    ""Bridge"": ""Navis XPS Bridge Daemon"",
+    ""XPS"": ""Navis XPS Service"",
+    ""ECN4"": ""Navis ECN4 Daemon"",
+    ""ECN4Web"": ""Navis ECN4web""
+  },
+
+  ""SharedFolder"": ""\\\\N4CLUSTER01\\NavisShared"",
+
+  ""DatabaseHost"": ""N4DB01"",
+  ""DatabasePort"": 1433,
+  ""DatabaseEngine"": ""SQL Server"",
+  ""_databaseNote"": ""Verification de connectivite reseau (port) uniquement. Toute investigation approfondie de la base de donnees (cluster actif, charge, requetes) reste du ressort du DBA."",
+
+  ""LocalLogFolder"": ""C:\\NavisScripts\\Logs""
+}";
+
+    private static readonly string _sampleJsonDataUri =
+        "data:application/json;charset=utf-8," + Uri.EscapeDataString(_sampleJsonText);
 
     private string _statutEnErreurClass => _statutEnErreur
         ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
@@ -317,8 +422,6 @@ else
         _env = await Referential.GetEnvironmentAsync(Id);
         if (_env is null) return;
 
-        // Rend l'environnement courant visible en permanence dans l'en-tete,
-        // et fait apparaitre l'avertissement Production le cas echeant (SEC-004).
         EnvState.Set(_env);
 
         _serveurs = await Referential.GetServersAsync(Id);
@@ -366,21 +469,4 @@ else
         _rapportImport = await Importer.ImportAsync(Id, json);
         await Recharger();
     }
-
-    private static string ClasseOutcome(CheckOutcome o) => o switch
-    {
-        CheckOutcome.Satisfait => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
-        CheckOutcome.Avertissement => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
-        CheckOutcome.Bloquant => "bg-rose-500/10 text-rose-400 border border-rose-500/20",
-        _ => "bg-slate-500/10 text-slate-400 border border-slate-500/20"
-    };
-
-    private static string LibelleOutcome(CheckOutcome o) => o switch
-    {
-        CheckOutcome.Satisfait => "Satisfait",
-        CheckOutcome.Avertissement => "Avertissement",
-        CheckOutcome.Bloquant => "Bloquant",
-        CheckOutcome.NonApplicable => "N/A",
-        _ => "Non vérifiable"
-    };
 }

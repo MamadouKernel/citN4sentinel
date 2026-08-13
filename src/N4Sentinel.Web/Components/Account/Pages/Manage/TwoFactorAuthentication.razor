@@ -9,139 +9,134 @@
 @inject SignInManager<ApplicationUser> SignInManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Authentification a deux facteurs - N4 Sentinel</PageTitle>
+<PageTitle>Authentification à Deux Facteurs (2FA) — N4 Sentinel</PageTitle>
 
-<StatusMessage />
-<h3>Authentification a deux facteurs</h3>
-
-<p class="text-secondary">
-    Un second facteur ajoute un code a usage unique, genere par une application sur votre
-    telephone, en plus de votre mot de passe. Il reste <strong>facultatif</strong> : c'est
-    vous qui l'activez ou le desactivez.
-</p>
-
-@if (estPrivilegie && !is2faEnabled)
-{
-    <div class="alert alert-warning">
-        <strong>Recommande pour votre profil.</strong>
-        Votre compte porte des habilitations permettant d'agir sur l'ecosysteme N4 ou
-        d'approuver des operations. Un mot de passe seul suffit alors a quelqu'un qui
-        le devine pour arreter des services de Production.
+<div class="space-y-6">
+    <div>
+        <h2 class="text-xl font-extrabold text-white tracking-tight">Authentification à Deux Facteurs (2FA)</h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Renforcez la sécurité de votre compte administrateur en associant un code à usage unique (TOTP) généré par votre téléphone.
+        </p>
     </div>
-}
 
-@if (canTrack)
-{
-    <div class="card mb-4">
-        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <StatusMessage />
+
+    @if (estPrivilegie && !is2faEnabled)
+    {
+        <div class="rounded-xl p-4 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3">
+            <i class="bi bi-shield-exclamation text-amber-400 text-lg flex-shrink-0 mt-0.5"></i>
             <div>
-                <div class="fw-semibold">Etat actuel</div>
-                @if (is2faEnabled)
-                {
-                    <span class="badge bg-success">Actif</span>
-                    <span class="text-secondary ms-2">
-                        Un code vous sera demande a chaque connexion depuis un navigateur non memorise.
-                    </span>
-                }
-                else
-                {
-                    <span class="badge bg-secondary">Inactif</span>
-                    <span class="text-secondary ms-2">Seul votre mot de passe est demande a la connexion.</span>
-                }
+                <strong class="font-bold text-white block mb-0.5">Recommandé pour votre rôle d'administration.</strong>
+                Votre compte dispose de privilèges élevés permettant d'agir sur l'écosystème Navis N4. L'activation de la 2FA protège les opérations portuaires contre toute usurpation.
+            </div>
+        </div>
+    }
+
+    @if (canTrack)
+    {
+        <!-- Current Status Card -->
+        <div class="glass-card p-5 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Statut du second facteur</div>
+                <div class="flex items-center gap-2">
+                    @if (is2faEnabled)
+                    {
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Actif
+                        </span>
+                        <span class="text-xs text-slate-300">Un code TOTP sera demandé lors de chaque connexion.</span>
+                    }
+                    else
+                    {
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-slate-800 text-slate-400 border border-slate-700">
+                            <i class="bi bi-x-circle"></i> Inactif
+                        </span>
+                        <span class="text-xs text-slate-400">Seul votre mot de passe est actuellement exigé.</span>
+                    }
+                </div>
             </div>
 
-            <div class="d-flex gap-2 flex-wrap">
+            <div>
                 @if (!is2faEnabled)
                 {
-                    <a href="Account/Manage/EnableAuthenticator" class="btn btn-primary">
-                        @(hasAuthenticator ? "Activer le second facteur" : "Configurer une application")
+                    <a href="Account/Manage/EnableAuthenticator" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition shadow-lg">
+                        <i class="bi bi-qr-code-scan"></i>
+                        <span>@(hasAuthenticator ? "Activer le second facteur" : "Configurer une application")</span>
                     </a>
                 }
                 else
                 {
-                    <a href="Account/Manage/Disable2fa" class="btn btn-outline-danger">Desactiver</a>
+                    <a href="Account/Manage/Disable2fa" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition">
+                        <i class="bi bi-shield-x"></i> Désactiver la 2FA
+                    </a>
                 }
             </div>
         </div>
-    </div>
 
-    @if (is2faEnabled)
-    {
-        @* --- Codes de recuperation ------------------------------------- *@
-        @if (recoveryCodesLeft == 0)
+        @if (is2faEnabled)
         {
-            <div class="alert alert-danger">
-                <strong>Il ne vous reste aucun code de recuperation.</strong>
-                <p class="mb-0">
-                    Si vous perdez votre telephone maintenant, vous ne pourrez plus vous connecter.
-                    <a href="Account/Manage/GenerateRecoveryCodes">Generez une nouvelle serie</a> des que possible.
-                </p>
-            </div>
-        }
-        else if (recoveryCodesLeft <= 3)
-        {
-            <div class="alert alert-warning">
-                <strong>Il vous reste @recoveryCodesLeft code(s) de recuperation.</strong>
-                <p class="mb-0">
-                    <a href="Account/Manage/GenerateRecoveryCodes">Generez une nouvelle serie</a>
-                    avant d'etre a court.
-                </p>
-            </div>
-        }
+            @if (recoveryCodesLeft == 0)
+            {
+                <div class="rounded-xl p-4 bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs space-y-1">
+                    <strong class="font-bold text-white block">Aucun code de récupération restant.</strong>
+                    <p>En cas de perte de votre téléphone, l'accès au compte sera bloqué. <a href="Account/Manage/GenerateRecoveryCodes" class="underline text-white font-bold">Générez une nouvelle série</a> dès que possible.</p>
+                </div>
+            }
+            else if (recoveryCodesLeft <= 3)
+            {
+                <div class="rounded-xl p-4 bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs space-y-1">
+                    <strong class="font-bold text-white block">Il vous reste seulement @recoveryCodesLeft code(s) de récupération.</strong>
+                    <p><a href="Account/Manage/GenerateRecoveryCodes" class="underline text-white font-bold">Générez une nouvelle série de secours</a>.</p>
+                </div>
+            }
 
-        <div class="card mb-4">
-            <div class="card-body">
-                <h5 class="card-title">Application d'authentification</h5>
-                <p class="text-secondary">
-                    Microsoft Authenticator, Google Authenticator ou toute application compatible TOTP.
-                    Les codes sont calcules hors ligne : aucun reseau n'est necessaire au moment
-                    de la connexion.
+            <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-3">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-phone-vibrate text-theme-primary"></i>
+                    Application Authentificateur (TOTP)
+                </h3>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    Compatible avec Microsoft Authenticator, Google Authenticator ou toute application standard TOTP. Les jetons sont calculés hors-ligne.
                 </p>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a href="Account/Manage/EnableAuthenticator" class="btn btn-outline-primary">
-                        Reconfigurer l'application
+                <div class="flex flex-wrap gap-2 pt-1">
+                    <a href="Account/Manage/EnableAuthenticator" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl btn-theme-subtle text-xs font-semibold">
+                        <i class="bi bi-arrow-repeat"></i> Reconfigurer l'application
                     </a>
-                    <a href="Account/Manage/ResetAuthenticator" class="btn btn-outline-secondary">
-                        Reinitialiser la cle
+                    <a href="Account/Manage/ResetAuthenticator" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition">
+                        <i class="bi bi-arrow-counterclockwise"></i> Réinitialiser la clé
                     </a>
-                    <a href="Account/Manage/GenerateRecoveryCodes" class="btn btn-outline-secondary">
-                        Regenerer les codes de recuperation (@recoveryCodesLeft restant(s))
+                    <a href="Account/Manage/GenerateRecoveryCodes" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition">
+                        <i class="bi bi-key"></i> Codes de secours (@recoveryCodesLeft restant(s))
                     </a>
                 </div>
-                <p class="text-secondary small mt-3 mb-0">
-                    Reinitialiser la cle invalide la configuration actuelle : l'ancienne entree de
-                    votre application cessera de fonctionner et devra etre scannee a nouveau.
-                </p>
             </div>
-        </div>
 
-        @if (isMachineRemembered)
-        {
-            <div class="card">
-                <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+            @if (isMachineRemembered)
+            {
+                <div class="glass-card p-5 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                        <div class="fw-semibold">Ce navigateur est memorise</div>
-                        <span class="text-secondary">
-                            Le code ne vous est plus demande depuis ce poste. A oublier si ce n'est
-                            pas votre machine personnelle.
-                        </span>
+                        <div class="text-xs font-bold text-white">Navigateur Mémorisé</div>
+                        <div class="text-xs text-slate-400">Le second facteur ne sera pas demandé lors de vos prochaines connexions sur ce poste.</div>
                     </div>
                     <form @formname="forget-browser" @onsubmit="OnSubmitForgetBrowserAsync" method="post">
                         <AntiforgeryToken />
-                        <button type="submit" class="btn btn-outline-secondary">Oublier ce navigateur</button>
+                        <button type="submit" class="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition">
+                            Oublier ce navigateur
+                        </button>
                     </form>
                 </div>
-            </div>
+            }
         }
     }
-}
-else
-{
-    <div class="alert alert-danger">
-        <strong>La politique de confidentialite n'a pas ete acceptee.</strong>
-        <p class="mb-0">Vous devez l'accepter avant de pouvoir activer le second facteur.</p>
-    </div>
-}
+    else
+    {
+        <div class="rounded-xl p-4 bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs">
+            <strong class="font-bold text-white">Consentement de suivi requis.</strong>
+            Vous devez accepter la politique de confidentialité avant de configurer la 2FA.
+        </div>
+    }
+</div>
 
 @code {
     private bool canTrack;
@@ -169,8 +164,6 @@ else
         isMachineRemembered = await SignInManager.IsTwoFactorClientRememberedAsync(user);
         recoveryCodesLeft = await UserManager.CountRecoveryCodesAsync(user);
 
-        // Le second facteur reste facultatif, mais on le recommande explicitement
-        // aux profils qui peuvent agir sur la Production ou approuver une operation.
         var roles = await UserManager.GetRolesAsync(user);
         estPrivilegie = roles.Any(r => r is N4Roles.OperateurN4
                                          or N4Roles.AdministrateurN4
@@ -184,7 +177,7 @@ else
         await SignInManager.ForgetTwoFactorClientAsync();
 
         RedirectManager.RedirectToCurrentPageWithStatus(
-            "Ce navigateur a ete oublie. Le code vous sera de nouveau demande a la prochaine connexion.",
+            "Ce navigateur a été oublié. Le code 2FA sera demandé lors de la prochaine connexion.",
             HttpContext);
     }
 }

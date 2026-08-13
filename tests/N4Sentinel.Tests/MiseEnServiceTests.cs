@@ -40,6 +40,7 @@ public sealed class MiseEnServiceTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
         await using var master = new Microsoft.Data.SqlClient.SqlConnection(MasterConnection);
         await master.OpenAsync();
         var cmd = master.CreateCommand();

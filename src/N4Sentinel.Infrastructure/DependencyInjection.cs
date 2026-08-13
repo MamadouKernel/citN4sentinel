@@ -7,6 +7,7 @@ using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Referential;
 using N4Sentinel.Infrastructure.Security;
+using N4Sentinel.Infrastructure.Supervision;
 
 namespace N4Sentinel.Infrastructure;
 
@@ -92,6 +93,11 @@ public static class DependencyInjection
         services.AddScoped<ServerProbe>();
         services.AddScoped<ReadinessDiscovery>();
         services.AddScoped<CommissioningStatus>();
+
+        // Supervision (sprint 2) : Moteur de santé, cache temps réel et service d'arrière-plan
+        services.AddScoped<SupervisionService>();
+        services.AddSingleton<SupervisionStateCache>();
+        services.AddHostedService<SupervisionBackgroundService>();
 
         return services;
     }

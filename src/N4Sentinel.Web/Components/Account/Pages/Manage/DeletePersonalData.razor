@@ -1,4 +1,4 @@
-﻿@page "/Account/Manage/DeletePersonalData"
+@page "/Account/Manage/DeletePersonalData"
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Identity
@@ -9,31 +9,52 @@
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<DeletePersonalData> Logger
 
-<PageTitle>Delete Personal Data</PageTitle>
+<PageTitle>Confirmation de suppression de compte — N4 Sentinel</PageTitle>
 
-<StatusMessage Message="@message" />
+<div class="space-y-6 max-w-xl">
+    <div class="border-b border-slate-800 pb-4">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="bi bi-exclamation-triangle-fill text-rose-500"></i>
+            Suppression définitive du compte
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Veuillez confirmer la clôture et l'effacement définitif de vos données.
+        </p>
+    </div>
 
-<h3>Delete Personal Data</h3>
+    <StatusMessage Message="@message" />
 
-<div class="alert alert-warning" role="alert">
-    <p>
-        <strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong>
-    </p>
-</div>
+    <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs space-y-2">
+        <div class="font-bold flex items-center gap-2 text-rose-400">
+            <i class="bi bi-shield-x text-base"></i>
+            Attention : Cette opération ne peut pas être annulée.
+        </div>
+        <p class="leading-relaxed text-rose-200/90">
+            La suppression de vos données entraînera le retrait immédiat de vos accès, la révocation de vos clés Passkeys et de votre second facteur d'authentification.
+        </p>
+    </div>
 
-<div>
-    <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
+    <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post" class="space-y-4">
         <DataAnnotationsValidator />
-        <ValidationSummary class="text-danger" role="alert" />
+        
         @if (requirePassword)
         {
-            <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="Please enter your password." />
-                <label for="Input.Password" class="form-label">Password</label>
-                <ValidationMessage For="() => Input.Password" class="text-danger" />
+            <div>
+                <label for="Input.Password" class="block text-xs font-semibold text-slate-300 mb-1.5">Saisissez votre mot de passe pour confirmer</label>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-input-theme" autocomplete="current-password" placeholder="Mot de passe actuel" />
+                <ValidationMessage For="() => Input.Password" class="text-xs text-rose-400 mt-1" />
             </div>
         }
-        <button class="w-100 btn btn-lg btn-danger" type="submit">Delete data and close my account</button>
+
+        <div class="pt-2 flex items-center gap-3">
+            <button type="submit" class="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition flex items-center justify-center gap-2">
+                <i class="bi bi-trash3-fill"></i>
+                <span>Confirmer la suppression et fermer mon compte</span>
+            </button>
+            <a href="Account/Manage/PersonalData" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                Annuler
+            </a>
+        </div>
     </EditForm>
 </div>
 
@@ -71,26 +92,27 @@
 
         if (requirePassword && !await UserManager.CheckPasswordAsync(user, Input.Password))
         {
-            message = "Error: Incorrect password.";
+            message = "Erreur : Mot de passe incorrect.";
             return;
         }
 
         var result = await UserManager.DeleteAsync(user);
         if (!result.Succeeded)
         {
-            throw new InvalidOperationException("Unexpected error occurred deleting user.");
+            throw new InvalidOperationException("Une erreur imprévue est survenue lors de la suppression de l'utilisateur.");
         }
 
         await SignInManager.SignOutAsync();
 
         var userId = await UserManager.GetUserIdAsync(user);
-        Logger.LogInformation("User with ID '{UserId}' deleted themselves.", userId);
+        Logger.LogInformation("L'utilisateur {UserId} a procédé à la suppression de son compte.", userId);
 
         RedirectManager.RedirectToCurrentPage();
     }
 
     private sealed class InputModel
     {
+        [Required(ErrorMessage = "Le mot de passe est obligatoire pour confirmer.")]
         [DataType(DataType.Password)]
         public string Password { get; set; } = "";
     }

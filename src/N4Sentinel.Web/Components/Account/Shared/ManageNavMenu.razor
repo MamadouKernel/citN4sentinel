@@ -1,34 +1,47 @@
-﻿@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Identity
 @using N4Sentinel.Infrastructure.Identity
 
 @inject SignInManager<ApplicationUser> SignInManager
 
-<ul class="nav nav-pills flex-column">
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage" Match="NavLinkMatch.All">Profile</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/Email">Email</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/ChangePassword">Password</NavLink>
-    </li>
+<nav class="space-y-1">
+    <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage" Match="NavLinkMatch.All">
+        <i class="bi bi-person-fill text-theme-primary text-sm"></i>
+        <span>Profil Administrateur</span>
+    </NavLink>
+    
+    <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage/Email">
+        <i class="bi bi-envelope-fill text-theme-primary text-sm"></i>
+        <span>Adresse Courriel</span>
+    </NavLink>
+
+    <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage/ChangePassword">
+        <i class="bi bi-key-fill text-theme-primary text-sm"></i>
+        <span>Mot de passe</span>
+    </NavLink>
+
     @if (hasExternalLogins)
     {
-        <li class="nav-item">
-            <NavLink class="nav-link" href="Account/Manage/ExternalLogins">External logins</NavLink>
-        </li>
+        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage/ExternalLogins">
+            <i class="bi bi-box-arrow-in-right text-theme-primary text-sm"></i>
+            <span>Connexions externes</span>
+        </NavLink>
     }
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/TwoFactorAuthentication">Two-factor authentication</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/Passkeys">Passkeys</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/PersonalData">Personal data</NavLink>
-    </li>
-</ul>
+
+    <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage/TwoFactorAuthentication">
+        <i class="bi bi-shield-lock-fill text-theme-primary text-sm"></i>
+        <span>Double facteur (2FA)</span>
+    </NavLink>
+
+    <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage/Passkeys">
+        <i class="bi bi-fingerprint text-theme-primary text-sm"></i>
+        <span>Clés Passkeys</span>
+    </NavLink>
+
+    <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 nav-item-link" href="Account/Manage/PersonalData">
+        <i class="bi bi-file-earmark-person-fill text-theme-primary text-sm"></i>
+        <span>Données personnelles</span>
+    </NavLink>
+</nav>
 
 @code {
     private bool hasExternalLogins;

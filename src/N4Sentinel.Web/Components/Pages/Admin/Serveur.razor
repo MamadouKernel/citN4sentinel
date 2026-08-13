@@ -28,7 +28,7 @@ else
 
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-                <a href="@($"/admin/environnements/{_s.EnvironmentId}")" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+                <a href="@($"/admin/environnements/{_s.EnvironmentId}")" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
                     <i class="bi bi-arrow-left"></i> Retour à l'environnement
                 </a>
                 <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-mono">
@@ -45,7 +45,7 @@ else
 
             @if (!_estNouveau)
             {
-                <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition disabled:opacity-50 inline-flex items-center gap-2"
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-50 inline-flex items-center gap-2"
                         @onclick="Tester" disabled="@_testEnCours">
                     <i class="bi bi-broadcast"></i>
                     <span>@(_testEnCours ? "Interrogation..." : "Tester ce serveur")</span>

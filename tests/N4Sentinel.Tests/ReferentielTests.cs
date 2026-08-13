@@ -44,6 +44,7 @@ public sealed class ReferentielTests : IAsyncLifetime
     {
         // Nettoyage : on ne laisse pas des bases de test s'accumuler sur
         // l'instance de developpement.
+        Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
         await using var master = new Microsoft.Data.SqlClient.SqlConnection(MasterConnection);
         await master.OpenAsync();
         var cmd = master.CreateCommand();

@@ -269,6 +269,7 @@ internal sealed class NavisConfig
     public string? DatabaseHost { get; set; }
     public int? DatabasePort { get; set; }
     public string? DatabaseEngine { get; set; }
+    public string? LocalLogFolder { get; set; }
     public NavisReadiness? Readiness { get; set; }
 }
 

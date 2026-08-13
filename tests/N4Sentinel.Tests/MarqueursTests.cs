@@ -102,6 +102,7 @@ public sealed class MarqueursTests : IAsyncLifetime
         if (File.Exists(_logPath)) File.Delete(_logPath);
         if (Directory.Exists(_keyPath)) try { Directory.Delete(_keyPath, true); } catch { }
 
+        Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
         await using var master = new Microsoft.Data.SqlClient.SqlConnection(MasterConnection);
         await master.OpenAsync();
         var cmd = master.CreateCommand();

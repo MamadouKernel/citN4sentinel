@@ -1,4 +1,4 @@
-﻿@page "/Account/Manage/RenamePasskey/{Id}"
+@page "/Account/Manage/RenamePasskey/{Id}"
 
 @using N4Sentinel.Infrastructure.Identity
 @using System.ComponentModel.DataAnnotations
@@ -8,27 +8,46 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 
-<EditForm Model="Input" OnValidSubmit="Rename" FormName="rename-passkey" method="post">
-    <DataAnnotationsValidator />
-    @if (passkey?.Name is { } name)
-    {
-        <h4>Enter a new name for your "@name" passkey</h4>
-    }
-    else
-    {
-        <h4>Enter a name for your passkey</h4>
-    }
-    <hr />
-    <ValidationSummary class="text-danger" role="alert" />
-    <div class="form-floating mb-3">
-        <InputText @bind-Value="Input.Name" id="Input.Name" class="form-control" aria-required="true" placeholder="My passkey" />
-        <label for="Input.Name" class="form-label">Passkey name</label>
-        <ValidationMessage For="() => Input.Name" class="text-danger" />
+<PageTitle>Renommer la clé Passkey — N4 Sentinel</PageTitle>
+
+<div class="space-y-6 max-w-md">
+    <div class="border-b border-slate-800 pb-4">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="bi bi-pencil-square text-sky-400"></i>
+            @if (passkey?.Name is { } name)
+            {
+                <span>Renommer la clé "@name"</span>
+            }
+            else
+            {
+                <span>Nommer votre clé Passkey</span>
+            }
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Attribuez un nom explicite (ex: "Clé USB YubiKey", "MacBook Pro TouchID", "iPhone Personnel").
+        </p>
     </div>
-    <div>
-        <button type="submit" class="w-100 btn btn-lg btn-primary">Continue</button>
-    </div>
-</EditForm>
+
+    <EditForm Model="Input" OnValidSubmit="Rename" FormName="rename-passkey" method="post" class="space-y-4">
+        <DataAnnotationsValidator />
+        
+        <div>
+            <label for="Input.Name" class="block text-xs font-semibold text-slate-300 mb-1.5">Nom ou libellé de la clé</label>
+            <InputText @bind-Value="Input.Name" id="Input.Name" class="form-input-theme" placeholder="ex: YubiKey 5C NFC" />
+            <ValidationMessage For="() => Input.Name" class="text-xs text-rose-400 mt-1" />
+        </div>
+
+        <div class="pt-2 flex items-center gap-3">
+            <button type="submit" class="flex-1 py-2.5 px-4 rounded-xl btn-theme-primary text-white font-bold text-xs shadow-lg transition flex items-center justify-center gap-2">
+                <i class="bi bi-check-circle-fill"></i>
+                <span>Enregistrer le nom</span>
+            </button>
+            <a href="Account/Manage/Passkeys" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                Annuler
+            </a>
+        </div>
+    </EditForm>
+</div>
 
 @code {
     private ApplicationUser? user;
@@ -61,14 +80,14 @@
         }
         catch (FormatException)
         {
-            RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Error: The specified passkey ID had an invalid format.", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Erreur : L'identifiant de la clé Passkey est invalide.", HttpContext);
             return;
         }
 
         passkey = await UserManager.GetPasskeyAsync(user, credentialId);
         if (passkey is null)
         {
-            RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Error: The specified passkey could not be found.", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Erreur : La clé Passkey n'a pas pu être trouvée.", HttpContext);
             return;
         }
     }
@@ -79,17 +98,17 @@
         var result = await UserManager.AddOrUpdatePasskeyAsync(user!, passkey);
         if (!result.Succeeded)
         {
-            RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Error: The passkey could not be updated.", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Erreur : La clé Passkey n'a pas pu être mise à jour.", HttpContext);
             return;
         }
 
-        RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Passkey updated successfully.", HttpContext);
+        RedirectManager.RedirectToWithStatus("Account/Manage/Passkeys", "Nom de la clé Passkey mis à jour avec succès.", HttpContext);
     }
 
     private sealed class InputModel
     {
-        [Required]
-        [StringLength(200, ErrorMessage = "Passkey names must be no longer than {1} characters.")]
+        [Required(ErrorMessage = "Le nom de la clé est obligatoire.")]
+        [StringLength(200, ErrorMessage = "Le nom de la clé ne peut pas dépasser {1} caractères.")]
         public string Name { get; set; } = "";
     }
 }

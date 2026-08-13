@@ -66,6 +66,10 @@ builder.Services.AddCascadingAuthenticationState();
 // Contexte d'environnement, par circuit Blazor : deux operateurs peuvent
 // travailler simultanement sur deux environnements sans interference.
 builder.Services.AddScoped<N4Sentinel.Web.State.CurrentEnvironmentState>();
+
+// Amorcage : singleton, car l'etat "un compte existe" ne redevient jamais faux
+// et n'a pas a etre reinterroge a chaque requete.
+builder.Services.AddSingleton<N4Sentinel.Web.State.FirstRunState>();
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 
@@ -152,6 +156,34 @@ else
 }
 
 app.UseSerilogRequestLogging();
+
+// Tant qu'aucun compte n'existe, toute navigation aboutit au parcours de
+// premier demarrage. Sans cela, une installation neuve presente un ecran de
+// connexion sur lequel personne ne peut se connecter, sans rien indiquer.
+// Le controle s'arrete des qu'un compte a ete vu : aucun cout ensuite.
+app.Use(async (context, next) =>
+{
+    var chemin = context.Request.Path;
+
+    var exempte = chemin.StartsWithSegments("/premier-demarrage")
+                  || chemin.StartsWithSegments("/_framework")
+                  || chemin.StartsWithSegments("/_content")
+                  || chemin.StartsWithSegments("/lib")
+                  || chemin.StartsWithSegments("/Error")
+                  || Path.HasExtension(chemin.Value);
+
+    if (!exempte)
+    {
+        var amorcage = context.RequestServices.GetRequiredService<N4Sentinel.Web.State.FirstRunState>();
+        if (await amorcage.NeedsSetupAsync(context.RequestAborted))
+        {
+            context.Response.Redirect("/premier-demarrage");
+            return;
+        }
+    }
+
+    await next();
+});
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 app.UseAntiforgery();

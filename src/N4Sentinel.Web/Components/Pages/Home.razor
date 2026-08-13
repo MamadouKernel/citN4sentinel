@@ -17,7 +17,7 @@
             <p class="text-xs sm:text-sm text-slate-400 mt-1">Supervision globale et état du référentiel Navis N4 &middot; Côte d'Ivoire Terminal</p>
         </div>
         <div>
-            <a href="/admin/environnements" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/25 transition">
+            <a href="/admin/environnements" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition">
                 <i class="bi bi-hdd-stack-fill text-sm"></i>
                 <span>Gérer les environnements</span>
             </a>
@@ -27,7 +27,7 @@
     <!-- KPI Summary Grid -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="glass-card p-5 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-slate-700 transition">
-            <div class="w-12 h-12 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center text-xl font-bold border border-sky-500/20 flex-shrink-0">
+            <div class="w-12 h-12 rounded-xl bg-theme-tint text-theme-primary flex items-center justify-center text-xl font-bold border border-theme-primary flex-shrink-0">
                 <i class="bi bi-hdd-network-fill"></i>
             </div>
             <div>
@@ -67,16 +67,19 @@
         </div>
     </div>
 
+    <!-- Interactive Live Visual Architecture Diagram (Navis N4 RFP Scope) -->
+    <N4TopologyDiagram />
+
     <!-- Main Grid Content -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Environments Table Card -->
         <div class="lg:col-span-2 glass-card rounded-2xl border border-slate-800 overflow-hidden flex flex-col">
             <div class="p-5 border-b border-slate-800 flex items-center justify-between">
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-diagram-3-fill text-sky-400"></i>
+                    <i class="bi bi-diagram-3-fill text-theme-primary"></i>
                     Cartographie des Environnements
                 </h3>
-                <a href="/admin/environnements" class="text-xs text-sky-400 hover:text-sky-300 font-semibold transition">Explorer tout &rarr;</a>
+                <a href="/admin/environnements" class="text-xs text-theme-primary hover:underline font-semibold transition">Explorer tout &rarr;</a>
             </div>
 
             <div class="p-0 flex-1 overflow-x-auto">

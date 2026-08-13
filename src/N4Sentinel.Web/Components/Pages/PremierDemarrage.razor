@@ -1,0 +1,191 @@
+@page "/premier-demarrage"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Identity
+@using N4Sentinel.Web.State
+@attribute [AllowAnonymous]
+@layout AuthLayout
+@rendermode InteractiveServer
+@inject UserManager<ApplicationUser> UserManager
+@inject FirstRunState FirstRun
+@inject NavigationManager Nav
+@inject ILogger<PremierDemarrage> Logger
+
+<PageTitle>Premier démarrage — N4 Sentinel</PageTitle>
+
+@if (_verifie && !_ouvert)
+{
+    <div class="max-w-md mx-auto glass-card rounded-2xl border border-slate-800 p-8 text-center space-y-3">
+        <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 text-xl border border-emerald-500/20">
+            <i class="bi bi-shield-check"></i>
+        </div>
+        <h1 class="text-lg font-bold text-white">Application déjà initialisée</h1>
+        <p class="text-xs text-slate-400 leading-relaxed">
+            Un compte existe déjà. Le parcours de premier démarrage est définitivement fermé :
+            les comptes suivants se créent depuis l'administration, par un utilisateur habilité.
+        </p>
+        <a href="/Account/Login" class="inline-block px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition">
+            Se connecter
+        </a>
+    </div>
+}
+else if (_ouvert)
+{
+    <div class="max-w-lg mx-auto space-y-6">
+
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-sky-500/10 text-sky-400 text-xl border border-sky-500/20">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <h1 class="text-2xl font-extrabold text-white tracking-tight">Premier démarrage</h1>
+            <p class="text-xs text-slate-400 leading-relaxed max-w-md mx-auto">
+                Aucun compte n'existe encore sur cette installation. Créez le premier administrateur :
+                il pourra ensuite déclarer les environnements, les serveurs et les autres utilisateurs.
+            </p>
+        </div>
+
+        <div class="glass-card rounded-2xl border border-slate-800 p-6">
+            <EditForm Model="Input" OnValidSubmit="Creer" FormName="premier-demarrage" class="space-y-4">
+                <DataAnnotationsValidator />
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Adresse électronique</label>
+                    <InputText @bind-Value="Input.Email" autocomplete="username"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-600 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               placeholder="prenom.nom@exemple.com" />
+                    <ValidationMessage For="() => Input.Email" class="text-xs text-rose-400 mt-1" />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Nom affiché</label>
+                    <InputText @bind-Value="Input.DisplayName"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-600 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               placeholder="Prénom NOM" />
+                    <ValidationMessage For="() => Input.DisplayName" class="text-xs text-rose-400 mt-1" />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Mot de passe</label>
+                    <InputText type="password" @bind-Value="Input.Password" autocomplete="new-password"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                    <ValidationMessage For="() => Input.Password" class="text-xs text-rose-400 mt-1" />
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        12 caractères minimum, avec majuscule, minuscule, chiffre et caractère spécial.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Confirmation</label>
+                    <InputText type="password" @bind-Value="Input.ConfirmPassword" autocomplete="new-password"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                    <ValidationMessage For="() => Input.ConfirmPassword" class="text-xs text-rose-400 mt-1" />
+                </div>
+
+                @if (_erreurs.Count > 0)
+                {
+                    <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 space-y-1">
+                        @foreach (var e in _erreurs)
+                        {
+                            <div>@e</div>
+                        }
+                    </div>
+                }
+
+                <button type="submit" disabled="@_enCours"
+                        class="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-sky-600/25 transition text-xs disabled:opacity-50">
+                    @(_enCours ? "Création..." : "Créer l'administrateur")
+                </button>
+            </EditForm>
+        </div>
+
+        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+            <strong class="text-slate-300">Ce compte reçoit les rôles Administrateur de la solution et Auditeur.</strong>
+            Activez ensuite le second facteur depuis votre profil : ce compte pourra déclarer des
+            environnements de Production et approuver des opérations.
+        </div>
+    </div>
+}
+
+@code {
+    private bool _verifie;
+    private bool _ouvert;
+    private bool _enCours;
+    private readonly List<string> _erreurs = [];
+
+    private InputModel Input { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ouvert = await FirstRun.NeedsSetupAsync();
+        _verifie = true;
+    }
+
+    private async Task Creer()
+    {
+        _erreurs.Clear();
+        _enCours = true;
+
+        try
+        {
+            // Re-vérification au moment de l'écriture, et non seulement à
+            // l'affichage : entre les deux, un autre navigateur a pu créer le
+            // compte. Cette page est accessible sans authentification, elle ne
+            // peut donc jamais se contenter d'un contrôle fait à l'ouverture.
+            if (!await FirstRun.NeedsSetupAsync())
+            {
+                _ouvert = false;
+                return;
+            }
+
+            var user = new ApplicationUser
+            {
+                UserName = Input.Email,
+                Email = Input.Email,
+                DisplayName = Input.DisplayName,
+                EmailConfirmed = true   // aucun serveur de messagerie n'est requis pour s'amorcer
+            };
+
+            var creation = await UserManager.CreateAsync(user, Input.Password);
+            if (!creation.Succeeded)
+            {
+                _erreurs.AddRange(creation.Errors.Select(e => e.Description));
+                return;
+            }
+
+            await UserManager.AddToRolesAsync(user, [N4Roles.AdministrateurSolution, N4Roles.Auditeur]);
+            FirstRun.MarkAccountCreated();
+
+            Logger.LogWarning(
+                "Premier administrateur cree via le parcours de premier demarrage : {Email}. " +
+                "Cette page est desormais definitivement fermee.", Input.Email);
+
+            Nav.NavigateTo("/Account/Login", forceLoad: true);
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "L'adresse électronique est obligatoire.")]
+        [EmailAddress(ErrorMessage = "Adresse électronique invalide.")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Le nom affiché est obligatoire.")]
+        [StringLength(150)]
+        public string DisplayName { get; set; } = "";
+
+        [Required(ErrorMessage = "Le mot de passe est obligatoire.")]
+        [StringLength(128, MinimumLength = 12,
+            ErrorMessage = "Le mot de passe doit comporter au moins 12 caractères.")]
+        public string Password { get; set; } = "";
+
+        [Required(ErrorMessage = "Confirmez le mot de passe.")]
+        [Compare(nameof(Password), ErrorMessage = "Les deux saisies ne correspondent pas.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

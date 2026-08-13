@@ -1,4 +1,4 @@
-﻿@page "/Account/Manage/PersonalData"
+@page "/Account/Manage/PersonalData"
 
 @using Microsoft.AspNetCore.Identity
 @using N4Sentinel.Infrastructure.Identity
@@ -6,24 +6,70 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Personal Data</PageTitle>
+<PageTitle>Données Personnelles & RGPD — N4 Sentinel</PageTitle>
 
-<StatusMessage />
-<h3>Personal Data</h3>
+<div class="space-y-6">
+    <div class="border-b border-slate-800 pb-4">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="bi bi-shield-lock-fill text-theme-primary"></i>
+            Données Personnelles & Conduite RGPD
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Votre compte d'habilitation contient des informations de profil enregistrées dans le référentiel N4 Sentinel. Vous pouvez télécharger une copie numérique de vos données ou solliciter la suppression définitive de votre compte.
+        </p>
+    </div>
 
-<div class="row">
-    <div class="col-md-6">
-        <p>Your account contains personal data that you have given us. This page allows you to download or delete that data.</p>
-        <p>
-            <strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong>
-        </p>
-        <form action="Account/Manage/DownloadPersonalData" method="post">
-            <AntiforgeryToken />
-            <button class="btn btn-primary" type="submit">Download</button>
-        </form>
-        <p>
-            <a href="Account/Manage/DeletePersonalData" class="btn btn-danger">Delete</a>
-        </p>
+    <StatusMessage />
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Download Card -->
+        <div class="p-6 rounded-2xl border border-sky-500/30 bg-sky-950/20 space-y-4 shadow-xl">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center text-xl">
+                    <i class="bi bi-file-earmark-arrow-down-fill"></i>
+                </div>
+                <div>
+                    <h3 class="text-sm font-bold text-white">Exporter mes données</h3>
+                    <p class="text-[11px] text-slate-400">Télécharger une archive brute au format JSON</p>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-300 leading-relaxed">
+                Obtenez une copie numérique de l'ensemble de vos informations enregistrées : identifiants de profil, rôles attribués, historiques d'action et jetons de sécurité.
+            </p>
+
+            <form action="Account/Manage/DownloadPersonalData" method="post" class="pt-2">
+                <AntiforgeryToken />
+                <button class="w-full py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition flex items-center justify-center gap-2" type="submit">
+                    <i class="bi bi-download"></i>
+                    <span>Télécharger l'archive (.JSON)</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Delete Account Card -->
+        <div class="p-6 rounded-2xl border border-rose-500/30 bg-rose-950/20 space-y-4 shadow-xl">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-xl">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <div>
+                    <h3 class="text-sm font-bold text-white">Suppression du compte</h3>
+                    <p class="text-[11px] text-rose-400 font-semibold">Action irréversible &amp; définitive</p>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-300 leading-relaxed">
+                La suppression effacera définitivement votre compte, vos autorisations et vos clés d'accès à la solution de supervision N4 Sentinel.
+            </p>
+
+            <div class="pt-2">
+                <a href="Account/Manage/DeletePersonalData" class="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/20 transition flex items-center justify-center gap-2">
+                    <i class="bi bi-trash3-fill"></i>
+                    <span>Demander la suppression de mon compte</span>
+                </a>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -33,7 +79,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var user  = await UserManager.GetUserAsync(HttpContext.User);
+        var user = await UserManager.GetUserAsync(HttpContext.User);
         if (user is null)
         {
             RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);

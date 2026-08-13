@@ -1,0 +1,596 @@
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
+@using N4Sentinel.Web.State
+
+@inject ReferentialService Referential
+@inject SupervisionStateCache SupervisionCache
+@inject CurrentEnvironmentState EnvState
+@implements IDisposable
+
+<div class="space-y-8">
+    <!-- Top Filter Header -->
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md shadow-xl">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-2xl bg-theme-gradient text-white flex items-center justify-center text-xl font-bold shadow-lg glow-theme">
+                <i class="bi bi-diagram-3-fill"></i>
+            </div>
+            <div>
+                <h3 class="text-base font-extrabold text-white tracking-tight">Cartographie Topologique Navis N4 (Vue Architecture Spacieuse)</h3>
+                <p class="text-xs text-slate-400">Représentation visuelle grand format avec routage automatique selon les noms de services et hôtes</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-4 text-xs font-semibold">
+            <!-- Interactive Environment Selector Dropdown -->
+            @if (_environments.Count > 0)
+            {
+                <div class="flex items-center gap-2.5 bg-slate-900/90 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
+                    <i class="bi bi-hdd-network text-theme-primary text-sm"></i>
+                    <label class="text-xs font-bold text-slate-300 whitespace-nowrap">Environnement :</label>
+                    <select class="bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-theme-primary focus:outline-none"
+                            value="@_selectedEnvironmentId" @onchange="OnEnvironmentSelected">
+                        @foreach (var env in _environments)
+                        {
+                            <option value="@env.Id">@env.Code — @env.Name @(env.IsProduction ? "(PROD)" : "")</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <!-- Legend Indicators -->
+            <div class="flex items-center gap-3 flex-wrap bg-slate-900/70 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
+                <span class="flex items-center gap-1.5 text-emerald-400 font-bold">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-sm"></span> Service Running (Vert)
+                </span>
+                <span class="flex items-center gap-1.5 text-amber-400 font-bold">
+                    <span class="w-3 h-3 rounded-full bg-amber-500 shadow-sm"></span> Démarrage (Ambre)
+                </span>
+                <span class="flex items-center gap-1.5 text-rose-400 font-bold">
+                    <span class="w-3 h-3 rounded-full bg-rose-500 shadow-sm"></span> À l'arrêt (Rouge)
+                </span>
+                <span class="flex items-center gap-1.5 text-slate-400 font-bold">
+                    <span class="w-3 h-3 rounded-full bg-slate-500 shadow-sm"></span> Éteint / Non supervisé (Gris)
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN NAVIS N4 ARCHITECTURE CONTAINER (Outer Diagram Box) -->
+    <div class="p-8 sm:p-10 rounded-[2.5rem] border-2 border-theme-primary/40 bg-slate-950/80 backdrop-blur-2xl relative space-y-8 shadow-2xl">
+        <!-- Diagram Brand Watermark -->
+        <div class="absolute top-5 right-8 flex items-center gap-2.5 px-4 py-1.5 rounded-2xl bg-theme-tint border border-theme-primary/40 shadow-md">
+            <span class="text-xs font-extrabold text-theme-primary tracking-widest uppercase">NAVISTECH N4 CIT</span>
+            <i class="bi bi-shield-check text-theme-primary text-sm"></i>
+        </div>
+
+        @if (GetEffectiveComponents().Count == 0)
+        {
+            <!-- Empty Environment Banner -->
+            <div class="p-12 text-center bg-slate-900/60 border-2 border-dashed border-slate-800 rounded-3xl space-y-5 my-6">
+                <div class="w-16 h-16 rounded-3xl bg-sky-500/10 text-sky-400 flex items-center justify-center text-3xl mx-auto shadow-inner">
+                    <i class="bi bi-server"></i>
+                </div>
+                <div class="space-y-1.5">
+                    <h4 class="text-base font-bold text-white">Aucun serveur ni composant enregistré pour cet environnement</h4>
+                    <p class="text-xs text-slate-400 max-w-md mx-auto">
+                        Ajoutez vos serveurs hôtes ou composants dans le Référentiel Technique pour construire la topologie.
+                    </p>
+                </div>
+                @if (_selectedEnvironmentId.HasValue)
+                {
+                    <a href="@($"/admin/environnements/{_selectedEnvironmentId.Value}")"
+                       class="px-6 py-3 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-xl transition inline-flex items-center gap-2.5">
+                        <i class="bi bi-plus-circle text-sm"></i>
+                        <span>Gérer les serveurs &amp; composants</span>
+                    </a>
+                }
+            </div>
+        }
+        else
+        {
+            <!-- LOAD BALANCER SECTION (Top Center) -->
+            <div class="flex flex-col items-center justify-center pt-2">
+                <div class="w-96 p-4 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 shadow-2xl text-center space-y-1.5 hover:scale-105 transition-transform duration-300">
+                    <div class="text-xs font-extrabold text-amber-400 uppercase tracking-widest flex items-center justify-center gap-2">
+                        <i class="bi bi-arrow-down-up text-sm"></i> LOAD BALANCER / RÉPARTITEUR DE CHARGE
+                    </div>
+                    <div class="text-sm font-extrabold text-white">VIP Cluster &middot; Dispatch HTTP / TCP</div>
+                    <div class="text-xs text-amber-300/90 font-mono">@_allServers.Count Serveur(s) Hôte(s) déclarés(s)</div>
+                </div>
+
+                <!-- Directional Connection Lines -->
+                <div class="w-1 h-8 bg-gradient-to-b from-amber-500/80 to-theme-primary/80 my-2 rounded-full"></div>
+            </div>
+
+            <!-- MIDDLE ARCHITECTURAL SECTION: CLUSTER NODES vs MASTER/STANDBY vs XPS -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+                
+                <!-- SECTION 1: CLUSTER NODES (Columns 1-6) -->
+                <div class="lg:col-span-6 p-7 rounded-3xl border-2 border-sky-500/40 bg-sky-950/20 space-y-5 shadow-xl flex flex-col justify-between">
+                    <div class="flex items-center justify-between border-b border-sky-500/30 pb-3">
+                        <h4 class="text-xs sm:text-sm font-extrabold text-sky-400 uppercase tracking-widest flex items-center gap-2.5">
+                            <i class="bi bi-cpu-fill text-base"></i> CLUSTER NODES (NŒUDS DE CALCUL & APPLICATIFS)
+                        </h4>
+                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                            @GetClusterNodes().Count nœud(s)
+                        </span>
+                    </div>
+
+                    @if (GetClusterNodes().Count == 0)
+                    {
+                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucun nœud de cluster configuré.</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                            @foreach (var c in GetClusterNodes())
+                            {
+                                @RenderCylinderNode(c)
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- SECTION 2: MASTER / STANDBY NODE (Columns 7-9) -->
+                <div class="lg:col-span-3 p-7 rounded-3xl border-2 border-emerald-500/40 bg-emerald-950/20 space-y-5 shadow-xl flex flex-col justify-between">
+                    <div class="flex items-center justify-between border-b border-emerald-500/30 pb-3">
+                        <h4 class="text-xs sm:text-sm font-extrabold text-emerald-400 uppercase tracking-widest flex items-center gap-2.5">
+                            <i class="bi bi-hdd-network-fill text-base"></i> MASTER / STANDBY
+                        </h4>
+                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            @GetMasterNodes().Count nœud(s)
+                        </span>
+                    </div>
+
+                    @if (GetMasterNodes().Count == 0)
+                    {
+                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucun nœud maître.</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-1 gap-5">
+                            @foreach (var c in GetMasterNodes())
+                            {
+                                @RenderCylinderNode(c)
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- SECTION 3: MODULES XPS & ECN (Columns 10-12) -->
+                <div class="lg:col-span-3 p-7 rounded-3xl border-2 border-purple-500/40 bg-purple-950/20 space-y-5 shadow-xl flex flex-col justify-between">
+                    <div class="flex items-center justify-between border-b border-purple-500/30 pb-3">
+                        <h4 class="text-xs sm:text-sm font-extrabold text-purple-400 uppercase tracking-widest flex items-center gap-2.5">
+                            <i class="bi bi-display-fill text-base"></i> MODULES XPS & ECN
+                        </h4>
+                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            @GetXpsNodes().Count module(s)
+                        </span>
+                    </div>
+
+                    @if (GetXpsNodes().Count == 0)
+                    {
+                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucun module XPS / ECN.</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-5">
+                            @foreach (var c in GetXpsNodes())
+                            {
+                                @RenderCylinderNode(c)
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- BOTTOM ARCHITECTURAL SECTION: CLUSTER DATABASE vs EXTERNAL INTERFACES -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+                
+                <!-- SECTION 4: CLUSTER DATABASE (Columns 1-5) -->
+                <div class="lg:col-span-5 p-7 rounded-3xl border-2 border-indigo-500/40 bg-indigo-950/20 space-y-5 shadow-xl flex flex-col justify-between">
+                    <div class="flex items-center justify-between border-b border-indigo-500/30 pb-3">
+                        <h4 class="text-xs sm:text-sm font-extrabold text-indigo-400 uppercase tracking-widest flex items-center gap-2.5">
+                            <i class="bi bi-database-fill-gear text-base"></i> CLUSTER DATABASE (HAUTE DISPONIBILITÉ)
+                        </h4>
+                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                            @GetDatabaseNodes().Count base(s)
+                        </span>
+                    </div>
+
+                    @if (GetDatabaseNodes().Count == 0)
+                    {
+                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucune base de données déclarée.</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-1 gap-5">
+                            @foreach (var c in GetDatabaseNodes())
+                            {
+                                @RenderCylinderNode(c, isLarge: true)
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- SECTION 5: INTERFACES & ÉCOSYSTÈME EXTERNE (Columns 6-12) -->
+                <div class="lg:col-span-7 p-7 rounded-3xl border-2 border-slate-700 bg-slate-900/40 space-y-5 shadow-xl flex flex-col justify-between">
+                    <div class="flex items-center justify-between border-b border-slate-700/60 pb-3">
+                        <h4 class="text-xs sm:text-sm font-extrabold text-slate-300 uppercase tracking-widest flex items-center gap-2.5">
+                            <i class="bi bi-diagram-2-fill text-base"></i> INTERFACES & ÉCOSYSTÈME EXTERNE (GOS, EDI, IKOS, VBS)
+                        </h4>
+                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-700/40 text-slate-300 border border-slate-600/40">
+                            @GetExternalNodes().Count interface(s)
+                        </span>
+                    </div>
+
+                    @if (GetExternalNodes().Count == 0)
+                    {
+                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucune interface externe.</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                            @foreach (var c in GetExternalNodes())
+                            {
+                                @RenderCylinderNode(c)
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public Guid? EnvironmentId { get; set; }
+
+    private List<N4Environment> _environments = [];
+    private Guid? _selectedEnvironmentId;
+    private List<N4Component> _allComponents = [];
+    private List<N4Server> _allServers = [];
+
+    private readonly List<N4Component> _clusterNodes = [];
+    private readonly List<N4Component> _databaseNodes = [];
+    private readonly List<N4Component> _masterNodes = [];
+    private readonly List<N4Component> _xpsNodes = [];
+    private readonly List<N4Component> _externalNodes = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        SupervisionCache.OnStateChanged += OnCacheStateChanged;
+        EnvState.Changed += OnEnvStateChanged;
+        await RefreshEnvironmentsAndComponentsAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EnvironmentId.HasValue && EnvironmentId.Value != _selectedEnvironmentId)
+        {
+            _selectedEnvironmentId = EnvironmentId.Value;
+            await LoadComponentsAsync();
+        }
+    }
+
+    private void OnEnvStateChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (EnvState.Current is not null && EnvState.Current.Id != _selectedEnvironmentId)
+            {
+                _selectedEnvironmentId = EnvState.Current.Id;
+                await LoadComponentsAsync();
+                StateHasChanged();
+            }
+        });
+    }
+
+    private async Task RefreshEnvironmentsAndComponentsAsync()
+    {
+        _environments = await Referential.GetEnvironmentsAsync();
+
+        if (EnvironmentId.HasValue)
+        {
+            _selectedEnvironmentId = EnvironmentId.Value;
+        }
+        else if (EnvState.Current is not null)
+        {
+            _selectedEnvironmentId = EnvState.Current.Id;
+        }
+        else if (_environments.Count > 0)
+        {
+            var defaultEnv = _environments.FirstOrDefault(e => e.IsProduction) ?? _environments.First();
+            _selectedEnvironmentId = defaultEnv.Id;
+            EnvState.Set(defaultEnv);
+        }
+
+        await LoadComponentsAsync();
+    }
+
+    private async Task OnEnvironmentSelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var envId))
+        {
+            _selectedEnvironmentId = envId;
+            var env = _environments.FirstOrDefault(x => x.Id == envId);
+            if (env is not null)
+            {
+                EnvState.Set(env);
+            }
+            await LoadComponentsAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadComponentsAsync()
+    {
+        if (_selectedEnvironmentId.HasValue)
+        {
+            _allComponents = await Referential.GetComponentsAsync(_selectedEnvironmentId.Value);
+            _allServers = await Referential.GetServersAsync(_selectedEnvironmentId.Value);
+        }
+        else
+        {
+            _allComponents = [];
+            _allServers = [];
+        }
+
+        CategorizeComponents();
+    }
+
+    private void OnCacheStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Calcule la liste effective des éléments à représenter sur la topologie
+    // Si un serveur n'a pas encore de composant spécifique enregistré, son rôle est déduit de son Nom Hôte
+    private List<N4Component> GetEffectiveComponents()
+    {
+        var result = new List<N4Component>(_allComponents);
+
+        foreach (var s in _allServers)
+        {
+            if (!_allComponents.Any(c => c.ServerId == s.Id))
+            {
+                var hostUpper = (s.HostName ?? string.Empty).ToUpperInvariant();
+                ComponentRole inferredRole = ComponentRole.ClusterNode;
+
+                if (hostUpper.Contains("CENTER") || hostUpper.Contains("MASTER") || hostUpper.Contains("STANDBY"))
+                    inferredRole = ComponentRole.CenterNode;
+                else if (hostUpper.Contains("XPS") || hostUpper.Contains("ECN") || hostUpper.Contains("BRIDGE"))
+                    inferredRole = ComponentRole.Xps;
+                else if (hostUpper.Contains("DB") || hostUpper.Contains("SQL") || hostUpper.Contains("ORACLE"))
+                    inferredRole = ComponentRole.BaseDeDonnees;
+
+                result.Add(new N4Component
+                {
+                    Id = s.Id,
+                    EnvironmentId = s.EnvironmentId,
+                    ServerId = s.Id,
+                    Server = s,
+                    LogicalName = s.HostName ?? string.Empty,
+                    Role = inferredRole,
+                    WindowsServiceName = string.Empty,
+                    Status = s.Status,
+                    ControlMode = ControlMode.SuperviseSeulement
+                });
+            }
+        }
+
+        return result;
+    }
+
+    // Catégorisation stricte basée sur :
+    // 1. Nom du service Windows (WindowsServiceName)
+    // 2. Rôle du composant (Role)
+    // 3. Nom logique (LogicalName)
+    // 4. Nom d'hôte du serveur (Server.HostName)
+    private void CategorizeComponents()
+    {
+        _clusterNodes.Clear();
+        _databaseNodes.Clear();
+        _masterNodes.Clear();
+        _xpsNodes.Clear();
+        _externalNodes.Clear();
+
+        var effective = GetEffectiveComponents();
+
+        foreach (var c in effective)
+        {
+            var service = c.WindowsServiceName ?? string.Empty;
+            var name = c.LogicalName ?? string.Empty;
+            var host = c.Server?.HostName ?? string.Empty;
+
+            // 1. MASTER / STANDBY (Center Node, Standby Center Node, Dossier Partagé)
+            if (c.Role == ComponentRole.CenterNode ||
+                c.Role == ComponentRole.StandbyCenterNode ||
+                c.Role == ComponentRole.DossierPartage ||
+                service.Contains("Center", StringComparison.OrdinalIgnoreCase) ||
+                service.Contains("Standby", StringComparison.OrdinalIgnoreCase) ||
+                service.Contains("Master", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Center", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Master", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Standby", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Share", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Dossier partage", StringComparison.OrdinalIgnoreCase) ||
+                host.Contains("CENTER", StringComparison.OrdinalIgnoreCase) ||
+                host.Contains("MASTER", StringComparison.OrdinalIgnoreCase) ||
+                host.Contains("STANDBY", StringComparison.OrdinalIgnoreCase))
+            {
+                _masterNodes.Add(c);
+            }
+            // 2. MODULES XPS & ECN (Service XPS, XPS Bridge Daemon, ECN4 Daemon, ECN4Web, W3SVC)
+            else if (c.Role == ComponentRole.Xps ||
+                     c.Role == ComponentRole.Ecn4 ||
+                     c.Role == ComponentRole.Ecn4Web ||
+                     c.Role == ComponentRole.BridgeDaemon ||
+                     c.Role == ComponentRole.ActiveMq ||
+                     service.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
+                     service.Contains("XPS", StringComparison.OrdinalIgnoreCase) ||
+                     service.Contains("ECN", StringComparison.OrdinalIgnoreCase) ||
+                     service.Contains("W3SVC", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("XPS", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("ECN", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("XPS", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("ECN", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("BRIDGE", StringComparison.OrdinalIgnoreCase))
+            {
+                _xpsNodes.Add(c);
+            }
+            // 3. CLUSTER DATABASE (Base de données N4)
+            else if (c.Role == ComponentRole.BaseDeDonnees ||
+                     service.Contains("SQL", StringComparison.OrdinalIgnoreCase) ||
+                     service.Contains("Oracle", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Database", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("DB", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("SQL", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Oracle", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Base de données", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Base de donnees", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("DB", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("SQL", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("ORACLE", StringComparison.OrdinalIgnoreCase))
+            {
+                _databaseNodes.Add(c);
+            }
+            // 4. CLUSTER NODES (Nœuds de Calcul & Applicatifs)
+            else if (c.Role == ComponentRole.ClusterNode ||
+                     service.Contains("Cluster", StringComparison.OrdinalIgnoreCase) ||
+                     service.Contains("NavisN4Node", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Cluster", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("ckuster", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Node", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Nœud", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Noeud", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("CLUSTER", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("NODE", StringComparison.OrdinalIgnoreCase) ||
+                     host.Contains("APP", StringComparison.OrdinalIgnoreCase))
+            {
+                _clusterNodes.Add(c);
+            }
+            // 5. INTERFACES & ÉCOSYSTÈME EXTERNE
+            else
+            {
+                _externalNodes.Add(c);
+            }
+        }
+    }
+
+    private List<N4Component> GetClusterNodes() => _clusterNodes;
+    private List<N4Component> GetDatabaseNodes() => _databaseNodes;
+    private List<N4Component> GetMasterNodes() => _masterNodes;
+    private List<N4Component> GetXpsNodes() => _xpsNodes;
+    private List<N4Component> GetExternalNodes() => _externalNodes;
+
+    // Rendu Grand Format d'un Nœud Cylindre 3D réactif
+    private RenderFragment RenderCylinderNode(N4Component comp, bool isLarge = false) => __builder =>
+    {
+        var snapshot = SupervisionCache.GetSnapshot(comp.Id);
+        var state = snapshot?.State ?? ComponentState.Inconnu;
+        var serverStatus = comp.Server?.Status ?? LifecycleStatus.Actif;
+
+        string bgGradient;
+        string borderStyle;
+        string textStyle;
+        string dotStyle;
+        string stateLabel;
+
+        if (serverStatus == LifecycleStatus.Desactive || state == ComponentState.NonSupervise)
+        {
+            // GRIS : Serveur éteint ou injoignable
+            bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
+            borderStyle = "border-slate-600/70 shadow-slate-950/70";
+            textStyle = "text-slate-100 font-extrabold";
+            dotStyle = "bg-slate-400";
+            stateLabel = "Non supervisé";
+        }
+        else if (state == ComponentState.Disponible)
+        {
+            // VERT : Running
+            bgGradient = "bg-gradient-to-b from-emerald-600 to-emerald-850";
+            borderStyle = "border-emerald-400/80 shadow-emerald-500/40 glow-theme";
+            textStyle = "text-white font-extrabold";
+            dotStyle = "bg-emerald-300 animate-pulse";
+            stateLabel = "Running (Vert)";
+        }
+        else if (state == ComponentState.Arret || state == ComponentState.Indisponible)
+        {
+            // ROUGE : Stopped
+            bgGradient = "bg-gradient-to-b from-rose-600 to-rose-850";
+            borderStyle = "border-rose-400/80 shadow-rose-500/40";
+            textStyle = "text-white font-extrabold";
+            dotStyle = "bg-rose-300 animate-ping";
+            stateLabel = "À l'arrêt (Rouge)";
+        }
+        else if (state == ComponentState.Demarrage)
+        {
+            // AMBRE : Initialisation
+            bgGradient = "bg-gradient-to-b from-amber-600 to-amber-850";
+            borderStyle = "border-amber-400/80 shadow-amber-500/40";
+            textStyle = "text-white font-extrabold";
+            dotStyle = "bg-amber-300 animate-pulse";
+            stateLabel = "Démarrage (Ambre)";
+        }
+        else
+        {
+            // GRIS (Par défaut)
+            bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
+            borderStyle = "border-slate-600/70 shadow-slate-950/70";
+            textStyle = "text-slate-100 font-extrabold";
+            dotStyle = "bg-slate-400";
+            stateLabel = "Non supervisé";
+        }
+
+        <div class="flex flex-col items-center p-4 sm:p-5 rounded-3xl border-2 transition-all duration-300 shadow-2xl relative group cursor-pointer hover:scale-[1.03] hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0">
+            <!-- Cylinder Top Oval Cap -->
+            <div class="w-full h-4 rounded-t-full bg-white/20 border-b border-white/30 mb-2 flex items-center justify-center">
+                <div class="w-1/2 h-1 bg-white/50 rounded-full"></div>
+            </div>
+            
+            <!-- Cylinder Content Body -->
+            <div class="text-center space-y-2 py-1.5 px-2 w-full min-w-0">
+                <div class="flex items-center justify-center gap-2 w-full min-w-0">
+                    <span class="w-3 h-3 rounded-full @dotStyle shrink-0 shadow-md"></span>
+                    <span class="text-sm sm:text-base font-black @textStyle leading-snug text-center break-words max-w-full tracking-tight" title="@comp.LogicalName">
+                        @comp.LogicalName
+                    </span>
+                </div>
+
+                <!-- State Badge -->
+                <div class="inline-block px-3 py-0.5 rounded-full bg-black/40 border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
+                    @stateLabel
+                </div>
+
+                <!-- Windows Service Name Tag (If present) -->
+                @if (!string.IsNullOrWhiteSpace(comp.WindowsServiceName) && !comp.WindowsServiceName.Contains('.'))
+                {
+                    <div class="text-[10px] font-mono text-cyan-200/90 bg-cyan-950/60 px-2.5 py-0.5 rounded-lg border border-cyan-700/40 inline-flex items-center gap-1 max-w-full truncate" title="@comp.WindowsServiceName">
+                        <i class="bi bi-gear-fill text-cyan-400"></i> @comp.WindowsServiceName
+                    </div>
+                }
+
+                <!-- IP Address Tag (If present) -->
+                @if (comp.Server?.IpAddress is not null && comp.Server.IpAddress != comp.LogicalName)
+                {
+                    <div class="text-[10px] font-mono text-slate-300 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-slate-700/50 inline-flex items-center gap-1">
+                        <i class="bi bi-[#10.88] bi-hdd-network text-slate-400"></i> @comp.Server.IpAddress
+                    </div>
+                }
+            </div>
+
+            <!-- Cylinder Bottom Oval Cap -->
+            <div class="w-full h-3 rounded-b-full bg-black/30 mt-2 border-t border-black/20"></div>
+        </div>
+    };
+
+    public void Dispose()
+    {
+        SupervisionCache.OnStateChanged -= OnCacheStateChanged;
+        EnvState.Changed -= OnEnvStateChanged;
+    }
+}

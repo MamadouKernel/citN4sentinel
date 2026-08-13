@@ -20,7 +20,7 @@ else
 {
     <div class="space-y-6">
         <div>
-            <a href="@($"/admin/environnements/{_c.EnvironmentId}")" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+            <a href="@($"/admin/environnements/{_c.EnvironmentId}")" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
                 <i class="bi bi-arrow-left"></i> Retour à @_c.Environment?.Code
             </a>
             <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_c.LogicalName</h1>
@@ -30,7 +30,7 @@ else
             <!-- Left Column: Component Identification -->
             <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
                 <h3 class="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
-                    <i class="bi bi-card-heading text-sky-400"></i>
+                    <i class="bi bi-card-heading text-theme-primary"></i>
                     Identification & Paramètres
                 </h3>
 

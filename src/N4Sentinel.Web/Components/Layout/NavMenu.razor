@@ -1,123 +1,210 @@
 @implements IDisposable
 @using N4Sentinel.Domain
+@using N4Sentinel.Web.Components.Shared
+@using N4Sentinel.Web.State
 
 @inject NavigationManager NavigationManager
+@inject CurrentEnvironmentState EnvState
 
-<div class="flex flex-col h-full py-4 bg-slate-900 border-r border-slate-800/60">
-    <!-- Brand Header -->
-    <div class="px-5 mb-6 flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-theme-gradient text-white flex items-center justify-center shadow-lg glow-theme text-lg flex-shrink-0">
-            <i class="bi bi-shield-check"></i>
-        </div>
-        <div class="overflow-hidden">
-            <h2 class="text-base font-extrabold text-white tracking-tight leading-none mb-1">N4 Sentinel</h2>
-            <span class="text-xs text-slate-400 font-medium">CIT Supervision N4</span>
-        </div>
-    </div>
-
-    <div class="px-4 mb-4">
-        <div class="h-px bg-slate-800"></div>
-    </div>
-
-    <!-- Navigation Menu Items -->
-    <nav class="flex-1 px-3 space-y-6 overflow-y-auto">
-        <div>
-            <div class="px-3 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Vue Générale
+<div class="w-full px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
+    <!-- Left Section: Brand Logo & Title -->
+    <div class="flex items-center gap-3 shrink-0">
+        <a href="" class="flex items-center gap-3 group">
+            <div class="w-10 h-10 rounded-2xl bg-theme-gradient text-white flex items-center justify-center shadow-lg glow-theme text-lg font-bold group-hover:scale-105 transition-transform">
+                <i class="bi bi-shield-check"></i>
             </div>
-            
-            <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all duration-150" href="" Match="NavLinkMatch.All">
-                <i class="bi bi-grid-1x2-fill text-theme-primary text-base"></i>
-                <span>Tableau de bord</span>
-            </NavLink>
+            <div class="hidden sm:block">
+                <h2 class="text-base font-black text-white tracking-tight leading-none mb-0.5">N4 Sentinel</h2>
+                <span class="text-[11px] text-slate-400 font-medium">CIT Supervision N4</span>
+            </div>
+        </a>
+
+        <!-- Environment Badge Indicator -->
+        <div class="hidden md:flex items-center pl-2 border-l border-slate-800">
+            @if (EnvState.Current is { } env)
+            {
+                @if (env.IsProduction)
+                {
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-500/15 text-rose-300 border border-rose-500/40 shadow-sm"
+                          title="Vous travaillez sur la Production. Toute action mutative y a un impact immédiat.">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>PROD &middot; @env.Code</span>
+                    </span>
+                }
+                else
+                {
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/10 text-sky-300 border border-sky-500/25 shadow-sm"
+                          title="@env.Name">
+                        <i class="bi bi-hdd-stack"></i>
+                        <span>@env.Kind &middot; @env.Code</span>
+                    </span>
+                }
+            }
+            else
+            {
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-900 text-slate-400 border border-slate-800">
+                    <i class="bi bi-dash-circle"></i>
+                    <span>Aucun env.</span>
+                </span>
+            }
         </div>
+    </div>
+
+    <!-- Center Section: Horizontal Navigation Links (Desktop) -->
+    <nav class="hidden lg:flex items-center gap-1.5 font-semibold text-xs">
+        <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="" Match="NavLinkMatch.All">
+            <i class="bi bi-grid-1x2-fill text-theme-primary text-sm"></i>
+            <span>Tableau de bord</span>
+        </NavLink>
+
+        <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="supervision">
+            <i class="bi bi-activity text-theme-primary text-sm"></i>
+            <span>Supervision Temps Réel</span>
+        </NavLink>
 
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
-            <div>
-                <div class="px-3 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Référentiel Technique
-                </div>
-                
-                <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all duration-150" href="admin/environnements">
-                    <i class="bi bi-hdd-stack-fill text-emerald-400 text-base"></i>
-                    <span>Environnements</span>
-                </NavLink>
-            </div>
+            <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="admin/environnements">
+                <i class="bi bi-hdd-stack-fill text-theme-primary text-sm"></i>
+                <span>Environnements</span>
+            </NavLink>
         </AuthorizeView>
 
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
-            <div>
-                <div class="px-3 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Sécurité & Traçabilité
-                </div>
-                
-                <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all duration-150" href="admin/audit">
-                    <i class="bi bi-journal-text text-amber-400 text-base"></i>
-                    <span>Journal d'audit</span>
-                </NavLink>
-            </div>
+            <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="admin/audit">
+                <i class="bi bi-journal-text text-theme-primary text-sm"></i>
+                <span>Journal d'audit</span>
+            </NavLink>
         </AuthorizeView>
     </nav>
 
-    <!-- User Profile Footer Card -->
-    <div class="px-3 mt-auto pt-4">
-        <div class="h-px bg-slate-800 mb-4"></div>
+    <!-- Right Section: Theme Selector & User Profile Dropdown -->
+    <div class="flex items-center gap-3">
+        <!-- Theme Selector -->
+        <ThemeSelector />
+
+        <!-- User Authentication Control -->
         <AuthorizeView>
             <Authorized>
-                <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
-                    <div class="flex items-center gap-3 mb-3">
-                        <div class="w-8 h-8 rounded-lg bg-theme-gradient text-white flex items-center justify-center font-bold text-xs shadow">
-                            @(context.User.Identity?.Name?.Substring(0, 1).ToUpper() ?? "U")
-                        </div>
-                        <div class="min-w-0 flex-1">
-                            <div class="text-xs font-bold text-white truncate">@context.User.Identity?.Name</div>
-                            <div class="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                                Active
-                            </div>
+                <div class="hidden sm:flex items-center gap-2.5 pl-3 border-l border-slate-800">
+                    <div class="w-8 h-8 rounded-xl bg-theme-gradient text-white flex items-center justify-center font-bold text-xs shadow-md glow-theme">
+                        @(context.User.Identity?.Name?.Substring(0, 1).ToUpper() ?? "U")
+                    </div>
+                    <div class="hidden xl:block text-left">
+                        <div class="text-xs font-bold text-white leading-none">@context.User.Identity?.Name</div>
+                        <div class="text-[10px] text-emerald-400 font-medium flex items-center gap-1 mt-0.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Connecté
                         </div>
                     </div>
-
-                    <div class="grid grid-cols-2 gap-1.5">
-                        <a href="Account/Manage" class="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition">
-                            <i class="bi bi-gear-fill text-slate-400"></i> Profil
-                        </a>
-                        <form action="Account/Logout" method="post">
-                            <AntiforgeryToken />
-                            <input type="hidden" name="ReturnUrl" value="@currentUrl" />
-                            <button type="submit" class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 transition">
-                                <i class="bi bi-box-arrow-right"></i> Sortie
-                            </button>
-                        </form>
-                    </div>
+                    <a href="Account/Manage" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition" title="Gérer le profil">
+                        <i class="bi bi-gear-fill text-sm"></i>
+                    </a>
+                    <form action="Account/Logout" method="post" class="inline">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                        <button type="submit" class="p-2 rounded-xl text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition" title="Se déconnecter">
+                            <i class="bi bi-box-arrow-right text-sm"></i>
+                        </button>
+                    </form>
                 </div>
             </Authorized>
             <NotAuthorized>
-                <a href="Account/Login" class="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-theme-gradient text-white font-semibold text-xs shadow-lg glow-theme transition">
-                    <i class="bi bi-box-arrow-in-right"></i> Se connecter
+                <a href="Account/Login" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-theme-gradient text-white font-bold text-xs shadow-lg glow-theme transition">
+                    <i class="bi bi-box-arrow-in-right"></i> Connexion
                 </a>
             </NotAuthorized>
         </AuthorizeView>
+
+        <!-- Mobile Hamburger Toggle Button -->
+        <button @onclick="ToggleMobileMenu" class="lg:hidden p-2 rounded-xl text-slate-300 hover:text-white bg-slate-900 border border-slate-800 transition">
+            <i class="bi @_mobileIcon text-lg"></i>
+        </button>
     </div>
 </div>
 
+<!-- Mobile Drawer Dropdown Menu -->
+@if (_mobileMenuOpen)
+{
+    <div class="lg:hidden px-4 py-3 bg-slate-950/95 border-b border-slate-800 space-y-2 text-xs font-bold animate-fadeIn">
+        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="" Match="NavLinkMatch.All" @onclick="CloseMobileMenu">
+            <i class="bi bi-grid-1x2-fill text-theme-primary text-base"></i>
+            <span>Tableau de bord</span>
+        </NavLink>
+
+        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="supervision" @onclick="CloseMobileMenu">
+            <i class="bi bi-activity text-theme-primary text-base"></i>
+            <span>Supervision Temps Réel</span>
+        </NavLink>
+
+        <AuthorizeView Policy="@N4Policies.PeutConsulter">
+            <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="admin/environnements" @onclick="CloseMobileMenu">
+                <i class="bi bi-hdd-stack-fill text-theme-primary text-base"></i>
+                <span>Environnements</span>
+            </NavLink>
+        </AuthorizeView>
+
+        <AuthorizeView Policy="@N4Policies.PeutAuditer">
+            <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="admin/audit" @onclick="CloseMobileMenu">
+                <i class="bi bi-journal-text text-theme-primary text-base"></i>
+                <span>Journal d'audit</span>
+            </NavLink>
+        </AuthorizeView>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                    <a href="Account/Manage" class="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-bold" @onclick="CloseMobileMenu">
+                        <i class="bi bi-gear-fill"></i> Mon Profil
+                    </a>
+                    <form action="Account/Logout" method="post" class="inline">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                        <button type="submit" class="flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 font-bold">
+                            <i class="bi bi-box-arrow-right"></i> Se déconnecter
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+}
+
 @code {
     private string? currentUrl;
+    private bool _mobileMenuOpen;
+    private string _mobileIcon => _mobileMenuOpen ? "bi-x-lg" : "bi-list";
 
     protected override void OnInitialized()
     {
         currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
         NavigationManager.LocationChanged += OnLocationChanged;
+        EnvState.Changed += OnEnvStateChanged;
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        _mobileMenuOpen = false;
         StateHasChanged();
+    }
+
+    private void OnEnvStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleMobileMenu()
+    {
+        _mobileMenuOpen = !_mobileMenuOpen;
+    }
+
+    private void CloseMobileMenu()
+    {
+        _mobileMenuOpen = false;
     }
 
     public void Dispose()
     {
         NavigationManager.LocationChanged -= OnLocationChanged;
+        EnvState.Changed -= OnEnvStateChanged;
     }
 }

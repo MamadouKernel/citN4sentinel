@@ -1,0 +1,323 @@
+@page "/supervision"
+@implements IDisposable
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+
+@inject SupervisionStateCache SupervisionCache
+@* Nom volontairement distinct du composant : en C#, un membre ne peut pas
+   porter le nom de son type englobant, et ce fichier genere la classe
+   Supervision. *@
+@inject SupervisionService SupervisionMoteur
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+
+<PageTitle>Supervision Temps Réel — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <!-- Header Banner -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <div class="flex items-center gap-2">
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Supervision Temps Réel</h1>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE
+                </span>
+            </div>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1">État réel des serveurs, services Windows et preuves d'initialisation dans les journaux applicatifs</p>
+        </div>
+
+        <!-- Filter & Refresh & View Switcher -->
+        <div class="flex flex-wrap items-center gap-3">
+            <!-- View Mode Switcher -->
+            <div class="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                <button type="button" @onclick='() => _viewMode = "tableau"'
+                        class="px-3 py-1.5 rounded-lg font-semibold transition @(_viewMode == "tableau" ? "bg-theme-gradient text-white shadow-sm" : "text-slate-400 hover:text-white")">
+                    <i class="bi bi-table"></i> Tableau
+                </button>
+                <button type="button" @onclick='() => _viewMode = "topologie"'
+                        class="px-3 py-1.5 rounded-lg font-semibold transition @(_viewMode == "topologie" ? "bg-theme-gradient text-white shadow-sm" : "text-slate-400 hover:text-white")">
+                    <i class="bi bi-diagram-3-fill"></i> Schéma Topologique N4
+                </button>
+            </div>
+
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_selectedEnvCode" @bind:after="OnFilterChanged">
+                <option value="">Tous les environnements</option>
+
+                @if (_environnements is not null)
+                {
+                    @foreach (var env in _environnements)
+                    {
+                        <option value="@env.Code">@env.Code — @env.Name</option>
+                    }
+                }
+            </select>
+
+            <button @onclick="RefreshAllAsync" disabled="@_isRefreshing"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-50">
+                <i class="bi bi-arrow-clockwise text-sm @(_isRefreshing ? "animate-spin" : "")"></i>
+                <span>Rafraîchir</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary KPI Grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="glass-card p-4 rounded-xl border border-slate-800">
+            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total</div>
+            <div class="text-xl font-extrabold text-white">@_summary.Total</div>
+        </div>
+
+        <div class="glass-card p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+            <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1">Disponible</div>
+            <div class="text-xl font-extrabold text-emerald-400">@_summary.Disponible</div>
+        </div>
+
+        <div class="glass-card p-4 rounded-xl border border-sky-500/30 bg-sky-500/5">
+            <div class="text-[10px] font-bold text-sky-400 uppercase tracking-wider mb-1">Démarrage</div>
+            <div class="text-xl font-extrabold text-sky-400">@_summary.Demarrage</div>
+        </div>
+
+        <div class="glass-card p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
+            <div class="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">Dégradé</div>
+            <div class="text-xl font-extrabold text-amber-400">@_summary.Degrade</div>
+        </div>
+
+        <div class="glass-card p-4 rounded-xl border border-rose-500/30 bg-rose-500/5">
+            <div class="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-1">Indisponible</div>
+            <div class="text-xl font-extrabold text-rose-400">@_summary.Indisponible</div>
+        </div>
+
+        <div class="glass-card p-4 rounded-xl border border-slate-700 bg-slate-800/20">
+            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">À l'arrêt</div>
+            <div class="text-xl font-extrabold text-slate-300">@_summary.Arret</div>
+        </div>
+    </div>
+
+    @if (_viewMode == "topologie")
+    {
+        <N4TopologyDiagram EnvironmentId="@_selectedEnvId" />
+    }
+    else
+    {
+        <!-- Main Components State Table -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-activity text-sky-400"></i>
+                    Matrice des Composants
+                </h3>
+                <span class="text-xs text-slate-400">Dernière évaluation : @DateTime.Now.ToString("HH:mm:ss")</span>
+            </div>
+
+        <div class="overflow-x-auto">
+            @if (_snapshots.Count == 0)
+            {
+                <div class="p-12 text-center text-slate-400 text-xs space-y-3">
+                    <i class="bi bi-hdd-network text-4xl text-slate-600 block"></i>
+                    <div>Aucune donnée de supervision disponible pour ce filtre.</div>
+                    <div class="text-slate-500">Assurez-vous que l'environnement contient des composants et qu'il est activé.</div>
+                </div>
+            }
+            else
+            {
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                        <tr>
+                            <th class="py-3 px-4 font-bold">Composant & Rôle</th>
+                            <th class="py-3 px-4 font-bold">Env</th>
+                            <th class="py-3 px-4 font-bold">Serveur Hôte</th>
+                            <th class="py-3 px-4 font-bold">État Consolidé</th>
+                            <th class="py-3 px-4 font-bold">Service Windows</th>
+                            <th class="py-3 px-4 font-bold">Preuve de Journal</th>
+                            <th class="py-3 px-4 font-bold">Verdict</th>
+                            <th class="py-3 px-4 font-bold text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        @foreach (var snap in _snapshots)
+                        {
+                            <tr class="hover:bg-slate-800/40 transition">
+                                <td class="py-3.5 px-4">
+                                    <div class="font-bold text-white flex items-center gap-2">
+                                        <span>@snap.LogicalName</span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 font-mono mt-0.5">@snap.Role</div>
+                                </td>
+
+                                <td class="py-3.5 px-4 font-mono font-bold text-slate-300">
+                                    <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700">@snap.EnvironmentCode</span>
+                                </td>
+
+                                <td class="py-3.5 px-4 font-mono text-slate-300">
+                                    @snap.HostName
+                                </td>
+
+                                <td class="py-3.5 px-4 whitespace-nowrap">
+                                    @switch (snap.State)
+                                    {
+                                        case ComponentState.Disponible:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 w-max">
+                                                <i class="bi bi-check-circle-fill"></i> Disponible
+                                            </span>
+                                            break;
+                                        case ComponentState.Demarrage:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center gap-1.5 w-max animate-pulse">
+                                                <i class="bi bi-hourglass-split"></i> En Démarrage
+                                            </span>
+                                            break;
+                                        case ComponentState.Degrade:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 w-max">
+                                                <i class="bi bi-exclamation-triangle-fill"></i> Dégradé
+                                            </span>
+                                            break;
+                                        case ComponentState.Indisponible:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1.5 w-max">
+                                                <i class="bi bi-x-circle-fill"></i> Indisponible
+                                            </span>
+                                            break;
+                                        case ComponentState.Arret:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5 w-max">
+                                                <i class="bi bi-stop-circle"></i> À l'arrêt
+                                            </span>
+                                            break;
+                                        default:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800/80 text-slate-400 border border-slate-700/80">
+                                                @snap.State
+                                            </span>
+                                            break;
+                                    }
+                                </td>
+
+                                <td class="py-3.5 px-4">
+                                    <div class="font-mono text-xs">@snap.ServiceStatus</div>
+                                    @if (snap.ProcessId.HasValue)
+                                    {
+                                        <div class="text-[10px] text-slate-400 font-mono">PID: @snap.ProcessId</div>
+                                    }
+                                </td>
+
+                                <td class="py-3.5 px-4">
+                                    @switch (snap.LogProofStatus)
+                                    {
+                                        case LogProofState.Proved:
+                                            <span class="text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
+                                                <i class="bi bi-file-earmark-check-fill"></i> Confirmé
+                                            </span>
+                                            break;
+                                        case LogProofState.WaitingForProof:
+                                            <span class="text-sky-400 font-semibold text-[11px] flex items-center gap-1">
+                                                <i class="bi bi-clock-history"></i> En attente du marqueur
+                                            </span>
+                                            break;
+                                        case LogProofState.ErrorDetected:
+                                            <span class="text-rose-400 font-semibold text-[11px] flex items-center gap-1">
+                                                <i class="bi bi-file-earmark-x-fill"></i> Erreur log détectée
+                                            </span>
+                                            break;
+                                        default:
+                                            <span class="text-slate-500 text-[11px]">À confirmer / N/A</span>
+                                            break;
+                                    }
+                                </td>
+
+                                <td class="py-3.5 px-4 max-w-xs truncate text-[11px] text-slate-300">
+                                    @snap.Verdict
+                                </td>
+
+                                <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                                    <button @onclick="() => EvaluateSingleAsync(snap.ComponentId)"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-[11px] transition">
+                                        <i class="bi bi-arrow-repeat"></i>
+                                        <span>Tester</span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment>? _environnements;
+    private string _selectedEnvCode = string.Empty;
+    private Guid? _selectedEnvId = null;
+    private string _viewMode = "topologie";
+    private List<ComponentHealthSnapshot> _snapshots = [];
+    private StateSummary _summary = new();
+    private bool _isRefreshing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        SupervisionCache.OnStateChanged += HandleStateChanged;
+        LoadSnapshots();
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            LoadSnapshots();
+            StateHasChanged();
+        });
+    }
+
+    private void OnFilterChanged()
+    {
+        LoadSnapshots();
+    }
+
+    private void LoadSnapshots()
+    {
+        _snapshots = string.IsNullOrWhiteSpace(_selectedEnvCode)
+            ? SupervisionCache.GetAllSnapshots().ToList()
+            : SupervisionCache.GetSnapshotsForEnvironment(_selectedEnvCode).ToList();
+
+        _summary = SupervisionCache.GetSummary(_selectedEnvCode);
+    }
+
+    private async Task RefreshAllAsync()
+    {
+        _isRefreshing = true;
+        try
+        {
+            if (_environnements is not null)
+            {
+                foreach (var env in _environnements)
+                {
+                    var components = await Referential.GetComponentsAsync(env.Id);
+                    foreach (var comp in components)
+                    {
+                        var snap = await SupervisionMoteur.EvaluateComponentAsync(comp.Id);
+                        SupervisionCache.UpdateSnapshot(snap);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _isRefreshing = false;
+            LoadSnapshots();
+        }
+    }
+
+    private async Task EvaluateSingleAsync(Guid componentId)
+    {
+        var snap = await SupervisionMoteur.EvaluateComponentAsync(componentId);
+        SupervisionCache.UpdateSnapshot(snap);
+    }
+
+    public void Dispose()
+    {
+        SupervisionCache.OnStateChanged -= HandleStateChanged;
+    }
+}

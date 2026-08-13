@@ -1,17 +1,29 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @layout N4Sentinel.Web.Components.Layout.MainLayout
 
-<h1>Manage your account</h1>
-
-<div>
-    <h2>Change your account settings</h2>
-    <hr />
-    <div class="row">
-        <div class="col-lg-3">
-            <ManageNavMenu />
+<div class="space-y-6">
+    <!-- Header Banner -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800/80 pb-5">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Gestion du Compte & Sécurité</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1">Gérez vos identifiants, votre mot de passe et vos paramètres d'authentification sécurisés.</p>
         </div>
-        <div class="col-lg-9">
-            @Body
+    </div>
+
+    <!-- Main Settings Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <!-- Account Sub-Navigation Tabs -->
+        <div class="lg:col-span-1">
+            <div class="glass-card rounded-2xl border border-slate-800 p-3">
+                <ManageNavMenu />
+            </div>
+        </div>
+
+        <!-- Setting Content Panel -->
+        <div class="lg:col-span-3">
+            <div class="glass-card rounded-2xl border border-slate-800 p-6 sm:p-8">
+                @Body
+            </div>
         </div>
     </div>
 </div>

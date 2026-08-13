@@ -270,4 +270,65 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
             .Take(take)
             .ToListAsync(ct);
     }
+
+    public async Task SeedDefaultTopologyForEnvironmentAsync(Guid environmentId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var env = await db.Environments.FirstOrDefaultAsync(e => e.Id == environmentId, ct);
+        if (env is null) return;
+
+        if (await db.Components.AnyAsync(c => c.EnvironmentId == environmentId, ct)) return;
+
+        var prefix = env.Code.Replace("-", "").ToUpperInvariant();
+        var srvApp1 = new N4Server { EnvironmentId = env.Id, HostName = $"{prefix}-APP01", IpAddress = "10.150.10.11", OperatingSystem = "Windows Server 2022 Datacenter", Status = LifecycleStatus.Actif };
+        var srvApp2 = new N4Server { EnvironmentId = env.Id, HostName = $"{prefix}-APP02", IpAddress = "10.150.10.12", OperatingSystem = "Windows Server 2022 Datacenter", Status = LifecycleStatus.Actif };
+        var srvDb1 = new N4Server { EnvironmentId = env.Id, HostName = $"{prefix}-DB01", IpAddress = "10.150.10.21", OperatingSystem = "Windows Server 2022 Datacenter", Status = LifecycleStatus.Actif };
+        var srvDb2 = new N4Server { EnvironmentId = env.Id, HostName = $"{prefix}-DB02", IpAddress = "10.150.10.22", OperatingSystem = "Windows Server 2022 Datacenter", Status = LifecycleStatus.Actif };
+        var srvCenter = new N4Server { EnvironmentId = env.Id, HostName = $"{prefix}-MASTER", IpAddress = "10.150.10.30", OperatingSystem = "Windows Server 2022 Datacenter", Status = LifecycleStatus.Actif };
+        var srvXps = new N4Server { EnvironmentId = env.Id, HostName = $"{prefix}-XPS01", IpAddress = "10.150.10.40", OperatingSystem = "Windows Server 2022 Datacenter", Status = LifecycleStatus.Actif };
+
+        db.Servers.AddRange(srvApp1, srvApp2, srvDb1, srvDb2, srvCenter, srvXps);
+        await db.SaveChangesAsync(ct);
+
+        var components = new List<N4Component>
+        {
+            // 1. CLUSTER NODES
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "Cluster Node 1", WindowsServiceName = "NavisN4Node1", Role = ComponentRole.ClusterNode, StartOrder = 1, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "Cluster Node 2", WindowsServiceName = "NavisN4Node2", Role = ComponentRole.ClusterNode, StartOrder = 2, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "Cluster Node 3", WindowsServiceName = "NavisN4Node3", Role = ComponentRole.ClusterNode, StartOrder = 3, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "Cluster Node 4", WindowsServiceName = "NavisN4Node4", Role = ComponentRole.ClusterNode, StartOrder = 4, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "Gate Node", WindowsServiceName = "NavisGateService", Role = ComponentRole.ClusterNode, StartOrder = 5, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "EDI Node", WindowsServiceName = "NavisEdiService", Role = ComponentRole.InterfaceEdi, StartOrder = 6, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "SmartAccess Node", WindowsServiceName = "NavisSmartAccess", Role = ComponentRole.ClusterNode, StartOrder = 7, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "Partenaire Externe", WindowsServiceName = "NavisExternalPartner", Role = ComponentRole.ClusterNode, StartOrder = 8, ControlMode = ControlMode.SuperviseSeulement },
+
+            // 2. CLUSTER DATABASE
+            new() { EnvironmentId = env.Id, ServerId = srvDb1.Id, LogicalName = "Database Host", WindowsServiceName = "MSSQLSERVER", Role = ComponentRole.BaseDeDonnees, StartOrder = 0, ControlMode = ControlMode.SuperviseSeulement },
+            new() { EnvironmentId = env.Id, ServerId = srvDb2.Id, LogicalName = "Database Host (Replicated)", WindowsServiceName = "MSSQLSERVER", Role = ComponentRole.BaseDeDonnees, StartOrder = 0, ControlMode = ControlMode.SuperviseSeulement },
+
+            // 3. MASTER / STANDBY NODE
+            new() { EnvironmentId = env.Id, ServerId = srvCenter.Id, LogicalName = "Master Node", WindowsServiceName = "NavisCenterMaster", Role = ComponentRole.CenterNode, StartOrder = 1, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvCenter.Id, LogicalName = "Standby Node", WindowsServiceName = "NavisCenterStandby", Role = ComponentRole.StandbyCenterNode, StartOrder = 2, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvCenter.Id, LogicalName = "Share Folder", WindowsServiceName = "LanmanServer", Role = ComponentRole.DossierPartage, StartOrder = 0, ControlMode = ControlMode.SuperviseSeulement },
+
+            // 4. MODULES XPS / ECN
+            new() { EnvironmentId = env.Id, ServerId = srvXps.Id, LogicalName = "XPS Server", WindowsServiceName = "XpsServerEngine", Role = ComponentRole.Xps, StartOrder = 10, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvXps.Id, LogicalName = "Docing", WindowsServiceName = "XpsDocingService", Role = ComponentRole.Xps, StartOrder = 11, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvXps.Id, LogicalName = "Dispatcher", WindowsServiceName = "XpsDispatcherService", Role = ComponentRole.Xps, StartOrder = 12, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvXps.Id, LogicalName = "ECN4", WindowsServiceName = "ECN4Service", Role = ComponentRole.Ecn4, StartOrder = 13, ControlMode = ControlMode.Pilotable },
+            new() { EnvironmentId = env.Id, ServerId = srvXps.Id, LogicalName = "ECN4 Web", WindowsServiceName = "W3SVC", Role = ComponentRole.Ecn4Web, StartOrder = 14, ControlMode = ControlMode.Pilotable },
+
+            // 5. INTERFACES & ÉCOSYSTÈME EXTERNE
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "Gate Operating System (GOS)", WindowsServiceName = "GosConnector", Role = ComponentRole.SystemeExterne, StartOrder = 20, ControlMode = ControlMode.SuperviseSeulement },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "Server SFTP (EDI)", WindowsServiceName = "SftpEdiService", Role = ComponentRole.SystemeExterne, StartOrder = 21, ControlMode = ControlMode.SuperviseSeulement },
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "Billing System (IKOS)", WindowsServiceName = "IkosConnector", Role = ComponentRole.SystemeExterne, StartOrder = 22, ControlMode = ControlMode.SuperviseSeulement },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "Vehicle Booking system", WindowsServiceName = "VbsConnector", Role = ComponentRole.SystemeExterne, StartOrder = 23, ControlMode = ControlMode.SuperviseSeulement },
+            new() { EnvironmentId = env.Id, ServerId = srvApp1.Id, LogicalName = "Hyperion", WindowsServiceName = "HyperionConnector", Role = ComponentRole.SystemeExterne, StartOrder = 24, ControlMode = ControlMode.SuperviseSeulement },
+            new() { EnvironmentId = env.Id, ServerId = srvApp2.Id, LogicalName = "Reefer Runner", WindowsServiceName = "ReeferConnector", Role = ComponentRole.SystemeExterne, StartOrder = 25, ControlMode = ControlMode.SuperviseSeulement }
+        };
+
+        db.Components.AddRange(components);
+        await db.SaveChangesAsync(ct);
+    }
 }

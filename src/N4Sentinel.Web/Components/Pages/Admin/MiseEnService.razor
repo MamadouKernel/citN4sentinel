@@ -21,12 +21,12 @@ else
 
         <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div>
-                <a href="@($"/admin/environnements/{Id}")" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+                <a href="@($"/admin/environnements/{Id}")" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
                     <i class="bi bi-arrow-left"></i> Retour à l'environnement
                 </a>
                 <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
                     Mise en service
-                    <span class="font-mono text-sky-400">@_r.EnvironmentCode</span>
+                    <span class="font-mono text-theme-primary">@_r.EnvironmentCode</span>
                     @if (_r.IsProduction)
                     {
                         <span class="px-2 py-0.5 rounded text-xs font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30">PROD</span>

@@ -98,6 +98,7 @@ public sealed class ServerProbeTests : IAsyncLifetime
         if (Directory.Exists(_keyPath))
             try { Directory.Delete(_keyPath, recursive: true); } catch { }
 
+        Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
         await using var master = new Microsoft.Data.SqlClient.SqlConnection(MasterConnection);
         await master.OpenAsync();
         var cmd = master.CreateCommand();
