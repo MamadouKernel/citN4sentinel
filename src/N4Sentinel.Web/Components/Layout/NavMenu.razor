@@ -62,6 +62,11 @@
             <span>Supervision Temps Réel</span>
         </NavLink>
 
+        <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="alertes">
+            <i class="bi bi-bell-fill text-amber-400 text-sm"></i>
+            <span>Alertes</span>
+        </NavLink>
+
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
             <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="admin/environnements">
                 <i class="bi bi-hdd-stack-fill text-theme-primary text-sm"></i>
@@ -133,6 +138,11 @@
         <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="supervision" @onclick="CloseMobileMenu">
             <i class="bi bi-activity text-theme-primary text-base"></i>
             <span>Supervision Temps Réel</span>
+        </NavLink>
+
+        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="alertes" @onclick="CloseMobileMenu">
+            <i class="bi bi-bell-fill text-amber-400 text-base"></i>
+            <span>Alertes</span>
         </NavLink>
 
         <AuthorizeView Policy="@N4Policies.PeutConsulter">

@@ -4,7 +4,9 @@
 @using N4Sentinel.Infrastructure.Referential
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
+@using N4Sentinel.Infrastructure.Persistence
 @inject ReferentialService Referential
+@inject DemonstrationSeeder Demonstration
 @inject NavigationManager Nav
 
 <PageTitle>Environnements — N4 Sentinel</PageTitle>
@@ -43,6 +45,21 @@
             <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
                 Commencez par créer l'environnement UAT ou PROD, puis importez l'inventaire depuis le fichier <code class="text-sky-400">Navis-Config.json</code>.
             </p>
+
+            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                <div class="pt-3 border-t border-slate-800 mt-4 space-y-2">
+                    <p class="text-[11px] text-slate-500 max-w-md mx-auto leading-relaxed">
+                        Pour découvrir l'application sans rien saisir, créez l'environnement de
+                        démonstration : huit composants et leurs dépendances, pointés sur le simulateur
+                        local. Il est de type Test et ne peut atteindre aucun serveur réel.
+                    </p>
+                    <button class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition"
+                            @onclick="CreerDemonstration" disabled="@_demoEnCours">
+                        <i class="bi bi-magic"></i>
+                        <span>@(_demoEnCours ? "Création..." : "Créer l'environnement de démonstration")</span>
+                    </button>
+                </div>
+            </AuthorizeView>
         </div>
     }
     else
@@ -192,6 +209,32 @@
     private N4Environment? _edition;
     private bool _estNouveau;
     private string? _erreur;
+    private bool _demoEnCours;
+
+    /// <summary>
+    /// Crée l'environnement de démonstration pointé sur le simulateur.
+    /// Il naît en Brouillon : aucune opération n'y est possible tant qu'il
+    /// n'a pas suivi le cycle de validation, comme n'importe quel autre.
+    /// </summary>
+    private async Task CreerDemonstration()
+    {
+        _demoEnCours = true;
+        _erreur = null;
+        try
+        {
+            var id = await Demonstration.SeedAsync();
+            if (id is null) _erreur = "L'environnement de démonstration existe déjà.";
+            await Recharger();
+        }
+        catch (Exception ex)
+        {
+            _erreur = $"Création impossible : {ex.InnerException?.Message ?? ex.Message}";
+        }
+        finally
+        {
+            _demoEnCours = false;
+        }
+    }
 
     protected override async Task OnInitializedAsync() => await Recharger();
 

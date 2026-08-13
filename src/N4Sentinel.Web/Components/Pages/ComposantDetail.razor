@@ -1,0 +1,273 @@
+@page "/supervision/composants/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject SupervisionService Moteur
+@inject ReferentialService Referential
+@inject AlertService Alerts
+
+<PageTitle>@(_c?.LogicalName ?? "Composant") — Supervision</PageTitle>
+
+@if (_c is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement...</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div>
+                <a href="/supervision" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour à la supervision
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_c.LogicalName</h1>
+                <div class="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
+                    <span class="font-mono">@_c.Role</span>
+                    <span>&middot; @(_c.Server?.HostName ?? "aucun serveur")</span>
+                    <span>&middot; @(_c.Environment?.Code ?? "")</span>
+                    <StatutBadge Statut="_c.Status" />
+                </div>
+            </div>
+
+            <div class="flex gap-2 flex-wrap">
+                <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition disabled:opacity-50 inline-flex items-center gap-2"
+                        @onclick="Evaluer" disabled="@_enCours">
+                    <i class="bi bi-arrow-clockwise @(_enCours ? "animate-spin" : "")"></i>
+                    <span>@(_enCours ? "Évaluation..." : "Réévaluer")</span>
+                </button>
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                    <a href="@($"/admin/composants/{Id}")" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition inline-flex items-center gap-2">
+                        <i class="bi bi-pencil"></i> Configurer
+                    </a>
+                </AuthorizeView>
+            </div>
+        </div>
+
+        @if (_s is not null)
+        {
+            <!-- État consolidé -->
+            <div class="glass-card rounded-2xl border p-6 @BordureEtat(_s.State)">
+                <div class="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">État consolidé</div>
+                        <div class="text-3xl font-extrabold @TexteEtat(_s.State)">@_s.State</div>
+                        <p class="text-xs text-slate-400 mt-2 max-w-2xl leading-relaxed">@_s.Verdict</p>
+                    </div>
+                    <div class="text-right text-[11px] text-slate-500 font-mono">
+                        <div>évalué à @_s.EvaluatedAt.ToLocalTime().ToString("HH:mm:ss")</div>
+                        <div class="mt-0.5">@(_c.StartOrder > 0 ? $"ordre de démarrage {_c.StartOrder}" : "hors séquence")</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <!-- Preuve faible : le service Windows -->
+                <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+                        <i class="bi bi-gear-fill text-slate-400"></i> Service Windows
+                        <span class="ml-auto text-[10px] font-normal text-slate-500 normal-case">preuve faible</span>
+                    </h3>
+
+                    <p class="text-[11px] text-slate-500 leading-relaxed">
+                        Un service « Running » signifie que Windows a lancé le processus. Il ne dit rien
+                        de la JVM, qui peut encore charger sa configuration pendant plusieurs minutes.
+                    </p>
+
+                    <dl class="space-y-2 text-xs">
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-slate-400">Nom déclaré</dt>
+                            <dd class="font-mono text-white text-right">@(_c.WindowsServiceName ?? "—")</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-slate-400">Statut</dt>
+                            <dd class="font-mono @(_s.ServiceStatus == "Running" ? "text-emerald-400" : "text-slate-300")">@_s.ServiceStatus</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-slate-400">Processus</dt>
+                            <dd class="font-mono text-slate-300">@(_s.ProcessId?.ToString() ?? "—")</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="text-slate-400">Mémoire de travail</dt>
+                            <dd class="font-mono text-slate-300">
+                                @(_s.WorkingSetBytes is { } w ? $"{w / 1048576.0:0} Mo" : "—")
+                            </dd>
+                        </div>
+                    </dl>
+                </div>
+
+                <!-- Preuve réelle : le journal -->
+                <div class="glass-card rounded-2xl border p-6 space-y-4 @BordurePreuve(_s.LogProofStatus)">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+                        <i class="bi bi-file-earmark-text-fill text-amber-400"></i> Preuve par le journal
+                        <span class="ml-auto text-[10px] font-normal text-slate-500 normal-case">preuve réelle</span>
+                    </h3>
+
+                    <div class="flex items-center gap-2">
+                        <span class="px-2.5 py-1 rounded-full text-[11px] font-bold @PastillePreuve(_s.LogProofStatus)">
+                            @LibellePreuve(_s.LogProofStatus)
+                        </span>
+                    </div>
+
+                    <dl class="space-y-2 text-xs">
+                        <div>
+                            <dt class="text-slate-400 mb-0.5">Journal analysé</dt>
+                            <dd class="font-mono text-[11px] text-slate-300 break-all">@(_s.LogPathResolved ?? _c.Readiness.LogPath ?? "aucun chemin configuré")</dd>
+                        </div>
+                        @if (_s.MatchedPattern is not null)
+                        {
+                            <div>
+                                <dt class="text-slate-400 mb-0.5">Marqueur reconnu</dt>
+                                <dd class="font-mono text-[11px] text-emerald-400 break-all">@_s.MatchedPattern</dd>
+                            </div>
+                        }
+                    </dl>
+
+                    @if (!_c.Readiness.IsProvable)
+                    {
+                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
+                            Aucun marqueur n'est configuré : l'état de ce composant ne pourra jamais être
+                            prouvé, et aucune séquence ne pourra conclure à son sujet.
+                            <a href="@($"/admin/composants/{Id}/marqueurs")" class="underline font-semibold">Relever le marqueur</a>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Horloge -->
+            @if (_s.ClockSkewSeconds is { } skew)
+            {
+                <div class="glass-card rounded-2xl border p-5 @(Math.Abs(skew) >= 1 ? "border-amber-500/25" : "border-slate-800")">
+                    <div class="flex items-center justify-between gap-4 flex-wrap">
+                        <div class="flex items-center gap-3">
+                            <i class="bi bi-clock-history text-lg @(Math.Abs(skew) >= 1 ? "text-amber-400" : "text-slate-400")"></i>
+                            <div>
+                                <div class="text-sm font-bold text-white">Écart d'horloge : @skew.ToString("+0.00;-0.00;0") s</div>
+                                <div class="text-[11px] text-slate-400">
+                                    @(Math.Abs(skew) >= 1
+                                        ? "Au-delà d'une seconde, N4 produit des statuts DISCONNECTED trompeurs."
+                                        : "Horloge synchronisée avec celle de N4 Sentinel.")
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- Alertes de ce composant -->
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-bell-fill text-amber-400"></i> Alertes ouvertes (@_alertes.Count)
+                    </h3>
+                    <a href="/alertes" class="text-xs text-theme-primary hover:underline">Toutes les alertes</a>
+                </div>
+                <div class="p-5 text-xs">
+                    @if (_alertes.Count == 0)
+                    {
+                        <p class="text-slate-400">Aucune alerte ouverte sur ce composant.</p>
+                    }
+                    else
+                    {
+                        <div class="space-y-2">
+                            @foreach (var a in _alertes)
+                            {
+                                <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                                    <div class="flex items-start justify-between gap-3 flex-wrap">
+                                        <span class="font-semibold text-white">@a.Title</span>
+                                        <span class="text-[10px] font-mono text-slate-500">@a.OccurrenceCount observation(s)</span>
+                                    </div>
+                                    <p class="text-slate-400 mt-1">@a.Detail</p>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private N4Component? _c;
+    private ComponentHealthSnapshot? _s;
+    private List<Alert> _alertes = [];
+    private bool _enCours;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _c = await Referential.GetComponentAsync(Id);
+        if (_c is not null) await Evaluer();
+    }
+
+    private async Task Evaluer()
+    {
+        _enCours = true;
+        try
+        {
+            _s = await Moteur.EvaluateComponentAsync(Id);
+
+            if (_c?.EnvironmentId is { } envId)
+            {
+                var toutes = await Alerts.GetOpenAsync(envId);
+                _alertes = toutes.Where(a => a.ComponentId == Id).ToList();
+            }
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    private static string BordureEtat(ComponentState e) => e switch
+    {
+        ComponentState.Disponible => "border-emerald-500/30",
+        ComponentState.Degrade => "border-amber-500/30",
+        ComponentState.Indisponible => "border-rose-500/30",
+        ComponentState.Demarrage => "border-sky-500/30",
+        _ => "border-slate-800"
+    };
+
+    private static string TexteEtat(ComponentState e) => e switch
+    {
+        ComponentState.Disponible => "text-emerald-400",
+        ComponentState.Degrade => "text-amber-400",
+        ComponentState.Indisponible => "text-rose-400",
+        ComponentState.Demarrage => "text-sky-400",
+        _ => "text-slate-400"
+    };
+
+    private static string BordurePreuve(LogProofState p) => p switch
+    {
+        LogProofState.Proved => "border-emerald-500/25",
+        LogProofState.ErrorDetected => "border-rose-500/30",
+        LogProofState.WaitingForProof => "border-sky-500/25",
+        _ => "border-amber-500/25"
+    };
+
+    private static string PastillePreuve(LogProofState p) => p switch
+    {
+        LogProofState.Proved => "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25",
+        LogProofState.ErrorDetected => "bg-rose-500/15 text-rose-400 border border-rose-500/25",
+        LogProofState.WaitingForProof => "bg-sky-500/15 text-sky-400 border border-sky-500/25",
+        _ => "bg-amber-500/15 text-amber-400 border border-amber-500/25"
+    };
+
+    private static string LibellePreuve(LogProofState p) => p switch
+    {
+        LogProofState.Proved => "Démarrage prouvé",
+        LogProofState.ErrorDetected => "Signature d'échec relevée",
+        LogProofState.WaitingForProof => "En attente du marqueur",
+        LogProofState.LogNotFound => "Journal introuvable",
+        _ => "Non prouvable"
+    };
+}

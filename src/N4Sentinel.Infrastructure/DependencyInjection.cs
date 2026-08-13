@@ -77,6 +77,7 @@ public static class DependencyInjection
             sp.GetRequiredService<IDbContextFactory<N4SentinelDbContext>>().CreateDbContext());
 
         services.AddScoped<DatabaseSeeder>();
+        services.AddScoped<DemonstrationSeeder>();
         services.AddScoped<ReferentialService>();
         services.AddScoped<ConnectivityTester>();
         services.AddScoped<NavisConfigImporter>();
