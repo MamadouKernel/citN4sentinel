@@ -41,6 +41,18 @@ public class N4Environment : AuditableEntity
     public string? FunctionalOwner { get; set; }
 
     /// <summary>
+    /// Compte technique employe par defaut sur cet environnement. Chaque
+    /// serveur peut le surcharger via sa propre reference.
+    ///
+    /// Vide : connexion sous l'identite du processus applicatif - mode
+    /// recommande, puisqu'il n'y a alors aucun secret a proteger.
+    ///
+    /// La reference est portee ici plutot que le compte lui-meme, afin qu'un
+    /// changement de mot de passe n'oblige a rouvrir aucune fiche serveur.
+    /// </summary>
+    public string? DefaultCredentialReference { get; set; }
+
+    /// <summary>
     /// Vrai pour l'environnement de Production. Declenche l'affichage
     /// permanent de l'indicateur de Production et les regles renforcees :
     /// motif obligatoire, approbation prealable, double validation.

@@ -25,6 +25,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<ComponentDependency> ComponentDependencies => Set<ComponentDependency>();
     public DbSet<ComponentHealthCheck> ComponentHealthChecks => Set<ComponentHealthCheck>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<TechnicalCredential> Credentials => Set<TechnicalCredential>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -52,9 +53,40 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.Description).HasMaxLength(1000);
             e.Property(x => x.TechnicalOwner).HasMaxLength(150);
             e.Property(x => x.FunctionalOwner).HasMaxLength(150);
+            e.Property(x => x.DefaultCredentialReference).HasMaxLength(200);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.IsProduction);
             e.Ignore(x => x.IsOperable);
+        });
+
+        builder.Entity<TechnicalCredential>(e =>
+        {
+            e.ToTable("Credentials");
+
+            // La reference est unique dans un environnement, pas globalement :
+            // "compte-service-n4" peut designer un compte en UAT et un autre en
+            // Production, ce qui est precisement la separation attendue (SEC-004).
+            e.HasIndex(x => new { x.EnvironmentId, x.Reference }).IsUnique();
+
+            e.Property(x => x.Reference).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            e.Property(x => x.UserName).HasMaxLength(256);
+
+            // Le chiffre est nettement plus long que le clair : Data Protection
+            // ajoute en-tete, cle et signature.
+            e.Property(x => x.ProtectedPassword).HasMaxLength(4000);
+
+            e.Property(x => x.LastVerificationResult).HasMaxLength(400);
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.Ignore(x => x.IsUsable);
+            e.Ignore(x => x.SecretState);
+
+            e.HasOne(x => x.Environment)
+             .WithMany()
+             .HasForeignKey(x => x.EnvironmentId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<N4Server>(e =>

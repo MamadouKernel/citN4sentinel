@@ -6,6 +6,7 @@ using N4Sentinel.Infrastructure.Identity;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Web.Components;
 using N4Sentinel.Web.Components.Account;
+using Microsoft.AspNetCore.DataProtection;
 using N4Sentinel.Web.Security;
 using Serilog;
 
@@ -36,6 +37,29 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 // ---------------------------------------------------------------------------
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// ---------------------------------------------------------------------------
+// Protection des donnees : trousseau de cles du chiffrement des secrets
+// ---------------------------------------------------------------------------
+// Sans configuration explicite, ASP.NET Core range ses cles dans le profil de
+// l'utilisateur courant. Sous un compte de service dont le profil n'est pas
+// charge - cas d'un service Windows ou d'IIS -, elles sont regenerees a chaque
+// demarrage : les mots de passe des comptes techniques deviendraient alors
+// indechiffrables du jour au lendemain, sans message d'erreur explicite.
+//
+// On les persiste donc dans un dossier connu, chiffre par DPAPI a l'echelle
+// de la machine. CE DOSSIER DOIT ETRE SAUVEGARDE au meme titre que la base :
+// le perdre oblige a ressaisir tous les mots de passe enregistres.
+var dossierCles = builder.Configuration["N4Sentinel:DataProtection:KeyPath"]
+                  ?? Path.Combine(builder.Environment.ContentRootPath, "cles-protection");
+
+var protection = builder.Services
+    .AddDataProtection()
+    .SetApplicationName("N4Sentinel")
+    .PersistKeysToFileSystem(new DirectoryInfo(dossierCles));
+
+if (OperatingSystem.IsWindows())
+    protection.ProtectKeysWithDpapi(protectToLocalMachine: true);
 
 builder.Services.AddCascadingAuthenticationState();
 

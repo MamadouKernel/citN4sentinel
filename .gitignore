@@ -53,3 +53,10 @@ Corpus_Complet_Support_Navis_N4/**/*.zip
 # Navis-Config.json decrit l'infrastructure reelle. Le modele d'exemple,
 # lui, est versionne.
 Corpus_Complet_Support_Navis_N4/**/Navis-Config.json
+
+# --- Trousseau de cles de protection des donnees ---
+# Contient les cles qui chiffrent les mots de passe des comptes techniques.
+# Ne doit JAMAIS etre versionne. A sauvegarder separement, au meme titre que
+# la base : le perdre rend les mots de passe stockes indechiffrables.
+cles-protection/
+**/cles-protection/

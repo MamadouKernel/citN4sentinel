@@ -6,6 +6,7 @@ using N4Sentinel.Infrastructure.Connectivity;
 using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Referential;
+using N4Sentinel.Infrastructure.Security;
 
 namespace N4Sentinel.Infrastructure;
 
@@ -82,6 +83,12 @@ public static class DependencyInjection
         // Connecteur technique (sprint 2). Sans etat, donc partageable :
         // chaque appel ouvre et referme sa propre session.
         services.AddSingleton<IN4Connector, PowerShellConnector>();
+
+        // Magasin de secrets et fabrique de cibles : tout acces a un serveur
+        // passe par la fabrique, qui n'accepte que des serveurs declares au
+        // referentiel.
+        services.AddScoped<CredentialStore>();
+        services.AddScoped<ConnectorTargetFactory>();
 
         return services;
     }
