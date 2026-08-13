@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectivity;
+using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Referential;
 
@@ -77,6 +78,10 @@ public static class DependencyInjection
         services.AddScoped<ReferentialService>();
         services.AddScoped<ConnectivityTester>();
         services.AddScoped<NavisConfigImporter>();
+
+        // Connecteur technique (sprint 2). Sans etat, donc partageable :
+        // chaque appel ouvre et referme sa propre session.
+        services.AddSingleton<IN4Connector, PowerShellConnector>();
 
         return services;
     }
