@@ -41,6 +41,54 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
             .ToListAsync(ct);
     }
 
+    public async Task<N4Server?> GetServerAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.Servers
+            .Include(s => s.Environment)
+            .FirstOrDefaultAsync(s => s.Id == id, ct);
+    }
+
+    /// <summary>
+    /// Composants heberges par un serveur. Sert a montrer, avant suppression,
+    /// ce qui deviendrait orphelin.
+    /// </summary>
+    public async Task<List<N4Component>> GetComponentsOnServerAsync(Guid serverId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.Components
+            .AsNoTracking()
+            .Where(c => c.ServerId == serverId)
+            .OrderBy(c => c.StartOrder).ThenBy(c => c.LogicalName)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Suppression d'un serveur. Refusee tant qu'il porte des composants :
+    /// les detacher en silence produirait des composants sans hote, donc
+    /// injoignables, sans que personne ne l'ait decide.
+    /// </summary>
+    public async Task<string?> DeleteServerAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var portes = await db.Components
+            .Where(c => c.ServerId == id)
+            .Select(c => c.LogicalName)
+            .ToListAsync(ct);
+
+        if (portes.Count > 0)
+            return $"Suppression refusee : ce serveur heberge {string.Join(", ", portes)}. " +
+                   "Reaffectez ou supprimez ces composants d'abord.";
+
+        var serveur = await db.Servers.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (serveur is null) return "Serveur introuvable.";
+
+        db.Servers.Remove(serveur);
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
     public async Task<List<N4Component>> GetComponentsAsync(Guid environmentId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);

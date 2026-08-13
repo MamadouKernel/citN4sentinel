@@ -175,6 +175,12 @@ else
                     <i class="bi bi-server text-sky-400"></i>
                     Serveurs Nœuds (@_serveurs.Count)
                 </h3>
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                    <a href="@($"/admin/environnements/{Id}/serveurs/nouveau")"
+                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition">
+                        <i class="bi bi-plus-lg"></i> Ajouter un serveur
+                    </a>
+                </AuthorizeView>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs text-slate-300">
@@ -185,6 +191,7 @@ else
                             <th class="py-3 px-4 font-bold">Port WinRM</th>
                             <th class="py-3 px-4 font-bold">Statut</th>
                             <th class="py-3 px-4 font-bold">Description</th>
+                            <th class="py-3 px-4 font-bold text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60">
@@ -196,6 +203,21 @@ else
                                 <td class="py-3.5 px-4 font-mono text-slate-300">@s.WinRmPort</td>
                                 <td class="py-3.5 px-4"><StatutBadge Statut="s.Status" /></td>
                                 <td class="py-3.5 px-4 text-slate-400">@s.Description</td>
+                                <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                                    <a href="@($"/admin/serveurs/{s.Id}")"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 font-semibold text-xs transition">
+                                        <i class="bi bi-broadcast"></i> Ouvrir et tester
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                        @if (_serveurs.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="py-6 px-4 text-center text-slate-400">
+                                    Aucun serveur déclaré. Ajoutez-en un, ou importez l'inventaire depuis
+                                    <code class="text-sky-400">Navis-Config.json</code>.
+                                </td>
                             </tr>
                         }
                     </tbody>

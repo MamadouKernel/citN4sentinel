@@ -89,6 +89,7 @@ public static class DependencyInjection
         // referentiel.
         services.AddScoped<CredentialStore>();
         services.AddScoped<ConnectorTargetFactory>();
+        services.AddScoped<ServerProbe>();
 
         return services;
     }

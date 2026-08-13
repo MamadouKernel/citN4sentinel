@@ -1,0 +1,496 @@
+@page "/admin/serveurs/{Id:guid}"
+@page "/admin/environnements/{EnvironmentId:guid}/serveurs/nouveau"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Connectivity
+@using N4Sentinel.Infrastructure.Connectors
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Security
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+@inject CredentialStore Credentials
+@inject ServerProbe Probe
+@inject NavigationManager Nav
+
+<PageTitle>@(_s?.HostName ?? "Serveur") — N4 Sentinel</PageTitle>
+
+@if (_s is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement...</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+                <a href="@($"/admin/environnements/{_s.EnvironmentId}")" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour à l'environnement
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-mono">
+                    @(_estNouveau ? "Nouveau serveur" : _s.HostName)
+                </h1>
+                @if (!_estNouveau)
+                {
+                    <div class="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                        <StatutBadge Statut="_s.Status" />
+                        <span>&middot; @_composants.Count composant(s) hébergé(s)</span>
+                    </div>
+                }
+            </div>
+
+            @if (!_estNouveau)
+            {
+                <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition disabled:opacity-50 inline-flex items-center gap-2"
+                        @onclick="Tester" disabled="@_testEnCours">
+                    <i class="bi bi-broadcast"></i>
+                    <span>@(_testEnCours ? "Interrogation..." : "Tester ce serveur")</span>
+                </button>
+            }
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Identification -->
+            <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+                    <i class="bi bi-hdd-network-fill text-sky-400"></i> Identification réseau
+                </h3>
+
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Nom d'hôte</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_s.HostName" placeholder="N4CENTER01" />
+                        <p class="text-[11px] text-slate-500 mt-1">Tel que le DNS le résout. C'est lui que le connecteur utilisera.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Adresse IP</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                   @bind="_s.IpAddress" placeholder="10.0.0.21" />
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Nom DNS complet</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                   @bind="_s.DnsName" placeholder="n4center01.cit.local" />
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Port WinRM</label>
+                            <input type="number" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                   @bind="_s.WinRmPort" />
+                            <p class="text-[11px] text-slate-500 mt-1">5985 en clair, 5986 en SSL.</p>
+                        </div>
+                        <div class="flex items-end pb-2">
+                            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+                                <input type="checkbox" class="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-sky-500/50" @bind="_s.UseSsl" />
+                                <span class="font-semibold">Chiffrement SSL</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Système d'exploitation</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                   @bind="_s.OperatingSystem" placeholder="Windows Server 2022" />
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Criticité</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_s.Criticality">
+                                @foreach (var c in Enum.GetValues<CriticalityLevel>())
+                                {
+                                    <option value="@c">@c</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Responsable technique</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_s.TechnicalOwner" />
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Description</label>
+                        <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_s.Description"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Accès -->
+            <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+                    <i class="bi bi-key-fill text-amber-400"></i> Compte d'accès
+                </h3>
+
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Compte technique</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_s.CredentialReference">
+                            <option value="">Défaut de l'environnement</option>
+                            @foreach (var c in _comptes)
+                            {
+                                <option value="@c.Reference">@c.Label — @c.SecretState</option>
+                            }
+                        </select>
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            Laissez vide pour utiliser le compte par défaut de l'environnement, ou l'identité
+                            du processus applicatif si aucun n'est défini. C'est le mode recommandé : il n'y a
+                            alors aucun mot de passe à protéger.
+                        </p>
+                    </div>
+
+                    @if (_comptes.Count == 0)
+                    {
+                        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400">
+                            Aucun compte technique déclaré sur cet environnement. La connexion se fera sous
+                            l'identité du processus applicatif.
+                        </div>
+                    }
+
+                    <div class="pt-2 border-t border-slate-800">
+                        <label class="block font-semibold text-slate-300 mb-1">Statut du cycle de validation</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_s.Status">
+                            @foreach (var st in Enum.GetValues<LifecycleStatus>())
+                            {
+                                <option value="@st">@st</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex gap-2 pt-3 border-t border-slate-800">
+                    <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition inline-flex items-center gap-2" @onclick="Enregistrer">
+                        <i class="bi bi-check-lg"></i> Enregistrer
+                    </button>
+                    @if (!_estNouveau)
+                    {
+                        <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 font-semibold text-xs transition inline-flex items-center gap-2" @onclick="Supprimer">
+                            <i class="bi bi-trash3"></i> Supprimer
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Résultat du test -->
+        @if (_resultat is not null)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-activity text-emerald-400"></i> Résultat de l'interrogation
+                    </h3>
+                    <span class="text-xs font-mono text-slate-400">@_resultat.At.ToLocalTime().ToString("HH:mm:ss")</span>
+                </div>
+
+                <div class="p-5 space-y-5 text-xs">
+
+                    <div class="flex flex-wrap gap-2">
+                        @if (_resultat.Reachable)
+                        {
+                            <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                                Serveur joignable en @_resultat.RoundTrip.TotalMilliseconds.ToString("0") ms
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold">
+                                @(_resultat.Failure == ConnectorFailure.Aucune ? "Échec" : _resultat.Failure.ToString())
+                            </span>
+                        }
+                        @if (_resultat.IsLocal)
+                        {
+                            <span class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">Exécution locale, sans WinRM</span>
+                        }
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+                        <div class="text-slate-400">Identité employée : <span class="text-white font-semibold">@_resultat.IdentityDescription</span></div>
+                        @if (_resultat.RemoteIdentity is not null)
+                        {
+                            <div class="text-slate-400">Réponse du serveur : <span class="font-mono text-sky-400">@_resultat.RemoteIdentity</span></div>
+                        }
+                    </div>
+
+                    @if (_resultat.Error is not null)
+                    {
+                        <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">@_resultat.Error</div>
+                    }
+
+                    @if (_resultat.System is { } sys)
+                    {
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500">Processeur</div>
+                                <div class="text-base font-bold text-white font-mono">@(sys.CpuPercent?.ToString("0") ?? "—") %</div>
+                            </div>
+                            <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500">Mémoire</div>
+                                <div class="text-base font-bold text-white font-mono">@(sys.MemoryUsedPercent?.ToString("0") ?? "—") %</div>
+                            </div>
+                            <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500">Écart d'horloge</div>
+                                <div class="text-base font-bold font-mono @HorlogeClasse(sys.ClockSkewSeconds)">
+                                    @(sys.ClockSkewSeconds?.ToString("+0.00;-0.00;0") ?? "—") s
+                                </div>
+                            </div>
+                            <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500">Démarré depuis</div>
+                                <div class="text-base font-bold text-white font-mono">
+                                    @(sys.LastBootTime.HasValue ? $"{(DateTimeOffset.UtcNow - sys.LastBootTime.Value).Days} j" : "—")
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (sys.ClockSkewSeconds is { } skew && Math.Abs(skew) >= 1)
+                        {
+                            <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                                Écart d'horloge de @skew.ToString("0.00") s. Au-delà d'une seconde, N4 produit des
+                                statuts <span class="font-mono">DISCONNECTED</span> trompeurs — c'est une cause
+                                documentée d'incident majeur. À corriger avant toute exploitation.
+                            </div>
+                        }
+
+                        @if (sys.Disks.Count > 0)
+                        {
+                            <div class="space-y-1.5">
+                                @foreach (var d in sys.Disks)
+                                {
+                                    <div class="flex items-center gap-3">
+                                        <span class="font-mono text-slate-300 w-8">@d.Drive</span>
+                                        <div class="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
+                                            <div class="h-full @(d.FreePercent < 10 ? "bg-rose-500" : d.FreePercent < 20 ? "bg-amber-500" : "bg-emerald-500")"
+                                                 style="width:@((100 - d.FreePercent).ToString("0", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                        </div>
+                                        <span class="font-mono text-slate-400 w-32 text-right">
+                                            @((d.FreeBytes / 1073741824.0).ToString("0")) Go libres (@d.FreePercent.ToString("0") %)
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_resultat.SystemError is not null)
+                    {
+                        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-400">
+                            État système non collecté : @_resultat.SystemError
+                        </div>
+                    }
+
+                    <!-- Vérification des services déclarés -->
+                    @if (_resultat.Services.Count > 0)
+                    {
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h4 class="font-bold text-white">Services déclarés</h4>
+                                <span class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">@_resultat.ServicesFound trouvé(s)</span>
+                                @if (_resultat.ServicesMissing > 0)
+                                {
+                                    <span class="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-semibold">@_resultat.ServicesMissing introuvable(s)</span>
+                                }
+                            </div>
+
+                            @if (_resultat.HasBlockingIssue)
+                            {
+                                <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                                    Un composant déclaré <strong>pilotable</strong> porte un nom de service qui n'existe pas
+                                    sur ce serveur. Il ne pourra jamais être piloté, et l'erreur ne se manifesterait
+                                    qu'au moment de l'opération. Corrigez le nom avant d'activer l'environnement.
+                                </div>
+                            }
+
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-xs">
+                                    <thead class="text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                                        <tr>
+                                            <th class="py-2 pr-4 font-bold">Composant</th>
+                                            <th class="py-2 pr-4 font-bold">Service déclaré</th>
+                                            <th class="py-2 pr-4 font-bold">Résultat</th>
+                                            <th class="py-2 font-bold">Détail</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-800/60">
+                                        @foreach (var s in _resultat.Services)
+                                        {
+                                            <tr>
+                                                <td class="py-2 pr-4 text-white">@s.ComponentName</td>
+                                                <td class="py-2 pr-4 font-mono text-slate-300">@s.DeclaredServiceName</td>
+                                                <td class="py-2 pr-4 whitespace-nowrap">
+                                                    @if (!s.Exists)
+                                                    {
+                                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">Introuvable</span>
+                                                    }
+                                                    else if (s.Status == "Running")
+                                                    {
+                                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Running</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-700/50 text-slate-300 border border-slate-600">@s.Status</span>
+                                                    }
+                                                </td>
+                                                <td class="py-2 text-slate-400">
+                                                    @if (!s.Exists)
+                                                    {
+                                                        <span>Aucun service ne porte ce nom ni ce nom d'affichage.</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @if (s.NameDiffers)
+                                                        {
+                                                            <div>Nom court réel : <span class="font-mono text-sky-400">@s.ResolvedName</span></div>
+                                                        }
+                                                        @if (s.StartMode is not null)
+                                                        {
+                                                            <span>Démarrage @s.StartMode</span>
+                                                        }
+                                                        @if (s.ProcessId is not null)
+                                                        {
+                                                            <span class="font-mono"> &middot; PID @s.ProcessId</span>
+                                                        }
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                    else if (_resultat.ServiceNote is not null)
+                    {
+                        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-400">@_resultat.ServiceNote</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [Parameter] public Guid EnvironmentId { get; set; }
+
+    private N4Server? _s;
+    private bool _estNouveau;
+    private List<N4Component> _composants = [];
+    private List<TechnicalCredential> _comptes = [];
+
+    private ServerProbeResult? _resultat;
+    private bool _testEnCours;
+
+    private string? _message;
+    private bool _enErreur;
+
+    private string _messageClass => _enErreur
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _estNouveau = Id == Guid.Empty;
+
+        if (_estNouveau)
+        {
+            _s = new N4Server { EnvironmentId = EnvironmentId };
+            _comptes = await Credentials.GetForEnvironmentAsync(EnvironmentId);
+            return;
+        }
+
+        _s = await Referential.GetServerAsync(Id);
+        if (_s is null) return;
+
+        _composants = await Referential.GetComponentsOnServerAsync(Id);
+        _comptes = await Credentials.GetForEnvironmentAsync(_s.EnvironmentId);
+    }
+
+    private async Task Enregistrer()
+    {
+        if (_s is null) return;
+        _message = null;
+        _enErreur = false;
+
+        if (string.IsNullOrWhiteSpace(_s.HostName))
+        {
+            _enErreur = true;
+            _message = "Le nom d'hôte est obligatoire : c'est lui que le connecteur utilise.";
+            return;
+        }
+
+        try
+        {
+            await Referential.SaveServerAsync(_s);
+
+            if (_estNouveau)
+            {
+                Nav.NavigateTo($"/admin/serveurs/{_s.Id}");
+                return;
+            }
+            _message = "Serveur enregistré.";
+        }
+        catch (Exception ex)
+        {
+            _enErreur = true;
+            _message = ex.InnerException?.Message.Contains("IX_Servers") == true
+                ? "Un serveur portant ce nom d'hôte existe déjà dans cet environnement."
+                : $"Enregistrement impossible : {ex.InnerException?.Message ?? ex.Message}";
+        }
+    }
+
+    private async Task Supprimer()
+    {
+        if (_s is null) return;
+        var erreur = await Referential.DeleteServerAsync(_s.Id);
+
+        if (erreur is not null)
+        {
+            _enErreur = true;
+            _message = erreur;
+            return;
+        }
+        Nav.NavigateTo($"/admin/environnements/{_s.EnvironmentId}");
+    }
+
+    private async Task Tester()
+    {
+        if (_s is null) return;
+        _testEnCours = true;
+        _resultat = null;
+        _message = null;
+
+        try
+        {
+            _resultat = await Probe.ProbeAsync(_s.Id);
+        }
+        finally
+        {
+            _testEnCours = false;
+        }
+    }
+
+    // Le motif 'double s' déballe le nullable : Math.Abs n'accepte pas double?.
+    private static string HorlogeClasse(double? skew) => skew switch
+    {
+        null => "text-slate-500",
+        // Le seuil d'une seconde vient du manuel de diagnostic N4 : au-delà,
+        // les statuts de cluster deviennent trompeurs.
+        double s when Math.Abs(s) < 1 => "text-emerald-400",
+        double s when Math.Abs(s) < 5 => "text-amber-400",
+        _ => "text-rose-400"
+    };
+}
