@@ -1,0 +1,88 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="relative inline-block text-left">
+    <button type="button" @onclick="ToggleDropdown" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition shadow-sm">
+        <span class="w-2.5 h-2.5 rounded-full bg-theme-primary animate-pulse"></span>
+        <span class="hidden sm:inline">Palette : <strong class="text-white">@GetThemeLabel(_activeTheme)</strong></span>
+        <i class="bi bi-palette-fill text-theme-primary"></i>
+    </button>
+
+    @if (_isOpen)
+    {
+        <!-- Backdrop to close dropdown -->
+        <div class="fixed inset-0 z-40" @onclick="CloseDropdown"></div>
+
+        <!-- Dropdown Card -->
+        <div class="absolute right-0 mt-2 w-56 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 space-y-1">
+            <div class="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-800 mb-1">
+                Choisir une palette de couleurs
+            </div>
+
+            @foreach (var t in _themes)
+            {
+                <button type="button" @onclick="() => SelectTheme(t.Id)"
+                        class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition text-slate-300 hover:text-white hover:bg-slate-800/80 @(_activeTheme == t.Id ? "bg-slate-800 text-white font-bold" : "")">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3.5 h-3.5 rounded-full @t.SwatchClass border border-white/20"></span>
+                        <span>@t.Name</span>
+                    </div>
+                    @if (_activeTheme == t.Id)
+                    {
+                        <i class="bi bi-check2 text-emerald-400 font-bold text-sm"></i>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isOpen;
+    private string _activeTheme = "ocean";
+
+    private record ThemeOption(string Id, string Name, string SwatchClass);
+
+    private readonly List<ThemeOption> _themes = new()
+    {
+        new("ocean", "Bleu Océan N4", "bg-sky-500"),
+        new("emerald", "Émeraude Supervision", "bg-emerald-500"),
+        new("amber", "Ambre Industriel", "bg-amber-500"),
+        new("purple", "Violet Cyber Ops", "bg-purple-500"),
+        new("crimson", "Rouge Alerte", "bg-rose-500")
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var theme = await JS.InvokeAsync<string>("getSentinelTheme");
+                if (!string.IsNullOrEmpty(theme))
+                {
+                    _activeTheme = theme;
+                    StateHasChanged();
+                }
+            }
+            catch { }
+        }
+    }
+
+    private void ToggleDropdown() => _isOpen = !_isOpen;
+    private void CloseDropdown() => _isOpen = false;
+
+    private async Task SelectTheme(string themeId)
+    {
+        _activeTheme = themeId;
+        _isOpen = false;
+        try
+        {
+            await JS.InvokeVoidAsync("setSentinelTheme", themeId);
+        }
+        catch { }
+    }
+
+    private string GetThemeLabel(string id) => _themes.FirstOrDefault(t => t.Id == id)?.Name ?? "Bleu Océan N4";
+}

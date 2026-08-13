@@ -24,15 +24,22 @@ public sealed class SmtpOptions
 }
 
 /// <summary>
-/// Envoi des courriels d'authentification : confirmation de compte,
-/// reinitialisation de mot de passe, et code de second facteur (SEC-001).
+/// Envoi des courriels de gestion de compte : confirmation d'adresse et
+/// reinitialisation de mot de passe.
 ///
-/// Si aucun serveur n'est configure, l'expediteur ne bloque pas l'application :
-/// il journalise le message en niveau Warning avec son contenu, afin qu'un
-/// developpeur puisse recuperer le lien ou le code. C'est un comportement de
-/// developpement, signale comme tel a chaque envoi - il ne doit jamais
-/// subsister en Production, ou il ecrirait des codes d'authentification dans
-/// les journaux applicatifs.
+/// LE SECOND FACTEUR NE PASSE PAS PAR ICI. N4 Sentinel utilise un code TOTP
+/// genere par une application d'authentification (Microsoft Authenticator,
+/// Google Authenticator ou equivalent). Ce choix vaut mieux qu'un code envoye
+/// par courriel : le code est calcule hors ligne, il ne transite sur aucun
+/// reseau, et la compromission d'une boite aux lettres ne suffit plus a
+/// contourner le second facteur. Il fonctionne aussi lorsque le serveur de
+/// messagerie est indisponible - ce qui, pour un outil d'exploitation appele
+/// a servir pendant un incident, n'est pas un detail.
+///
+/// Si aucun serveur SMTP n'est configure, l'expediteur ne bloque pas
+/// l'application : en developpement il journalise le contenu pour recuperer
+/// le lien, ailleurs il se contente de signaler l'echec sans recopier le
+/// message dans les journaux.
 /// </summary>
 public sealed class SmtpEmailSender(
     SmtpOptions options,
@@ -64,15 +71,6 @@ public sealed class SmtpEmailSender(
              <p>Votre code de reinitialisation : <strong style="font-size:1.4em">{resetCode}</strong></p>
              <p>Il expire rapidement. Ne le transmettez a personne, y compris a un membre de la DSI :
              aucune equipe interne ne vous demandera ce code.</p>
-             """);
-
-    /// <summary>Code de second facteur envoye a la connexion.</summary>
-    public Task SendTwoFactorCodeAsync(string email, string code) =>
-        SendAsync(email, "N4 Sentinel - code de connexion",
-            $"""
-             <p>Votre code de connexion : <strong style="font-size:1.4em">{code}</strong></p>
-             <p>Si vous n'essayez pas de vous connecter en ce moment, quelqu'un connait votre mot de passe.
-             Changez-le et prevenez la DSI.</p>
              """);
 
     private async Task SendAsync(string to, string subject, string htmlBody)

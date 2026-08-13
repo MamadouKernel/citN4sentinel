@@ -6,104 +6,165 @@
 @rendermode InteractiveServer
 @inject ReferentialService Referential
 
-<PageTitle>Journal d'audit - N4 Sentinel</PageTitle>
+<PageTitle>Journal d'audit — N4 Sentinel</PageTitle>
 
-<h1 class="h3 mb-1">Journal d'audit</h1>
-<p class="text-secondary">
-    Toute creation, modification et suppression du referentiel est tracee, avec son auteur,
-    son heure et son origine. Ces entrees ne sont modifiables par personne depuis l'application.
-</p>
+<div class="space-y-6">
+    <!-- Header Banner -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Journal d'Audit Immuable</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1">
+                Traçabilité complète des opérations sur le référentiel. Chaque modification est scellée avec horodatage UTC et IP.
+            </p>
+        </div>
+    </div>
 
-<div class="d-flex gap-3 align-items-end flex-wrap mb-3">
-    <div>
-        <label class="form-label mb-1">Environnement</label>
-        <select class="form-select" @bind="_filtreEnv" @bind:after="Recharger">
-            <option value="">Tous</option>
-            @foreach (var e in _environnements)
-            {
-                <option value="@e.Id">@e.Code - @e.Name</option>
-            }
-        </select>
-    </div>
-    <div>
-        <label class="form-label mb-1">Nombre de lignes</label>
-        <select class="form-select" @bind="_limite" @bind:after="Recharger">
-            <option value="50">50</option>
-            <option value="200">200</option>
-            <option value="1000">1000</option>
-        </select>
-    </div>
-    <button class="btn btn-outline-secondary" @onclick="Recharger">Rafraichir</button>
-</div>
+    <!-- Filters Bar -->
+    <div class="glass-card p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Environnement :</label>
+                <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_filtreEnv" @bind:after="Recharger">
+                    <option value="">Tous les environnements</option>
+                    @foreach (var e in _environnements)
+                    {
+                        <option value="@e.Id">@e.Code &middot; @e.Name</option>
+                    }
+                </select>
+            </div>
+        </div>
 
-@if (_entrees is null)
-{
-    <p class="text-secondary">Chargement...</p>
-}
-else if (_entrees.Count == 0)
-{
-    <div class="alert alert-info mb-0">
-        Aucune entree. Le journal se remplit des la premiere modification du referentiel.
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Lignes :</label>
+                <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_limite" @bind:after="Recharger">
+                    <option value="50">50</option>
+                    <option value="200">200</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+
+            <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs transition" @onclick="Recharger">
+                <i class="bi bi-arrow-clockwise"></i> Rafraîchir
+            </button>
+        </div>
     </div>
-}
-else
-{
-    <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle">
-            <thead>
-                <tr>
-                    <th>Horodatage</th><th>Acteur</th><th>Origine</th>
-                    <th>Action</th><th>Objet</th><th>Issue</th><th>Detail</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var a in _entrees)
-                {
-                    <tr>
-                        <td class="text-nowrap small">@a.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</td>
-                        <td class="small">@a.Actor</td>
-                        <td class="small text-secondary">@(a.ActorIpAddress ?? "-")</td>
-                        <td class="text-nowrap">@LibelleAction(a.Action)</td>
-                        <td>
-                            <div>@a.EntityLabel</div>
-                            <div class="small text-secondary">@a.EntityType</div>
-                        </td>
-                        <td>
-                            <span class="badge @(a.Outcome == AuditOutcome.Succes ? "bg-success" :
-                                                 a.Outcome == AuditOutcome.Refuse ? "bg-warning text-dark" : "bg-danger")">
-                                @a.Outcome
-                            </span>
-                        </td>
-                        <td>
-                            @if (a.AfterJson is not null || a.BeforeJson is not null)
+
+    @if (_entrees is null)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+            <div>Chargement du journal d'audit...</div>
+        </div>
+    }
+    else if (_entrees.Count == 0)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center space-y-2">
+            <i class="bi bi-shield-check text-3xl text-slate-500 block"></i>
+            <h3 class="text-sm font-bold text-white">Aucune entrée dans le journal</h3>
+            <p class="text-xs text-slate-400">Le journal se remplira automatiquement dès la première modification du référentiel.</p>
+        </div>
+    }
+    else
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                        <tr>
+                            <th class="py-3.5 px-4 font-bold">Horodatage</th>
+                            <th class="py-3.5 px-4 font-bold">Opérateur / Acteur</th>
+                            <th class="py-3.5 px-4 font-bold">Adresse IP</th>
+                            <th class="py-3.5 px-4 font-bold">Action</th>
+                            <th class="py-3.5 px-4 font-bold">Objet Concerné</th>
+                            <th class="py-3.5 px-4 font-bold">Issue</th>
+                            <th class="py-3.5 px-4 font-bold text-right">Détails JSON</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        @foreach (var a in _entrees)
+                        {
+                            <tr class="hover:bg-slate-800/40 transition">
+                                <td class="py-3.5 px-4 font-mono text-slate-200 whitespace-nowrap">
+                                    <i class="bi bi-clock me-1 text-slate-500"></i>
+                                    @a.OccurredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")
+                                </td>
+                                <td class="py-3.5 px-4 font-semibold text-white">
+                                    @a.Actor
+                                </td>
+                                <td class="py-3.5 px-4 font-mono text-slate-400">
+                                    @(a.ActorIpAddress ?? "-")
+                                </td>
+                                <td class="py-3.5 px-4 whitespace-nowrap">
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold border @ClasseAction(a.Action)">
+                                        @LibelleAction(a.Action)
+                                    </span>
+                                </td>
+                                <td class="py-3.5 px-4">
+                                    <div class="font-bold text-white">@a.EntityLabel</div>
+                                    <div class="text-[10px] font-mono text-slate-500">@a.EntityType</div>
+                                </td>
+                                <td class="py-3.5 px-4 whitespace-nowrap">
+                                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold border @(a.Outcome == AuditOutcome.Succes ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : a.Outcome == AuditOutcome.Refuse ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-rose-500/10 text-rose-400 border-rose-500/20")">
+                                        @a.Outcome
+                                    </span>
+                                </td>
+                                <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                                    @if (a.AfterJson is not null || a.BeforeJson is not null)
+                                    {
+                                        <button class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-[11px] transition inline-flex items-center gap-1"
+                                                @onclick="() => _entreeDetail = _entreeDetail == a ? null : a">
+                                            <i class="bi bi-code-slash"></i> Inspecter
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+
+                            @if (_entreeDetail == a)
                             {
-                                <details>
-                                    <summary class="small text-secondary" style="cursor:pointer">Voir</summary>
-                                    @if (a.BeforeJson is not null)
-                                    {
-                                        <div class="small mt-1"><strong>Avant :</strong>
-                                            <code class="d-block text-break">@a.BeforeJson</code></div>
-                                    }
-                                    @if (a.AfterJson is not null)
-                                    {
-                                        <div class="small mt-1"><strong>Apres :</strong>
-                                            <code class="d-block text-break">@a.AfterJson</code></div>
-                                    }
-                                </details>
+                                <tr class="bg-slate-950/80">
+                                    <td colspan="7" class="p-4">
+                                        <div class="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3 font-mono text-xs">
+                                            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                                                <span class="text-sky-400 font-bold">Modifications d'attributs (Diff JSON)</span>
+                                                <button class="text-slate-400 hover:text-white transition text-xs" @onclick="() => _entreeDetail = null">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
+
+                                            @if (a.BeforeJson is not null)
+                                            {
+                                                <div>
+                                                    <span class="text-amber-400 font-bold block mb-1">Avant :</span>
+                                                    <pre class="p-3 rounded-lg bg-slate-950 text-amber-200/90 overflow-x-auto text-[11px]">@a.BeforeJson</pre>
+                                                </div>
+                                            }
+
+                                            @if (a.AfterJson is not null)
+                                            {
+                                                <div>
+                                                    <span class="text-emerald-400 font-bold block mb-1">Après :</span>
+                                                    <pre class="p-3 rounded-lg bg-slate-950 text-emerald-200/90 overflow-x-auto text-[11px]">@a.AfterJson</pre>
+                                                </div>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
                             }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-}
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
 
 @code {
     private List<AuditEntry>? _entrees;
     private List<N4Environment> _environnements = [];
     private string _filtreEnv = "";
     private int _limite = 200;
+    private AuditEntry? _entreeDetail;
 
     protected override async Task OnInitializedAsync()
     {
@@ -115,18 +176,28 @@ else
     {
         Guid? env = Guid.TryParse(_filtreEnv, out var g) ? g : null;
         _entrees = await Referential.GetAuditEntriesAsync(env, _limite);
+        _entreeDetail = null;
     }
+
+    private static string ClasseAction(AuditAction a) => a switch
+    {
+        AuditAction.Creation => "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+        AuditAction.Modification => "bg-sky-500/10 text-sky-400 border-sky-500/20",
+        AuditAction.Suppression => "bg-rose-500/10 text-rose-400 border-rose-500/20",
+        AuditAction.ChangementDeStatut => "bg-amber-500/10 text-amber-400 border-amber-500/20",
+        _ => "bg-slate-500/10 text-slate-400 border-slate-500/20"
+    };
 
     private static string LibelleAction(AuditAction a) => a switch
     {
-        AuditAction.Creation => "Creation",
+        AuditAction.Creation => "Création",
         AuditAction.Modification => "Modification",
         AuditAction.Suppression => "Suppression",
         AuditAction.ChangementDeStatut => "Changement de statut",
         AuditAction.Connexion => "Connexion",
         AuditAction.TestDeConfiguration => "Test de configuration",
-        AuditAction.TentativeNonAutorisee => "Tentative non autorisee",
-        AuditAction.ExecutionOperation => "Execution",
+        AuditAction.TentativeNonAutorisee => "Tentative non autorisée",
+        AuditAction.ExecutionOperation => "Exécution",
         AuditAction.Contournement => "Contournement",
         _ => a.ToString()
     };

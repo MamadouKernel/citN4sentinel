@@ -3,67 +3,102 @@
 
 @inject NavigationManager NavigationManager
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">N4 Sentinel</a>
+<div class="flex flex-col h-full py-4 bg-slate-900 border-r border-slate-800/60">
+    <!-- Brand Header -->
+    <div class="px-5 mb-6 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-theme-gradient text-white flex items-center justify-center shadow-lg glow-theme text-lg flex-shrink-0">
+            <i class="bi bi-shield-check"></i>
+        </div>
+        <div class="overflow-hidden">
+            <h2 class="text-base font-extrabold text-white tracking-tight leading-none mb-1">N4 Sentinel</h2>
+            <span class="text-xs text-slate-400 font-medium">CIT Supervision N4</span>
+        </div>
     </div>
-</div>
 
-<input type="checkbox" title="Menu de navigation" class="navbar-toggler" />
+    <div class="px-4 mb-4">
+        <div class="h-px bg-slate-800"></div>
+    </div>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Accueil
+    <!-- Navigation Menu Items -->
+    <nav class="flex-1 px-3 space-y-6 overflow-y-auto">
+        <div>
+            <div class="px-3 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Vue Générale
+            </div>
+            
+            <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all duration-150" href="" Match="NavLinkMatch.All">
+                <i class="bi bi-grid-1x2-fill text-theme-primary text-base"></i>
+                <span>Tableau de bord</span>
             </NavLink>
         </div>
 
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
-            <div class="nav-item px-3 mt-3">
-                <span class="text-uppercase small text-white-50 ps-3">Referentiel</span>
-            </div>
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="admin/environnements">
-                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Environnements
+            <div>
+                <div class="px-3 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Référentiel Technique
+                </div>
+                
+                <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all duration-150" href="admin/environnements">
+                    <i class="bi bi-hdd-stack-fill text-emerald-400 text-base"></i>
+                    <span>Environnements</span>
                 </NavLink>
             </div>
         </AuthorizeView>
 
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="admin/audit">
-                    <span class="bi bi-lock-nav-menu" aria-hidden="true"></span> Journal d'audit
+            <div>
+                <div class="px-3 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Sécurité & Traçabilité
+                </div>
+                
+                <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all duration-150" href="admin/audit">
+                    <i class="bi bi-journal-text text-amber-400 text-base"></i>
+                    <span>Journal d'audit</span>
                 </NavLink>
             </div>
         </AuthorizeView>
+    </nav>
 
+    <!-- User Profile Footer Card -->
+    <div class="px-3 mt-auto pt-4">
+        <div class="h-px bg-slate-800 mb-4"></div>
         <AuthorizeView>
             <Authorized>
-                <div class="nav-item px-3 mt-3">
-                    <NavLink class="nav-link" href="Account/Manage">
-                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @context.User.Identity?.Name
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <form action="Account/Logout" method="post">
-                        <AntiforgeryToken />
-                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
-                        <button type="submit" class="nav-link">
-                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Se deconnecter
-                        </button>
-                    </form>
+                <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-8 h-8 rounded-lg bg-theme-gradient text-white flex items-center justify-center font-bold text-xs shadow">
+                            @(context.User.Identity?.Name?.Substring(0, 1).ToUpper() ?? "U")
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-bold text-white truncate">@context.User.Identity?.Name</div>
+                            <div class="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Active
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-1.5">
+                        <a href="Account/Manage" class="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition">
+                            <i class="bi bi-gear-fill text-slate-400"></i> Profil
+                        </a>
+                        <form action="Account/Logout" method="post">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                            <button type="submit" class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 transition">
+                                <i class="bi bi-box-arrow-right"></i> Sortie
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </Authorized>
             <NotAuthorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Login">
-                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Se connecter
-                    </NavLink>
-                </div>
+                <a href="Account/Login" class="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-theme-gradient text-white font-semibold text-xs shadow-lg glow-theme transition">
+                    <i class="bi bi-box-arrow-in-right"></i> Se connecter
+                </a>
             </NotAuthorized>
         </AuthorizeView>
-    </nav>
+    </div>
 </div>
 
 @code {

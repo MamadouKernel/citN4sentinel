@@ -1,4 +1,4 @@
-﻿@page "/Account/LoginWithRecoveryCode"
+@page "/Account/LoginWithRecoveryCode"
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Identity
@@ -9,28 +9,38 @@
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<LoginWithRecoveryCode> Logger
 
-<PageTitle>Recovery code verification</PageTitle>
+<PageTitle>Vérification du code de récupération — N4 Sentinel</PageTitle>
 
-<h1>Recovery code verification</h1>
-<hr />
-<StatusMessage Message="@message" />
-<p>
-    You have requested to log in with a recovery code. This login will not be remembered until you provide
-    an authenticator app code at log in or disable 2FA and log in again.
-</p>
-<div class="row">
-    <div class="col-md-4">
-        <EditForm Model="Input" FormName="login-with-recovery-code" OnValidSubmit="OnValidSubmitAsync" method="post">
-            <DataAnnotationsValidator />
-            <ValidationSummary class="text-danger" role="alert" />
-            <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode" class="form-control" autocomplete="off" placeholder="RecoveryCode" />
-                <label for="Input.RecoveryCode" class="form-label">Recovery Code</label>
-                <ValidationMessage For="() => Input.RecoveryCode" class="text-danger" />
-            </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
-        </EditForm>
+<div class="space-y-6">
+    <div>
+        <h2 class="text-xl font-bold text-white tracking-tight">Code de récupération</h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Connexion d'urgence via l'un de vos 10 codes de récupération à usage unique.
+        </p>
     </div>
+
+    <StatusMessage Message="@message" />
+
+    <EditForm Model="Input" FormName="login-with-recovery-code" OnValidSubmit="OnValidSubmitAsync" method="post" class="space-y-4">
+        <DataAnnotationsValidator />
+        
+        <div>
+            <label for="Input.RecoveryCode" class="block text-xs font-semibold text-slate-300 mb-1.5">
+                Code de récupération d'urgence
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                    <i class="bi bi-key-fill"></i>
+                </div>
+                <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode" class="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-10 pr-4 py-3 text-center text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition" autocomplete="off" placeholder="abcdef-12345" />
+            </div>
+            <ValidationMessage For="() => Input.RecoveryCode" class="text-xs text-rose-400 mt-1" />
+        </div>
+        
+        <button type="submit" class="w-full bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 text-white font-bold py-3 rounded-xl shadow-lg shadow-sky-600/30 transition transform active:scale-[0.99] text-sm">
+            Se connecter avec ce code
+        </button>
+    </EditForm>
 </div>
 
 @code {
@@ -47,9 +57,8 @@
     {
         Input ??= new();
 
-        // Ensure the user has gone through the username & password screen first
         user = await SignInManager.GetTwoFactorAuthenticationUserAsync() ??
-            throw new InvalidOperationException("Unable to load two-factor authentication user.");
+            throw new InvalidOperationException("Impossible de charger l'utilisateur pour la vérification du code de récupération.");
     }
 
     private async Task OnValidSubmitAsync()
@@ -57,31 +66,30 @@
         var recoveryCode = Input.RecoveryCode.Replace(" ", string.Empty);
 
         var result = await SignInManager.TwoFactorRecoveryCodeSignInAsync(recoveryCode);
-
         var userId = await UserManager.GetUserIdAsync(user);
 
         if (result.Succeeded)
         {
-            Logger.LogInformation("User with ID '{UserId}' logged in with a recovery code.", userId);
+            Logger.LogInformation("L'utilisateur {UserId} s'est connecté à l'aide d'un code de récupération.", userId);
             RedirectManager.RedirectTo(ReturnUrl);
         }
         else if (result.IsLockedOut)
         {
-            Logger.LogWarning("User account locked out.");
+            Logger.LogWarning("Compte utilisateur verrouillé.");
             RedirectManager.RedirectTo("Account/Lockout");
         }
         else
         {
-            Logger.LogWarning("Invalid recovery code entered for user with ID '{UserId}' ", userId);
-            message = "Error: Invalid recovery code entered.";
+            Logger.LogWarning("Code de récupération invalide saisi pour l'utilisateur {UserId}.", userId);
+            message = "Erreur : Code de récupération incorrect.";
         }
     }
 
     private sealed class InputModel
     {
-        [Required]
+        [Required(ErrorMessage = "Le code de récupération est obligatoire.")]
         [DataType(DataType.Text)]
-        [Display(Name = "Recovery Code")]
+        [Display(Name = "Code de récupération")]
         public string RecoveryCode { get; set; } = "";
     }
 }

@@ -1,0 +1,40 @@
+@inherits LayoutComponentBase
+@using N4Sentinel.Web.Components.Shared
+
+<div class="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden">
+    <!-- Ambient Background Glows -->
+    <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute bottom-10 right-10 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+    <!-- Theme Selector Top Right -->
+    <div class="absolute top-4 right-4 z-20">
+        <ThemeSelector />
+    </div>
+
+    <div class="relative z-10 w-full max-w-md">
+        <!-- Brand Header -->
+        <div class="text-center mb-6 sm:mb-8">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-theme-gradient text-white text-2xl shadow-lg glow-theme mb-3 ring-4 ring-white/10">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">N4 Sentinel</h1>
+            <p class="text-xs sm:text-sm text-slate-400 font-medium mt-1">Supervision, Diagnostic & Pilotage Navis N4</p>
+        </div>
+
+        <!-- Glass Auth Container -->
+        <div class="glass-auth-card rounded-2xl p-6 sm:p-8 shadow-2xl border border-slate-700/50">
+            @Body
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-6 text-xs text-slate-500">
+            &copy; @DateTime.Now.Year Côte d'Ivoire Terminal &middot; Tous droits réservés
+        </div>
+    </div>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Un problème est survenu.
+    <a href="." class="reload">Recharger</a>
+    <span class="dismiss">🗙</span>
+</div>

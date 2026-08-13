@@ -7,80 +7,84 @@
 @inject ReferentialService Referential
 @inject NavigationManager Nav
 
-<PageTitle>@(_c?.LogicalName ?? "Composant") - N4 Sentinel</PageTitle>
+<PageTitle>@(_c?.LogicalName ?? "Composant") — N4 Sentinel</PageTitle>
 
 @if (_c is null)
 {
-    <p class="text-secondary">Chargement...</p>
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement du composant...</div>
+    </div>
 }
 else
 {
-    <a href="@($"/admin/environnements/{_c.EnvironmentId}")" class="text-decoration-none small">
-        &larr; @(_c.Environment?.Code ?? "Environnement")
-    </a>
-    <h1 class="h3 mt-1 mb-4">@_c.LogicalName</h1>
+    <div class="space-y-6">
+        <div>
+            <a href="@($"/admin/environnements/{_c.EnvironmentId}")" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+                <i class="bi bi-arrow-left"></i> Retour à @_c.Environment?.Code
+            </a>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_c.LogicalName</h1>
+        </div>
 
-    <div class="row g-4">
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><strong>Identification</strong></div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Nom logique</label>
-                        <input class="form-control" @bind="_c.LogicalName" />
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Left Column: Component Identification -->
+            <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+                    <i class="bi bi-card-heading text-sky-400"></i>
+                    Identification & Paramètres
+                </h3>
+
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Nom logique</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.LogicalName" />
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Role</label>
-                        <select class="form-select" @bind="_c.Role">
+
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Rôle N4</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Role">
                             @foreach (var r in Enum.GetValues<ComponentRole>())
                             {
                                 <option value="@r">@r</option>
                             }
                         </select>
-                        <div class="form-text">
-                            Determine le workflow applicable. Une action sur XPS, un noeud Cluster ou
-                            le Center ne se traite jamais comme un redemarrage Windows generique.
-                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Service Windows</label>
-                        <input class="form-control" @bind="_c.WindowsServiceName"
-                               placeholder="Navis N4 Cluster Node" />
-                        <div class="form-text">
-                            Nom EXACT. Sur le serveur :
-                            <code>Get-Service | Where-Object { $_.DisplayName -like '*Navis*' }</code>
-                        </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Nom du service Windows</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.WindowsServiceName" placeholder="Navis N4 Cluster Node" />
                     </div>
-                    <div class="row g-3">
-                        <div class="col-6">
-                            <label class="form-label">Port applicatif</label>
-                            <input type="number" class="form-control" @bind="_c.Port" />
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Port applicatif</label>
+                            <input type="number" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Port" />
                         </div>
-                        <div class="col-6">
-                            <label class="form-label">Ordre de demarrage</label>
-                            <input type="number" class="form-control" @bind="_c.StartOrder" />
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Ordre de démarrage</label>
+                            <input type="number" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.StartOrder" />
                         </div>
-                        <div class="col-6">
-                            <label class="form-label">Criticite</label>
-                            <select class="form-select" @bind="_c.Criticality">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Criticité</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Criticality">
                                 @foreach (var v in Enum.GetValues<CriticalityLevel>())
                                 {
                                     <option value="@v">@v</option>
                                 }
                             </select>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label">Mode de pilotage</label>
-                            <select class="form-select" @bind="_c.ControlMode">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Mode de pilotage</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.ControlMode">
                                 @foreach (var v in Enum.GetValues<ControlMode>())
                                 {
                                     <option value="@v">@v</option>
                                 }
                             </select>
                         </div>
-                        <div class="col-12">
-                            <label class="form-label">Statut</label>
-                            <select class="form-select" @bind="_c.Status">
+                        <div class="col-span-2">
+                            <label class="block font-semibold text-slate-300 mb-1">Statut du composant</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Status">
                                 @foreach (var v in Enum.GetValues<LifecycleStatus>())
                                 {
                                     <option value="@v">@v</option>
@@ -90,106 +94,67 @@ else
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header">
-                    <strong>Preuve de demarrage</strong>
+            <!-- Right Column: Readiness Probe Proofs -->
+            <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-file-earmark-text-fill text-amber-400"></i>
+                        Preuve de Démarrage (Readiness Probe)
+                    </h3>
                     @if (_c.Readiness.IsProvable)
                     {
-                        <span class="badge bg-success ms-2">Exploitable</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Exploitable</span>
                     }
                     else
                     {
-                        <span class="badge bg-warning text-dark ms-2">Incomplete</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Incomplète</span>
                     }
                 </div>
-                <div class="card-body">
-                    <p class="text-secondary small">
-                        Un service Windows <code>Running</code> ne prouve rien : il signale que Windows a
-                        lance le processus, pas que la JVM N4 a charge sa configuration, ouvert la base,
-                        rejoint le cluster et initialise son tier web. La preuve est le marqueur ecrit
-                        dans le journal applicatif. Sans lui, l'etat de ce composant restera
-                        <strong>A confirmer</strong>.
-                    </p>
 
-                    <div class="mb-3">
-                        <label class="form-label">Chemin du journal</label>
-                        <input class="form-control" @bind="_c.Readiness.LogPath"
-                               placeholder="C:\ProgramData\Navis\*\logs\navis-apex.log" />
-                        <div class="form-text">
-                            Chemin local tel que le SERVEUR le voit, jamais un chemin UNC.
-                            Le caractere <code>*</code> est accepte : plusieurs journaux N4 sont
-                            horodates dans leur nom, et celui de XPS repart a zero a chaque demarrage.
-                        </div>
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Chemin du journal applicatif</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Readiness.LogPath" placeholder="C:\ProgramData\Navis\*\logs\navis-apex.log" />
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">Marqueurs de demarrage</label>
-                        <textarea class="form-control" rows="3"
-                                  @bind="_marqueurs" placeholder="Web tier servlet .*initialized"></textarea>
-                        <div class="form-text">
-                            Une expression reguliere par ligne. La premiere qui apparait apres le
-                            lancement vaut preuve. Relevez-les sur un demarrage reussi avec
-                            <code>Find-N4ReadinessPattern.ps1</code>.
-                        </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Marqueurs Regex de démarrage réussi</label>
+                        <textarea rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-sky-400 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_marqueurs" placeholder="Web tier servlet .*initialized"></textarea>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">Signatures d'echec</label>
-                        <textarea class="form-control" rows="2" @bind="_erreurs"></textarea>
-                        <div class="form-text">
-                            Des qu'une apparait, l'attente cesse au lieu de consommer tout le delai.
-                        </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Signatures d'échec précoce</label>
+                        <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-rose-400 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_erreurs"></textarea>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">Lignes a ignorer</label>
-                        <textarea class="form-control" rows="2" @bind="_ignores"></textarea>
-                        <div class="form-text">Neutralise une erreur connue et sans consequence au demarrage.</div>
-                    </div>
-
-                    <div class="row g-3">
-                        <div class="col-6">
-                            <label class="form-label">Delai service (s)</label>
-                            <input type="number" class="form-control"
-                                   @bind="_c.Readiness.ServiceRunningTimeoutSeconds" />
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Délai Service (s)</label>
+                            <input type="number" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Readiness.ServiceRunningTimeoutSeconds" />
                         </div>
-                        <div class="col-6">
-                            <label class="form-label">Delai preuve (s)</label>
-                            <input type="number" class="form-control"
-                                   @bind="_c.Readiness.LogReadyTimeoutSeconds" />
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Délai Preuve (s)</label>
+                            <input type="number" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Readiness.LogReadyTimeoutSeconds" />
                         </div>
-                        <div class="col-6">
-                            <label class="form-label">Delai d'arret (s)</label>
-                            <input type="number" class="form-control"
-                                   @bind="_c.Readiness.StopTimeoutSeconds" />
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">Observation apres marqueur (s)</label>
-                            <input type="number" class="form-control"
-                                   @bind="_c.Readiness.PostReadySettleSeconds" />
-                        </div>
-                    </div>
-                    <div class="form-text mt-2">
-                        Delais volontairement genereux : un delai trop court transforme un demarrage
-                        lent mais normal en faux incident, et pousse a relancer un composant qui
-                        chargeait simplement.
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    @if (_message is not null)
-    {
-        <div class="alert @(_enErreur ? "alert-danger" : "alert-success") mt-4">@_message</div>
-    }
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
 
-    <div class="mt-4 d-flex gap-2">
-        <button class="btn btn-primary" @onclick="Enregistrer">Enregistrer</button>
-        <a class="btn btn-outline-secondary" href="@($"/admin/environnements/{_c.EnvironmentId}")">Retour</a>
+        <div class="flex items-center gap-3">
+            <button class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition" @onclick="Enregistrer">
+                Enregistrer les modifications
+            </button>
+            <a class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition" href="@($"/admin/environnements/{_c.EnvironmentId}")">
+                Retour
+            </a>
+        </div>
     </div>
 }
 
@@ -202,6 +167,10 @@ else
     private string _ignores = "";
     private string? _message;
     private bool _enErreur;
+
+    private string _messageClass => _enErreur
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
 
     protected override async Task OnParametersSetAsync()
     {
@@ -221,8 +190,6 @@ else
         _c.Readiness.ErrorPatterns = Decouper(_erreurs);
         _c.Readiness.IgnorePatterns = Decouper(_ignores);
 
-        // Une expression reguliere invalide ne doit pas etre decouverte au
-        // milieu d'un demarrage de production : on la refuse a la saisie.
         foreach (var motif in _c.Readiness.ReadyPatterns
                      .Concat(_c.Readiness.ErrorPatterns)
                      .Concat(_c.Readiness.IgnorePatterns))
@@ -231,19 +198,18 @@ else
             catch (ArgumentException ex)
             {
                 _enErreur = true;
-                _message = $"Expression reguliere invalide : « {motif} » - {ex.Message}";
+                _message = $"Expression régulière invalide : « {motif} » - {ex.Message}";
                 return;
             }
         }
 
         try
         {
-            // Le serveur est deja rattache : on evite qu'EF tente de le reinserer.
             _c.Server = null;
             _c.Environment = null;
             await Referential.SaveComponentAsync(_c);
             _enErreur = false;
-            _message = "Composant enregistre.";
+            _message = "Composant enregistré avec succès.";
             _c = await Referential.GetComponentAsync(Id);
         }
         catch (Exception ex)

@@ -1,4 +1,4 @@
-﻿@page "/Account/Login"
+@page "/Account/Login"
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Authentication
@@ -11,64 +11,67 @@
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Log in</PageTitle>
+<PageTitle>Connexion — N4 Sentinel</PageTitle>
 
-<h1>Log in</h1>
-<div class="row">
-    <div class="col-lg-6">
-        <section>
-            <StatusMessage Message="@errorMessage" />
-            <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
-                <DataAnnotationsValidator />
-                <h2>Use a local account to log in.</h2>
-                <hr />
-                <ValidationSummary class="text-danger" role="alert" />
-                <div class="form-floating mb-3">
-                    <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com" />
-                    <label for="Input.Email" class="form-label">Email</label>
-                    <ValidationMessage For="() => Input.Email" class="text-danger" />
-                </div>
-                <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" />
-                    <label for="Input.Password" class="form-label">Password</label>
-                    <ValidationMessage For="() => Input.Password" class="text-danger" />
-                </div>
-                <div class="checkbox mb-3">
-                    <label class="form-label">
-                        <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
-                        Remember me
-                    </label>
-                </div>
-                <div>
-                    <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
-                </div>
-                <hr />
-                <div class="d-flex flex-column">
-                    <span class="text-secondary mx-auto mt-2">OR</span>
-                    <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="btn btn-link mx-auto">Log in with a passkey</PasskeySubmit>
-                </div>
-                <hr />
-                <div>
-                    <p>
-                        <a href="Account/ForgotPassword">Forgot your password?</a>
-                    </p>
-                    <p>
-                        <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a>
-                    </p>
-                    <p>
-                        <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
-                    </p>
-                </div>
-            </EditForm>
-        </section>
+<div class="space-y-6">
+    <div>
+        <h2 class="text-xl font-bold text-white tracking-tight">Connexion</h2>
+        <p class="text-xs text-slate-400 mt-1">Accédez au portail de supervision N4 Sentinel</p>
     </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to log in.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
-    </div>
+
+    <StatusMessage Message="@errorMessage" />
+
+    <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login" class="space-y-4">
+        <DataAnnotationsValidator />
+        
+        <div>
+            <label for="Input.Email" class="block text-xs font-semibold text-slate-300 mb-1.5">
+                Adresse courriel
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                    <i class="bi bi-envelope"></i>
+                </div>
+                <InputText @bind-Value="Input.Email" id="Input.Email" class="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 transition" autocomplete="username webauthn" placeholder="nom@exemple.com" />
+            </div>
+            <ValidationMessage For="() => Input.Email" class="text-xs text-rose-400 mt-1" />
+        </div>
+
+        <div>
+            <label for="Input.Password" class="block text-xs font-semibold text-slate-300 mb-1.5">
+                Mot de passe
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                    <i class="bi bi-lock"></i>
+                </div>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 transition" autocomplete="current-password" placeholder="••••••••" />
+            </div>
+            <ValidationMessage For="() => Input.Password" class="text-xs text-rose-400 mt-1" />
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                <InputCheckbox @bind-Value="Input.RememberMe" class="w-4 h-4 rounded border-slate-700 bg-slate-900 text-theme-primary focus:ring-slate-500" />
+                <span>Se souvenir de moi</span>
+            </label>
+
+            <a href="Account/ForgotPassword" class="text-xs text-theme-primary hover:underline transition">
+                Mot de passe oublié ?
+            </a>
+        </div>
+
+        <button type="submit" class="w-full bg-theme-gradient hover:opacity-90 text-white font-bold py-3 rounded-xl shadow-lg glow-theme transition transform active:scale-[0.99] text-sm">
+            Se connecter
+        </button>
+
+        <div class="pt-3 border-t border-slate-800 space-y-2">
+            <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-300 hover:text-white transition flex items-center justify-center gap-2">
+                <i class="bi bi-key-fill text-theme-primary"></i>
+                Connexion par clé de sécurité (Passkey)
+            </PasskeySubmit>
+        </div>
+    </EditForm>
 </div>
 
 @code {
@@ -92,7 +95,6 @@
 
         if (HttpMethods.IsGet(HttpContext.Request.Method))
         {
-            // Clear the existing external cookie to ensure a clean login process
             await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
         }
     }
@@ -101,32 +103,28 @@
     {
         if (!string.IsNullOrEmpty(Input.Passkey?.Error))
         {
-            errorMessage = $"Error: {Input.Passkey.Error}";
+            errorMessage = $"Erreur Passkey : {Input.Passkey.Error}";
             return;
         }
 
         SignInResult result;
         if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
         {
-            // When performing passkey sign-in, don't perform form validation.
             result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
         }
         else
         {
-            // If doing a password sign-in, validate the form.
             if (!editContext.Validate())
             {
                 return;
             }
 
-            // This doesn't count login failures towards account lockout
-            // To enable password failures to trigger account lockout, set lockoutOnFailure: true
             result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
         }
 
         if (result.Succeeded)
         {
-            Logger.LogInformation("User logged in.");
+            Logger.LogInformation("Utilisateur connecté.");
             RedirectManager.RedirectTo(ReturnUrl);
         }
         else if (result.RequiresTwoFactor)
@@ -137,26 +135,26 @@
         }
         else if (result.IsLockedOut)
         {
-            Logger.LogWarning("User account locked out.");
+            Logger.LogWarning("Compte utilisateur verrouillé.");
             RedirectManager.RedirectTo("Account/Lockout");
         }
         else
         {
-            errorMessage = "Error: Invalid login attempt.";
+            errorMessage = "Erreur : Identifiants incorrects.";
         }
     }
 
     private sealed class InputModel
     {
-        [Required]
-        [EmailAddress]
+        [Required(ErrorMessage = "L'adresse courriel est obligatoire.")]
+        [EmailAddress(ErrorMessage = "Saisissez une adresse courriel valide.")]
         public string Email { get; set; } = "";
 
-        [Required]
+        [Required(ErrorMessage = "Le mot de passe est obligatoire.")]
         [DataType(DataType.Password)]
         public string Password { get; set; } = "";
 
-        [Display(Name = "Remember me?")]
+        [Display(Name = "Se souvenir de moi")]
         public bool RememberMe { get; set; }
 
         public PasskeyInputModel? Passkey { get; set; }

@@ -1,71 +1,145 @@
-﻿@page "/Account/Manage/TwoFactorAuthentication"
+@page "/Account/Manage/TwoFactorAuthentication"
 
 @using Microsoft.AspNetCore.Http.Features
 @using Microsoft.AspNetCore.Identity
+@using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Identity
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Two-factor authentication (2FA)</PageTitle>
+<PageTitle>Authentification a deux facteurs - N4 Sentinel</PageTitle>
 
 <StatusMessage />
-<h3>Two-factor authentication (2FA)</h3>
+<h3>Authentification a deux facteurs</h3>
+
+<p class="text-secondary">
+    Un second facteur ajoute un code a usage unique, genere par une application sur votre
+    telephone, en plus de votre mot de passe. Il reste <strong>facultatif</strong> : c'est
+    vous qui l'activez ou le desactivez.
+</p>
+
+@if (estPrivilegie && !is2faEnabled)
+{
+    <div class="alert alert-warning">
+        <strong>Recommande pour votre profil.</strong>
+        Votre compte porte des habilitations permettant d'agir sur l'ecosysteme N4 ou
+        d'approuver des operations. Un mot de passe seul suffit alors a quelqu'un qui
+        le devine pour arreter des services de Production.
+    </div>
+}
+
 @if (canTrack)
 {
-    if (is2faEnabled)
-    {
-        if (recoveryCodesLeft == 0)
-        {
-            <div class="alert alert-danger">
-                <strong>You have no recovery codes left.</strong>
-                <p>You must <a href="Account/Manage/GenerateRecoveryCodes">generate a new set of recovery codes</a> before you can log in with a recovery code.</p>
+    <div class="card mb-4">
+        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <div class="fw-semibold">Etat actuel</div>
+                @if (is2faEnabled)
+                {
+                    <span class="badge bg-success">Actif</span>
+                    <span class="text-secondary ms-2">
+                        Un code vous sera demande a chaque connexion depuis un navigateur non memorise.
+                    </span>
+                }
+                else
+                {
+                    <span class="badge bg-secondary">Inactif</span>
+                    <span class="text-secondary ms-2">Seul votre mot de passe est demande a la connexion.</span>
+                }
             </div>
-        }
-        else if (recoveryCodesLeft == 1)
+
+            <div class="d-flex gap-2 flex-wrap">
+                @if (!is2faEnabled)
+                {
+                    <a href="Account/Manage/EnableAuthenticator" class="btn btn-primary">
+                        @(hasAuthenticator ? "Activer le second facteur" : "Configurer une application")
+                    </a>
+                }
+                else
+                {
+                    <a href="Account/Manage/Disable2fa" class="btn btn-outline-danger">Desactiver</a>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (is2faEnabled)
+    {
+        @* --- Codes de recuperation ------------------------------------- *@
+        @if (recoveryCodesLeft == 0)
         {
             <div class="alert alert-danger">
-                <strong>You have 1 recovery code left.</strong>
-                <p>You can <a href="Account/Manage/GenerateRecoveryCodes">generate a new set of recovery codes</a>.</p>
+                <strong>Il ne vous reste aucun code de recuperation.</strong>
+                <p class="mb-0">
+                    Si vous perdez votre telephone maintenant, vous ne pourrez plus vous connecter.
+                    <a href="Account/Manage/GenerateRecoveryCodes">Generez une nouvelle serie</a> des que possible.
+                </p>
             </div>
         }
         else if (recoveryCodesLeft <= 3)
         {
             <div class="alert alert-warning">
-                <strong>You have @recoveryCodesLeft recovery codes left.</strong>
-                <p>You should <a href="Account/Manage/GenerateRecoveryCodes">generate a new set of recovery codes</a>.</p>
+                <strong>Il vous reste @recoveryCodesLeft code(s) de recuperation.</strong>
+                <p class="mb-0">
+                    <a href="Account/Manage/GenerateRecoveryCodes">Generez une nouvelle serie</a>
+                    avant d'etre a court.
+                </p>
             </div>
         }
 
-        if (isMachineRemembered)
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Application d'authentification</h5>
+                <p class="text-secondary">
+                    Microsoft Authenticator, Google Authenticator ou toute application compatible TOTP.
+                    Les codes sont calcules hors ligne : aucun reseau n'est necessaire au moment
+                    de la connexion.
+                </p>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="Account/Manage/EnableAuthenticator" class="btn btn-outline-primary">
+                        Reconfigurer l'application
+                    </a>
+                    <a href="Account/Manage/ResetAuthenticator" class="btn btn-outline-secondary">
+                        Reinitialiser la cle
+                    </a>
+                    <a href="Account/Manage/GenerateRecoveryCodes" class="btn btn-outline-secondary">
+                        Regenerer les codes de recuperation (@recoveryCodesLeft restant(s))
+                    </a>
+                </div>
+                <p class="text-secondary small mt-3 mb-0">
+                    Reinitialiser la cle invalide la configuration actuelle : l'ancienne entree de
+                    votre application cessera de fonctionner et devra etre scannee a nouveau.
+                </p>
+            </div>
+        </div>
+
+        @if (isMachineRemembered)
         {
-            <form style="display: inline-block" @formname="forget-browser" @onsubmit="OnSubmitForgetBrowserAsync" method="post">
-                <AntiforgeryToken />
-                <button type="submit" class="btn btn-primary">Forget this browser</button>
-            </form>
+            <div class="card">
+                <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <div>
+                        <div class="fw-semibold">Ce navigateur est memorise</div>
+                        <span class="text-secondary">
+                            Le code ne vous est plus demande depuis ce poste. A oublier si ce n'est
+                            pas votre machine personnelle.
+                        </span>
+                    </div>
+                    <form @formname="forget-browser" @onsubmit="OnSubmitForgetBrowserAsync" method="post">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn-outline-secondary">Oublier ce navigateur</button>
+                    </form>
+                </div>
+            </div>
         }
-
-        <a href="Account/Manage/Disable2fa" class="btn btn-primary">Disable 2FA</a>
-        <a href="Account/Manage/GenerateRecoveryCodes" class="btn btn-primary">Reset recovery codes</a>
-    }
-
-    <h4>Authenticator app</h4>
-    @if (!hasAuthenticator)
-    {
-        <a href="Account/Manage/EnableAuthenticator" class="btn btn-primary">Add authenticator app</a>
-    }
-    else
-    {
-        <a href="Account/Manage/EnableAuthenticator" class="btn btn-primary">Set up authenticator app</a>
-        <a href="Account/Manage/ResetAuthenticator" class="btn btn-primary">Reset authenticator app</a>
     }
 }
 else
 {
     <div class="alert alert-danger">
-        <strong>Privacy and cookie policy have not been accepted.</strong>
-        <p>You must accept the policy before you can enable two factor authentication.</p>
+        <strong>La politique de confidentialite n'a pas ete acceptee.</strong>
+        <p class="mb-0">Vous devez l'accepter avant de pouvoir activer le second facteur.</p>
     </div>
 }
 
@@ -75,6 +149,7 @@ else
     private int recoveryCodesLeft;
     private bool is2faEnabled;
     private bool isMachineRemembered;
+    private bool estPrivilegie;
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -93,6 +168,15 @@ else
         is2faEnabled = await UserManager.GetTwoFactorEnabledAsync(user);
         isMachineRemembered = await SignInManager.IsTwoFactorClientRememberedAsync(user);
         recoveryCodesLeft = await UserManager.CountRecoveryCodesAsync(user);
+
+        // Le second facteur reste facultatif, mais on le recommande explicitement
+        // aux profils qui peuvent agir sur la Production ou approuver une operation.
+        var roles = await UserManager.GetRolesAsync(user);
+        estPrivilegie = roles.Any(r => r is N4Roles.OperateurN4
+                                         or N4Roles.AdministrateurN4
+                                         or N4Roles.AdministrateurInfrastructure
+                                         or N4Roles.Validateur
+                                         or N4Roles.AdministrateurSolution);
     }
 
     private async Task OnSubmitForgetBrowserAsync()
@@ -100,7 +184,7 @@ else
         await SignInManager.ForgetTwoFactorClientAsync();
 
         RedirectManager.RedirectToCurrentPageWithStatus(
-            "The current browser has been forgotten. When you login again from this browser you will be prompted for your 2fa code.",
+            "Ce navigateur a ete oublie. Le code vous sera de nouveau demande a la prochaine connexion.",
             HttpContext);
     }
 }

@@ -3,273 +3,260 @@
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Connectivity
 @using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Web.State
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject ReferentialService Referential
 @inject ConnectivityTester Tester
 @inject NavisConfigImporter Importer
+@inject CurrentEnvironmentState EnvState
 
-<PageTitle>@(_env?.Code ?? "Environnement") - N4 Sentinel</PageTitle>
+<PageTitle>@(_env?.Code ?? "Environnement") — N4 Sentinel</PageTitle>
 
 @if (_env is null)
 {
-    <p class="text-secondary">Chargement...</p>
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement des détails de l'environnement...</div>
+    </div>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-        <div>
-            <a href="/admin/environnements" class="text-decoration-none small">&larr; Environnements</a>
-            <h1 class="h3 mb-1 mt-1">
-                <code>@_env.Code</code> @_env.Name
-                @if (_env.IsProduction)
-                {
-                    <span class="badge bg-danger ms-2">PRODUCTION</span>
-                }
-            </h1>
-            <div class="text-secondary">
-                <StatutBadge Statut="_env.Status" />
-                <span class="ms-2">@_env.Kind &middot; criticite @_env.Criticality &middot; @_env.TimeZoneId</span>
+    <div class="space-y-6">
+        <!-- Header & Breadcrumb -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+                <a href="/admin/environnements" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour aux environnements
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                    <span class="font-mono text-sky-400">@_env.Code</span>
+                    <span>@_env.Name</span>
+                    @if (_env.IsProduction)
+                    {
+                        <span class="px-2 py-0.5 rounded text-xs font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30">PROD</span>
+                    }
+                </h1>
+                <div class="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                    <StatutBadge Statut="_env.Status" />
+                    <span>&middot; Type @_env.Kind</span>
+                    <span>&middot; Criticité @_env.Criticality</span>
+                    <span>&middot; @_env.TimeZoneId</span>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition disabled:opacity-50 inline-flex items-center gap-2" @onclick="TesterConfiguration" disabled="@_testEnCours">
+                    <i class="bi bi-play-circle-fill"></i>
+                    <span>@(_testEnCours ? "Test en cours..." : "Tester la configuration")</span>
+                </button>
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition inline-flex items-center gap-2" @onclick="() => _importOuvert = !_importOuvert">
+                        <i class="bi bi-file-earmark-arrow-up-fill"></i>
+                        <span>Importer Navis-Config.json</span>
+                    </button>
+                </AuthorizeView>
             </div>
         </div>
-        <div class="d-flex gap-2 flex-wrap">
-            <button class="btn btn-outline-primary" @onclick="TesterConfiguration" disabled="@_testEnCours">
-                @(_testEnCours ? "Test en cours..." : "Tester la configuration")
-            </button>
-            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
-                <button class="btn btn-outline-secondary" @onclick="() => _importOuvert = !_importOuvert">
-                    Importer Navis-Config.json
-                </button>
-            </AuthorizeView>
-        </div>
-    </div>
 
-    @* ---------------- Cycle de validation ---------------- *@
-    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
-        @{ var transitions = ReferentialService.AllowedTransitions(_env.Status); }
-        @if (transitions.Count > 0)
-        {
-            <div class="card mb-4">
-                <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-                    <span class="text-secondary">Faire evoluer le statut :</span>
-                    @foreach (var cible in transitions)
-                    {
-                        <button class="btn btn-sm btn-outline-primary"
-                                @onclick="() => ChangerStatut(cible)">@cible</button>
-                    }
+        <!-- Validation Lifecycle Status Bar -->
+        <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+            @{ var transitions = ReferentialService.AllowedTransitions(_env.Status); }
+            @if (transitions.Count > 0)
+            {
+                <div class="glass-card p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 text-xs font-semibold text-slate-300">
+                        <span>Évolution du cycle de vie :</span>
+                        <div class="flex gap-2">
+                            @foreach (var cible in transitions)
+                            {
+                                <button class="px-3 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-bold transition"
+                                        @onclick="() => ChangerStatut(cible)">@cible</button>
+                            }
+                        </div>
+                    </div>
                     @if (_env.Status != LifecycleStatus.Actif)
                     {
-                        <span class="text-secondary small ms-auto">
-                            Un environnement doit etre <strong>Valide</strong> ou <strong>Actif</strong>
-                            pour qu'une operation puisse y etre lancee.
+                        <span class="text-[11px] text-slate-400">
+                            L'environnement doit être <strong class="text-white">Validé</strong> ou <strong class="text-white">Actif</strong> pour autoriser les opérations.
                         </span>
                     }
                 </div>
-            </div>
+            }
+        </AuthorizeView>
+
+        @if (_messageStatut is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_statutEnErreurClass">@_messageStatut</div>
         }
-    </AuthorizeView>
 
-    @if (_messageStatut is not null)
-    {
-        <div class="alert @(_statutEnErreur ? "alert-danger" : "alert-success")">@_messageStatut</div>
-    }
-
-    @* ---------------- Import ---------------- *@
-    @if (_importOuvert)
-    {
-        <div class="card mb-4">
-            <div class="card-header"><strong>Importer l'inventaire depuis Navis-Config.json</strong></div>
-            <div class="card-body">
-                <p class="text-secondary">
-                    Le fichier de configuration de vos scripts d'exploitation decrit deja l'ecosysteme reel :
-                    noms d'hotes, noms exacts des services Windows, chemins de journaux et marqueurs de
-                    demarrage. L'importer evite une double saisie et, surtout, tout ecart entre ce que
-                    pilotent les scripts et ce que croit l'application.
+        <!-- Import Card -->
+        @if (_importOuvert)
+        {
+            <div class="glass-card p-6 rounded-2xl border border-slate-700 space-y-4">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-file-earmark-code-fill text-sky-400"></i>
+                    Importer l'inventaire réel depuis Navis-Config.json
+                </h3>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    Le fichier <code class="text-sky-400">Navis-Config.json</code> de vos scripts d'exploitation contient l'inventaire réel des hôtes, des services Windows, des chemins de logs et des marqueurs de démarrage.
                 </p>
-                <p class="text-secondary">
-                    Les elements importes arrivent en <strong>Brouillon</strong> : l'import alimente le
-                    referentiel, il ne le valide pas.
-                </p>
-                <InputFile OnChange="ChargerFichier" class="form-control" accept=".json" />
+                
+                <InputFile OnChange="ChargerFichier" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500 cursor-pointer" accept=".json" />
 
                 @if (_rapportImport is not null)
                 {
-                    <div class="alert @(_rapportImport.Succeeded ? "alert-success" : "alert-danger") mt-3">
-                        <div>
-                            <strong>@_rapportImport.ServersCreated</strong> serveur(s) cree(s),
-                            <strong>@_rapportImport.ComponentsCreated</strong> composant(s) cree(s).
-                            @if (_rapportImport.ServersSkipped + _rapportImport.ComponentsSkipped > 0)
-                            {
-                                <text>
-                                    @(_rapportImport.ServersSkipped + _rapportImport.ComponentsSkipped)
-                                    element(s) deja present(s), ignore(s).
-                                </text>
-                            }
+                    <div class="p-4 rounded-xl text-xs space-y-2 border @_rapportImportClass">
+                        <div class="font-bold">
+                            @_rapportImport.ServersCreated serveur(s) créé(s), @_rapportImport.ComponentsCreated composant(s) créé(s).
                         </div>
                         @foreach (var e in _rapportImport.Errors)
                         {
-                            <div class="mt-2">@e</div>
-                        }
-                        @if (_rapportImport.Warnings.Count > 0)
-                        {
-                            <ul class="mt-2 mb-0 small">
-                                @foreach (var w in _rapportImport.Warnings)
-                                {
-                                    <li>@w</li>
-                                }
-                            </ul>
+                            <div class="text-rose-300">@e</div>
                         }
                     </div>
                 }
             </div>
-        </div>
-    }
+        }
 
-    @* ---------------- Rapport de test (FR-007) ---------------- *@
-    @if (_rapport is not null)
-    {
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <strong>Test de configuration</strong>
-                <span class="small text-secondary">
-                    @_rapport.Results.Count controle(s) en @_rapport.Duration.TotalSeconds.ToString("0.0") s
-                    &middot; aucune action mutative
-                </span>
-            </div>
-            <div class="card-body">
-                <div class="d-flex gap-2 flex-wrap mb-3">
-                    <span class="badge bg-success">@_rapport.Satisfied satisfait(s)</span>
-                    <span class="badge bg-warning text-dark">@_rapport.Warnings avertissement(s)</span>
-                    <span class="badge bg-danger">@_rapport.Blocking bloquant(s)</span>
-                    <span class="badge bg-secondary">@_rapport.Unverifiable non verifiable(s)</span>
+        <!-- Test Report Section -->
+        @if (_rapport is not null)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-shield-check text-emerald-400"></i>
+                        Rapport de Test de Configuration
+                    </h3>
+                    <span class="text-xs font-mono text-slate-400">
+                        @_rapport.Results.Count contrôle(s) en @_rapport.Duration.TotalSeconds.ToString("0.0") s
+                    </span>
                 </div>
-
-                @if (!_rapport.CanActivate)
-                {
-                    <div class="alert alert-danger">
-                        Cet environnement ne peut pas etre active tant qu'un controle bloquant subsiste.
-                        Les avertissements, eux, doivent etre compris - pas necessairement corriges.
+                <div class="p-5 space-y-4">
+                    <div class="flex flex-wrap gap-2 text-xs font-semibold">
+                        <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">@_rapport.Satisfied satisfait(s)</span>
+                        <span class="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">@_rapport.Warnings avertissement(s)</span>
+                        <span class="px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">@_rapport.Blocking bloquant(s)</span>
                     </div>
-                }
 
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead>
-                            <tr><th>Cible</th><th>Controle</th><th>Resultat</th><th>Detail</th></tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var r in _rapport.Results)
-                            {
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
                                 <tr>
-                                    <td class="text-nowrap"><code>@r.Target</code></td>
-                                    <td class="text-nowrap">@r.CheckName</td>
-                                    <td class="text-nowrap"><span class="badge @ClasseResultat(r.Outcome)">@LibelleResultat(r.Outcome)</span></td>
-                                    <td>
-                                        @r.Message
-                                        @if (r.Recommendation is not null)
-                                        {
-                                            <div class="small text-secondary mt-1">@r.Recommendation</div>
-                                        }
-                                    </td>
+                                    <th class="py-2.5 px-3">Cible</th>
+                                    <th class="py-2.5 px-3">Contrôle</th>
+                                    <th class="py-2.5 px-3">Résultat</th>
+                                    <th class="py-2.5 px-3">Détail</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                @foreach (var r in _rapport.Results)
+                                {
+                                    <tr class="hover:bg-slate-800/40">
+                                        <td class="py-3 px-3 font-mono text-white font-bold">@r.Target</td>
+                                        <td class="py-3 px-3 font-semibold">@r.CheckName</td>
+                                        <td class="py-3 px-3">
+                                            <span class="px-2 py-0.5 rounded text-[10px] font-bold @ClasseOutcome(r.Outcome)">@LibelleOutcome(r.Outcome)</span>
+                                        </td>
+                                        <td class="py-3 px-3 text-slate-300">@r.Message</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-        </div>
-    }
+        }
 
-    @* ---------------- Serveurs ---------------- *@
-    <h2 class="h5 mt-4">Serveurs <span class="text-secondary fw-normal">(@_serveurs.Count)</span></h2>
-    @if (_serveurs.Count == 0)
-    {
-        <p class="text-secondary">Aucun serveur declare.</p>
-    }
-    else
-    {
-        <div class="table-responsive">
-            <table class="table table-sm table-hover align-middle">
-                <thead>
-                    <tr><th>Hote</th><th>IP</th><th>Port WinRM</th><th>Statut</th><th>Description</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var s in _serveurs)
-                    {
+        <!-- Servers Table -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-server text-sky-400"></i>
+                    Serveurs Nœuds (@_serveurs.Count)
+                </h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
                         <tr>
-                            <td><code>@s.HostName</code></td>
-                            <td>@(s.IpAddress ?? "-")</td>
-                            <td>@s.WinRmPort</td>
-                            <td><StatutBadge Statut="s.Status" /></td>
-                            <td class="small text-secondary">@s.Description</td>
+                            <th class="py-3 px-4 font-bold">Nom d'hôte</th>
+                            <th class="py-3 px-4 font-bold">Adresse IP</th>
+                            <th class="py-3 px-4 font-bold">Port WinRM</th>
+                            <th class="py-3 px-4 font-bold">Statut</th>
+                            <th class="py-3 px-4 font-bold">Description</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        @foreach (var s in _serveurs)
+                        {
+                            <tr class="hover:bg-slate-800/40">
+                                <td class="py-3.5 px-4 font-mono font-bold text-white">@s.HostName</td>
+                                <td class="py-3.5 px-4 font-mono text-slate-400">@(s.IpAddress ?? "-")</td>
+                                <td class="py-3.5 px-4 font-mono text-slate-300">@s.WinRmPort</td>
+                                <td class="py-3.5 px-4"><StatutBadge Statut="s.Status" /></td>
+                                <td class="py-3.5 px-4 text-slate-400">@s.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
-    }
 
-    @* ---------------- Composants ---------------- *@
-    <h2 class="h5 mt-4">Composants <span class="text-secondary fw-normal">(@_composants.Count)</span></h2>
-    @if (_composants.Count == 0)
-    {
-        <p class="text-secondary">Aucun composant declare.</p>
-    }
-    else
-    {
-        <div class="table-responsive">
-            <table class="table table-sm table-hover align-middle">
-                <thead>
-                    <tr>
-                        <th>Ordre</th><th>Nom logique</th><th>Role</th><th>Serveur</th>
-                        <th>Service Windows</th><th>Pilotage</th><th>Preuve</th><th>Statut</th><th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var c in _composants)
-                    {
+        <!-- Components Table -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-cpu-fill text-amber-400"></i>
+                    Composants N4 (@_composants.Count)
+                </h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
                         <tr>
-                            <td>@(c.StartOrder == 0 ? "-" : c.StartOrder.ToString())</td>
-                            <td>@c.LogicalName</td>
-                            <td class="text-nowrap">@c.Role</td>
-                            <td><code>@(c.Server?.HostName ?? "-")</code></td>
-                            <td class="small">@(c.WindowsServiceName ?? "-")</td>
-                            <td>
-                                @if (c.ControlMode == ControlMode.Pilotable)
-                                {
-                                    <span class="badge bg-primary">Pilotable</span>
-                                }
-                                else if (c.ControlMode == ControlMode.SuperviseSeulement)
-                                {
-                                    <span class="badge bg-secondary">Supervise</span>
-                                }
-                                else
-                                {
-                                    <span class="badge bg-light text-dark">Non supervise</span>
-                                }
-                            </td>
-                            <td>
-                                @if (c.Readiness.IsProvable)
-                                {
-                                    <span class="badge bg-success" title="@c.Readiness.LogPath">Configuree</span>
-                                }
-                                else
-                                {
-                                    <span class="badge bg-warning text-dark"
-                                          title="Sans marqueur, l'etat restera 'A confirmer'">Absente</span>
-                                }
-                            </td>
-                            <td><StatutBadge Statut="c.Status" /></td>
-                            <td class="text-end">
-                                <a class="btn btn-sm btn-outline-secondary"
-                                   href="@($"/admin/composants/{c.Id}")">Editer</a>
-                            </td>
+                            <th class="py-3 px-4 font-bold">Ordre</th>
+                            <th class="py-3 px-4 font-bold">Nom logique</th>
+                            <th class="py-3 px-4 font-bold">Rôle N4</th>
+                            <th class="py-3 px-4 font-bold">Hôte</th>
+                            <th class="py-3 px-4 font-bold">Service Windows</th>
+                            <th class="py-3 px-4 font-bold">Preuve Log</th>
+                            <th class="py-3 px-4 font-bold">Statut</th>
+                            <th class="py-3 px-4 font-bold text-right">Action</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        @foreach (var c in _composants)
+                        {
+                            <tr class="hover:bg-slate-800/40">
+                                <td class="py-3.5 px-4 font-mono text-slate-400">@(c.StartOrder == 0 ? "-" : c.StartOrder.ToString())</td>
+                                <td class="py-3.5 px-4 font-bold text-white">@c.LogicalName</td>
+                                <td class="py-3.5 px-4 font-semibold text-sky-400">@c.Role</td>
+                                <td class="py-3.5 px-4 font-mono text-slate-300">@(c.Server?.HostName ?? "-")</td>
+                                <td class="py-3.5 px-4 font-mono text-slate-400 text-[11px]">@(c.WindowsServiceName ?? "-")</td>
+                                <td class="py-3.5 px-4">
+                                    @if (c.Readiness.IsProvable)
+                                    {
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="@c.Readiness.LogPath">Configurée</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Absente</span>
+                                    }
+                                </td>
+                                <td class="py-3.5 px-4"><StatutBadge Statut="c.Status" /></td>
+                                <td class="py-3.5 px-4 text-right">
+                                    <a href="@($"/admin/composants/{c.Id}")" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-[11px] transition">
+                                        Éditer
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
-    }
+    </div>
 }
 
 @code {
@@ -288,12 +275,25 @@ else
     private string? _messageStatut;
     private bool _statutEnErreur;
 
+    private string _statutEnErreurClass => _statutEnErreur
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+
+    private string _rapportImportClass => _rapportImport?.Succeeded == true
+        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+        : "bg-rose-500/10 text-rose-300 border-rose-500/20";
+
     protected override async Task OnParametersSetAsync() => await Recharger();
 
     private async Task Recharger()
     {
         _env = await Referential.GetEnvironmentAsync(Id);
         if (_env is null) return;
+
+        // Rend l'environnement courant visible en permanence dans l'en-tete,
+        // et fait apparaitre l'avertissement Production le cas echeant (SEC-004).
+        EnvState.Set(_env);
+
         _serveurs = await Referential.GetServersAsync(Id);
         _composants = await Referential.GetComponentsAsync(Id);
     }
@@ -316,7 +316,7 @@ else
     {
         var erreur = await Referential.ChangeEnvironmentStatusAsync(Id, cible);
         _statutEnErreur = erreur is not null;
-        _messageStatut = erreur ?? $"Statut porte a {cible}.";
+        _messageStatut = erreur ?? $"Statut porté à {cible}.";
         await Recharger();
     }
 
@@ -326,12 +326,10 @@ else
         var fichier = e.File;
         if (fichier is null) return;
 
-        // Garde-fou de taille : un Navis-Config.json fait quelques kilo-octets.
-        // Au-dela, ce n'est pas le bon fichier (SEC-007).
         if (fichier.Size > 512 * 1024)
         {
             _rapportImport = new ImportReport();
-            _rapportImport.Errors.Add("Fichier trop volumineux (512 Ko maximum). Un Navis-Config.json fait quelques kilo-octets.");
+            _rapportImport.Errors.Add("Fichier trop volumineux (512 Ko maximum).");
             return;
         }
 
@@ -342,21 +340,20 @@ else
         await Recharger();
     }
 
-    private static string ClasseResultat(CheckOutcome o) => o switch
+    private static string ClasseOutcome(CheckOutcome o) => o switch
     {
-        CheckOutcome.Satisfait => "bg-success",
-        CheckOutcome.Avertissement => "bg-warning text-dark",
-        CheckOutcome.Bloquant => "bg-danger",
-        CheckOutcome.NonApplicable => "bg-light text-dark",
-        _ => "bg-secondary"
+        CheckOutcome.Satisfait => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+        CheckOutcome.Avertissement => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+        CheckOutcome.Bloquant => "bg-rose-500/10 text-rose-400 border border-rose-500/20",
+        _ => "bg-slate-500/10 text-slate-400 border border-slate-500/20"
     };
 
-    private static string LibelleResultat(CheckOutcome o) => o switch
+    private static string LibelleOutcome(CheckOutcome o) => o switch
     {
         CheckOutcome.Satisfait => "Satisfait",
         CheckOutcome.Avertissement => "Avertissement",
         CheckOutcome.Bloquant => "Bloquant",
-        CheckOutcome.NonApplicable => "Non applicable",
-        _ => "Non verifiable"
+        CheckOutcome.NonApplicable => "N/A",
+        _ => "Non vérifiable"
     };
 }

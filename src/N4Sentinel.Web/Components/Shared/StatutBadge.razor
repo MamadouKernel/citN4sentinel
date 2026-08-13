@@ -1,43 +1,50 @@
 @using N4Sentinel.Domain
 
-@*
-    Statut du cycle de validation. La couleur seule ne suffit pas : le libelle
-    est toujours present, conformement a l'exigence d'accessibilite du cahier
-    des charges (NFR-009, FR-055).
-*@
-
-<span class="badge @Classe" title="@Explication">@Libelle</span>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border @Classe" title="@Explication">
+    <span class="w-1.5 h-1.5 rounded-full @DotClasse"></span>
+    <span>@Libelle</span>
+</span>
 
 @code {
     [Parameter, EditorRequired] public LifecycleStatus Statut { get; set; }
 
     private string Classe => Statut switch
     {
-        LifecycleStatus.Brouillon => "bg-secondary",
-        LifecycleStatus.AValider => "bg-warning text-dark",
-        LifecycleStatus.Valide => "bg-info text-dark",
-        LifecycleStatus.Actif => "bg-success",
-        LifecycleStatus.Desactive => "bg-dark",
-        _ => "bg-secondary"
+        LifecycleStatus.Brouillon => "bg-slate-500/10 text-slate-300 border-slate-500/20",
+        LifecycleStatus.AValider => "bg-amber-500/10 text-amber-300 border-amber-500/20",
+        LifecycleStatus.Valide => "bg-sky-500/10 text-sky-300 border-sky-500/20",
+        LifecycleStatus.Actif => "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+        LifecycleStatus.Desactive => "bg-rose-500/10 text-rose-300 border-rose-500/20",
+        _ => "bg-slate-500/10 text-slate-300 border-slate-500/20"
+    };
+
+    private string DotClasse => Statut switch
+    {
+        LifecycleStatus.Brouillon => "bg-slate-400",
+        LifecycleStatus.AValider => "bg-amber-400 animate-pulse",
+        LifecycleStatus.Valide => "bg-sky-400",
+        LifecycleStatus.Actif => "bg-emerald-400",
+        LifecycleStatus.Desactive => "bg-rose-400",
+        _ => "bg-slate-400"
     };
 
     private string Libelle => Statut switch
     {
         LifecycleStatus.Brouillon => "Brouillon",
-        LifecycleStatus.AValider => "A valider",
-        LifecycleStatus.Valide => "Valide",
+        LifecycleStatus.AValider => "À valider",
+        LifecycleStatus.Valide => "Validé",
         LifecycleStatus.Actif => "Actif",
-        LifecycleStatus.Desactive => "Desactive",
+        LifecycleStatus.Desactive => "Désactivé",
         _ => Statut.ToString()
     };
 
     private string Explication => Statut switch
     {
-        LifecycleStatus.Brouillon => "En cours de saisie. Aucune operation possible.",
-        LifecycleStatus.AValider => "Soumis a validation. Aucune operation possible.",
-        LifecycleStatus.Valide => "Valide, pas encore actif.",
-        LifecycleStatus.Actif => "Utilisable pour une operation.",
-        LifecycleStatus.Desactive => "Retire du service.",
+        LifecycleStatus.Brouillon => "En cours de saisie. Aucune opération possible.",
+        LifecycleStatus.AValider => "Soumis à validation. Aucune opération possible.",
+        LifecycleStatus.Valide => "Validé, pas encore actif.",
+        LifecycleStatus.Actif => "Utilisable pour une opération.",
+        LifecycleStatus.Desactive => "Retiré du service.",
         _ => ""
     };
 }

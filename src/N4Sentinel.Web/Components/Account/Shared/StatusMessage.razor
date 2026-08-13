@@ -1,8 +1,14 @@
-﻿@if (!string.IsNullOrEmpty(DisplayMessage))
+@if (!string.IsNullOrEmpty(DisplayMessage))
 {
-    var statusMessageClass = DisplayMessage.StartsWith("Error") ? "danger" : "success";
-    <div class="alert alert-@statusMessageClass" role="alert">
-        @DisplayMessage
+    var isError = DisplayMessage.StartsWith("Error") || DisplayMessage.StartsWith("Erreur");
+    var containerClass = isError
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+    var iconClass = isError ? "bi-exclamation-triangle-fill text-rose-400" : "bi-check-circle-fill text-emerald-400";
+
+    <div class="rounded-xl p-3.5 mb-4 text-xs font-medium border flex items-center gap-2.5 shadow-sm @containerClass" role="alert">
+        <i class="bi @iconClass text-base flex-shrink-0"></i>
+        <div class="flex-1">@DisplayMessage</div>
     </div>
 }
 

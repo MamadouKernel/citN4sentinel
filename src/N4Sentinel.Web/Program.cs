@@ -38,6 +38,10 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddCascadingAuthenticationState();
+
+// Contexte d'environnement, par circuit Blazor : deux operateurs peuvent
+// travailler simultanement sur deux environnements sans interference.
+builder.Services.AddScoped<N4Sentinel.Web.State.CurrentEnvironmentState>();
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 
