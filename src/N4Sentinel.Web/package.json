@@ -1,0 +1,18 @@
+{
+  "name": "n4sentinel-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chaîne de compilation des styles de N4 Sentinel. Produit un CSS autonome, sans aucun appel réseau à l'exécution.",
+  "scripts": {
+    "build:css": "tailwindcss -i ./Styles/tailwind.input.css -o ./wwwroot/css/tailwind.min.css --minify",
+    "watch:css": "tailwindcss -i ./Styles/tailwind.input.css -o ./wwwroot/css/tailwind.min.css --watch",
+    "copy:icons": "node ./Styles/copier-icones.js",
+    "build": "npm run build:css && npm run copy:icons"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  },
+  "dependencies": {
+    "bootstrap-icons": "^1.11.3"
+  }
+}

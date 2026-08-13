@@ -8,6 +8,28 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <!-- Les dépendances front ne sont pas du contenu applicatif. -->
+  <ItemGroup>
+    <Content Remove="node_modules/**" />
+    <None Remove="node_modules/**" />
+    <Compile Remove="node_modules/**" />
+  </ItemGroup>
+
+  <!--
+    Recompile les styles Tailwind avant la génération.
+
+    Volontairement non bloquant : le CSS produit est versionné, donc une
+    machine sans Node compile et exécute l'application sans rien installer.
+    Elle reçoit un avertissement au lieu d'un échec, et utilise le CSS du
+    dépôt. Seule la MODIFICATION des styles exige la chaîne de compilation.
+  -->
+  <Target Name="CompilerStyles" BeforeTargets="BeforeBuild" Condition="Exists('$(MSBuildProjectDirectory)/node_modules/.bin/tailwindcss.cmd')">
+    <Exec Command="npm run build:css"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ContinueOnError="true"
+          StandardOutputImportance="low" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="10.0.11" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.11" />

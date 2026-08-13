@@ -1,0 +1,16 @@
+/*
+   Entrée de la compilation Tailwind.
+
+   Le fichier produit — wwwroot/css/tailwind.min.css — est versionné dans le
+   dépôt. L'application fonctionne donc depuis un clone neuf, sans Node ni
+   npm : seule sa MODIFICATION exige la chaîne de compilation.
+
+   Les styles propres au projet restent dans wwwroot/app.css, chargé
+   séparément. Ils sont écrits en CSS standard, sans @apply : les deux
+   fichiers n'ont donc aucune dépendance l'un envers l'autre, et app.css se
+   modifie sans recompiler quoi que ce soit.
+*/
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

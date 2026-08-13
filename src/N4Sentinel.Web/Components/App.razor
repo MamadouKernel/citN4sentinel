@@ -17,62 +17,23 @@
        sans aucune requete sortante, et sans les 200 Ko de fichiers de polices.
        Segoe UI Variable est present sur Windows Server 2022 et ulterieur. *@
     
-    <!-- Vector Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    @* Icônes hébergées localement. Elles venaient d'un CDN public : sur un
+       réseau d'exploitation isolé, l'appel échoue et l'interface perd toutes
+       ses icônes, sans message et sans trace. *@
+    <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.min.css">
 
-    <!-- Tailwind CSS v3 via CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        n4navy: {
-                            950: '#070e17',
-                            900: '#0b192c',
-                            800: '#0f172a',
-                            700: '#1e293b',
-                            600: '#334155',
-                        },
-                        n4blue: {
-                            50: '#f0f9ff',
-                            100: '#e0f2fe',
-                            400: '#38bdf8',
-                            500: '#0ea5e9',
-                            600: '#0284c7',
-                            700: '#0369a1',
-                        },
-                        n4emerald: {
-                            50: '#ecfdf5',
-                            100: '#d1fae5',
-                            500: '#10b981',
-                            600: '#059669',
-                            700: '#047857',
-                        },
-                        n4amber: {
-                            50: '#fffbeb',
-                            100: '#fef3c7',
-                            500: '#f59e0b',
-                            600: '#d97706',
-                        },
-                        n4rose: {
-                            50: '#fff1f2',
-                            100: '#ffe4e6',
-                            500: '#f43f5e',
-                            600: '#e11d48',
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['"Segoe UI Variable Text"', '"Segoe UI"', 'ui-sans-serif',
-                               'system-ui', '-apple-system', '"Helvetica Neue"', 'Arial', 'sans-serif'],
-                        mono: ['ui-monospace', '"Cascadia Mono"', 'Consolas',
-                               '"SFMono-Regular"', 'Menlo', 'monospace'],
-                    }
-                }
-            }
-        }
-    </script>
+    @* Tailwind compilé localement.
+
+       Le CDN Tailwind compilait le CSS DANS LE NAVIGATEUR à chaque chargement
+       de page. C'est un outil de développement, pas un mode de livraison : il
+       imposait un accès Internet au moment où l'utilisateur ouvre
+       l'application, ce qu'un réseau d'exploitation isolé ne fournit pas.
+
+       La configuration est passée dans tailwind.config.js, et le fichier
+       produit est versionné : l'application s'affiche correctement depuis un
+       clone neuf, sans Node et sans réseau. Seule sa modification exige la
+       chaîne de compilation — voir README, section Styles. *@
+    <link rel="stylesheet" href="@Assets["css/tailwind.min.css"]" />
 
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["N4Sentinel.Web.styles.css"]" />

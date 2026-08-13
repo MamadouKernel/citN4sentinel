@@ -62,3 +62,9 @@ Corpus_Complet_Support_Navis_N4/**/Navis-Config.json
 # la base : le perdre rend les mots de passe stockes indechiffrables.
 cles-protection/
 **/cles-protection/
+
+# --- Dependances front ---
+# Restaurees par "npm install". Le CSS compile, lui, EST versionne : une
+# machine sans Node peut ainsi compiler et executer l'application.
+node_modules/
+**/node_modules/
