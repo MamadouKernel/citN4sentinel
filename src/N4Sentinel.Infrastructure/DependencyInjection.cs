@@ -90,6 +90,7 @@ public static class DependencyInjection
         services.AddScoped<CredentialStore>();
         services.AddScoped<ConnectorTargetFactory>();
         services.AddScoped<ServerProbe>();
+        services.AddScoped<ReadinessDiscovery>();
 
         return services;
     }

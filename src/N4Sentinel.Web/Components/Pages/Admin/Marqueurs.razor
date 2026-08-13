@@ -1,0 +1,295 @@
+@page "/admin/composants/{Id:guid}/marqueurs"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Connectivity
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+@inject ReadinessDiscovery Discovery
+
+<PageTitle>Marqueurs — @(_c?.LogicalName ?? "Composant")</PageTitle>
+
+@if (_c is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement...</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div>
+                <a href="@($"/admin/composants/{Id}")" class="text-xs text-sky-400 hover:text-sky-300 transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour au composant
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Relevé du marqueur de démarrage</h1>
+                <p class="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                    <span class="font-semibold text-white">@_c.LogicalName</span> sur
+                    <span class="font-mono text-sky-400">@(_c.Server?.HostName ?? "aucun serveur")</span>.
+                    L'application lit la fin du journal réel et propose les lignes candidates.
+                </p>
+            </div>
+
+            <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition disabled:opacity-50 inline-flex items-center gap-2 whitespace-nowrap"
+                    @onclick="Analyser" disabled="@_enCours">
+                <i class="bi bi-search"></i>
+                <span>@(_enCours ? "Lecture..." : "Analyser le journal")</span>
+            </button>
+        </div>
+
+        <!-- Pourquoi cette étape -->
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 text-xs text-slate-400 leading-relaxed space-y-2">
+            <p>
+                Un service Windows <span class="font-mono text-slate-300">Running</span> ne prouve pas qu'un
+                composant N4 est opérationnel : la JVM met souvent plusieurs minutes à charger sa configuration,
+                ouvrir la base et rejoindre le cluster. La preuve vient du journal.
+            </p>
+            <p>
+                <strong class="text-white">Un bon marqueur apparaît une seule fois par démarrage.</strong>
+                Une ligne périodique — un battement de cœur, un décompte — apparaîtra aussi sur un composant
+                à moitié chargé, et ferait déclarer opérationnel ce qui ne l'est pas.
+            </p>
+            @if (_c.Readiness.LogPath is { Length: > 0 } chemin)
+            {
+                <p class="font-mono text-slate-500 pt-1">@chemin</p>
+            }
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        @if (_r is not null)
+        {
+            @if (!_r.Succeeded)
+            {
+                <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">@_r.Error</div>
+            }
+            else
+            {
+                <!-- Fichier analysé -->
+                <div class="glass-card rounded-2xl border border-slate-800 p-5 text-xs space-y-1">
+                    <div class="text-slate-400">Fichier : <span class="font-mono text-sky-400">@_r.ResolvedPath</span></div>
+                    <div class="text-slate-400">
+                        @_r.LinesAnalyzed ligne(s) analysée(s)
+                        &middot; @((_r.SizeBytes / 1024.0).ToString("0")) Ko
+                        @if (_r.LastWriteTime.HasValue)
+                        {
+                            <text>&middot; dernière écriture @_r.LastWriteTime.Value.ToLocalTime().ToString("dd/MM HH:mm")</text>
+                        }
+                        @if (_r.Truncated)
+                        {
+                            <span class="text-amber-400"> &middot; seule la fin du fichier a été lue</span>
+                        }
+                    </div>
+                </div>
+
+                <!-- Motifs déjà configurés -->
+                <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                    <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="bi bi-check2-square text-sky-400"></i> Marqueurs configurés
+                        </h3>
+                        @if (_r.ConfiguredPatterns.Count > 0)
+                        {
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold @(_r.HasWorkingPattern ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20")">
+                                @(_r.HasWorkingPattern ? "Au moins un fonctionne" : "Aucun ne correspond")
+                            </span>
+                        }
+                    </div>
+                    <div class="p-5 text-xs">
+                        @if (_r.ConfiguredPatterns.Count == 0)
+                        {
+                            <p class="text-slate-400">
+                                Aucun marqueur n'est configuré. Tant qu'il n'y en a pas, l'état de ce composant
+                                restera « à confirmer » — comportement voulu, mais qui empêche toute automatisation.
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="space-y-3">
+                                @foreach (var p in _r.ConfiguredPatterns)
+                                {
+                                    <div class="p-3 rounded-xl border @(p.IsInvalid || p.MatchCount == 0 ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20")">
+                                        <div class="flex items-start justify-between gap-3 flex-wrap">
+                                            <code class="font-mono text-slate-200 break-all">@p.Pattern</code>
+                                            <span class="px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap @(p.MatchCount > 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400")">
+                                                @p.MatchCount correspondance(s)
+                                            </span>
+                                        </div>
+                                        @if (p.IsInvalid)
+                                        {
+                                            <div class="text-rose-300 mt-1.5">Expression invalide : @p.Error</div>
+                                        }
+                                        else if (p.MatchCount == 0)
+                                        {
+                                            <div class="text-slate-400 mt-1.5">
+                                                Ce motif n'apparaît pas dans ce journal. Soit le composant n'a pas
+                                                redémarré récemment, soit le motif ne correspond pas à ce qu'il écrit.
+                                            </div>
+                                        }
+                                        else if (p.LastMatch is not null)
+                                        {
+                                            <div class="font-mono text-[11px] text-slate-500 mt-1.5 break-all">@p.LastMatch</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Candidats -->
+                <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                    <div class="p-5 border-b border-slate-800">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="bi bi-lightbulb text-amber-400"></i>
+                            Lignes candidates (@_r.Candidates.Count)
+                        </h3>
+                    </div>
+                    <div class="p-5 space-y-3 text-xs">
+                        @if (_r.Candidates.Count == 0)
+                        {
+                            <p class="text-slate-400">
+                                Aucun candidat évident. La ligne recherchée s'écrit <em>au moment du démarrage</em> :
+                                si le composant tourne depuis longtemps, elle a pu sortir de la fenêtre analysée.
+                                Redémarrez le composant hors production, puis relancez l'analyse.
+                            </p>
+                        }
+                        else
+                        {
+                            @foreach (var c in _r.Candidates)
+                            {
+                                <div class="p-3.5 rounded-xl border @(c.IsGoodCandidate ? "bg-slate-900/60 border-emerald-500/20" : "bg-slate-900/40 border-slate-800")">
+                                    <div class="flex items-start justify-between gap-3 flex-wrap mb-2">
+                                        <span class="font-mono text-slate-200 break-all">@c.Message</span>
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap @(c.IsGoodCandidate ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400")">
+                                            @(c.IsGoodCandidate ? "1 occurrence" : $"{c.Occurrences} occurrences")
+                                        </span>
+                                    </div>
+
+                                    @if (!c.IsGoodCandidate)
+                                    {
+                                        <div class="text-amber-300/80 mb-2">
+                                            Répétée dans ce journal : probablement périodique. Un marqueur répété
+                                            ne prouve pas la fin du démarrage.
+                                        </div>
+                                    }
+
+                                    <div class="flex items-center justify-between gap-3 flex-wrap pt-2 border-t border-slate-800">
+                                        <code class="font-mono text-[11px] text-sky-400 break-all">@c.SuggestedPattern</code>
+                                        <button class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition whitespace-nowrap inline-flex items-center gap-1.5"
+                                                @onclick="() => Retenir(c)">
+                                            <i class="bi bi-plus-lg"></i> Retenir ce marqueur
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Erreurs relevées -->
+                @if (_r.ErrorLines.Count > 0)
+                {
+                    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                        <div class="p-5 border-b border-slate-800">
+                            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                                <i class="bi bi-exclamation-triangle text-rose-400"></i>
+                                Lignes d'erreur relevées (@_r.ErrorLines.Count)
+                            </h3>
+                        </div>
+                        <div class="p-5 space-y-1.5 text-[11px] font-mono text-slate-400">
+                            @foreach (var e in _r.ErrorLines)
+                            {
+                                <div class="break-all">@e</div>
+                            }
+                            <p class="text-xs font-sans text-slate-500 pt-3 border-t border-slate-800 mt-3 leading-relaxed">
+                                Les erreurs récurrentes et sans conséquence se neutralisent par un motif d'exclusion.
+                                Celles qui empêchent réellement le démarrage se déclarent en signature d'échec :
+                                l'application cesse alors d'attendre au lieu de consommer tout le délai.
+                            </p>
+                        </div>
+                    </div>
+                }
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private N4Component? _c;
+    private DiscoveryResult? _r;
+    private bool _enCours;
+    private string? _message;
+    private bool _enErreur;
+
+    private string _messageClass => _enErreur
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _c = await Referential.GetComponentAsync(Id);
+    }
+
+    private async Task Analyser()
+    {
+        _enCours = true;
+        _r = null;
+        _message = null;
+
+        try
+        {
+            _r = await Discovery.AnalyzeAsync(Id);
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    /// <summary>
+    /// Ajoute le motif proposé aux marqueurs du composant. On ne remplace pas
+    /// les motifs existants : plusieurs formulations peuvent coexister selon
+    /// les versions de N4, et le premier qui apparaît vaut preuve.
+    /// </summary>
+    private async Task Retenir(CandidateMarker candidat)
+    {
+        if (_c is null) return;
+        _message = null;
+        _enErreur = false;
+
+        if (_c.Readiness.ReadyPatterns.Contains(candidat.SuggestedPattern))
+        {
+            _enErreur = true;
+            _message = "Ce marqueur est déjà configuré.";
+            return;
+        }
+
+        _c.Readiness.ReadyPatterns.Add(candidat.SuggestedPattern);
+
+        try
+        {
+            await Referential.SaveComponentAsync(_c);
+            _message = $"Marqueur retenu. Le composant compte désormais {_c.Readiness.ReadyPatterns.Count} marqueur(s).";
+
+            // Réévaluation immédiate : l'opérateur voit le motif passer en vert
+            // sans avoir à relancer l'analyse.
+            if (_r is not null) _r = await Discovery.AnalyzeAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            _c.Readiness.ReadyPatterns.Remove(candidat.SuggestedPattern);
+            _enErreur = true;
+            _message = $"Enregistrement impossible : {ex.InnerException?.Message ?? ex.Message}";
+        }
+    }
+}
