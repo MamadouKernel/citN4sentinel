@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using N4Sentinel.Domain;
@@ -99,6 +99,7 @@ public static class DependencyInjection
         // la même passe : elles ne peuvent donc jamais le contredire.
         services.AddScoped<SupervisionService>();
         services.AddScoped<AlertService>();
+        services.AddScoped<UndeclaredComponentScanner>();
         services.AddSingleton<SupervisionStateCache>();
         services.AddHostedService<SupervisionBackgroundService>();
 

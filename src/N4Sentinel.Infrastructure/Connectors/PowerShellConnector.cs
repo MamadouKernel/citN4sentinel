@@ -122,6 +122,51 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         return ConnectorResult<IReadOnlyList<ServiceSnapshot>>.Ok(snapshots, result.Duration);
     }
 
+    public async Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> ListServicesAsync(
+        ConnectorTarget target, IReadOnlyCollection<string> namePatterns, CancellationToken ct = default)
+    {
+        // Enumeration par motif, sur le nom court ET le nom d'affichage : selon
+        // les installations, un meme service N4 se designe par l'un ou l'autre.
+        const string script = """
+            param([string[]]$Motifs)
+
+            $services = Get-Service -ErrorAction SilentlyContinue | Where-Object {
+                $svc = $_
+                $Motifs | Where-Object { $svc.Name -like "*$_*" -or $svc.DisplayName -like "*$_*" }
+            }
+
+            foreach ($svc in $services) {
+                $pidValeur = $null; $startMode = $null
+                try {
+                    $wmi = Get-CimInstance Win32_Service -Filter "Name='$($svc.Name)'" -ErrorAction SilentlyContinue
+                    if ($wmi) { $startMode = $wmi.StartMode; if ($wmi.ProcessId -gt 0) { $pidValeur = $wmi.ProcessId } }
+                } catch { }
+
+                [PSCustomObject]@{
+                    Name = $svc.Name; DisplayName = $svc.DisplayName; Status = [string]$svc.Status
+                    StartMode = $startMode; ProcessId = $pidValeur; WorkingSet = $null; StartTime = $null
+                }
+            }
+            """;
+
+        var result = await ExecuteAsync(target, script,
+            new Dictionary<string, object?> { ["Motifs"] = namePatterns.ToArray() }, ct);
+
+        if (!result.Succeeded)
+            return ConnectorResult<IReadOnlyList<ServiceSnapshot>>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var snapshots = result.Value!.Select(o => new ServiceSnapshot
+        {
+            Name = Get<string>(o, "Name") ?? "?",
+            DisplayName = Get<string>(o, "DisplayName"),
+            Status = Get<string>(o, "Status") ?? "Inconnu",
+            StartMode = Get<string>(o, "StartMode"),
+            ProcessId = GetNullableInt(o, "ProcessId")
+        }).ToList();
+
+        return ConnectorResult<IReadOnlyList<ServiceSnapshot>>.Ok(snapshots, result.Duration);
+    }
+
     public async Task<ConnectorResult<SystemSnapshot>> GetSystemAsync(
         ConnectorTarget target, CancellationToken ct = default)
     {

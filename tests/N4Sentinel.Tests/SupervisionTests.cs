@@ -250,6 +250,22 @@ public sealed class SupervisionTests : IAsyncLifetime
             Task.FromResult(ConnectorResult<IReadOnlyList<ServiceSnapshot>>.Ok(
                 serviceNames.Select(name => new ServiceSnapshot { Name = name, Status = ServiceStatusToReturn }).ToList(), TimeSpan.FromMilliseconds(10)));
 
+        /// <summary>
+        /// Services que la doublure declare presents sur la machine, pour les
+        /// tests de decouverte de composants non declares.
+        /// </summary>
+        public List<ServiceSnapshot> ServicesPresents { get; set; } = [];
+
+        public Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> ListServicesAsync(
+            ConnectorTarget target, IReadOnlyCollection<string> namePatterns, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<IReadOnlyList<ServiceSnapshot>>.Ok(
+                ServicesPresents
+                    .Where(s => namePatterns.Any(m =>
+                        s.Name.Contains(m, StringComparison.OrdinalIgnoreCase)
+                        || (s.DisplayName?.Contains(m, StringComparison.OrdinalIgnoreCase) ?? false)))
+                    .ToList(),
+                TimeSpan.FromMilliseconds(10)));
+
         public Task<ConnectorResult<SystemSnapshot>> GetSystemAsync(ConnectorTarget target, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<SystemSnapshot>.Ok(new SystemSnapshot { HostName = target.HostName, ClockSkewSeconds = 0.1 }, TimeSpan.FromMilliseconds(10)));
 

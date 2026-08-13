@@ -25,6 +25,14 @@ public interface IN4Connector
     Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> GetServicesAsync(
         ConnectorTarget target, IReadOnlyCollection<string> serviceNames, CancellationToken ct = default);
 
+    /// <summary>
+    /// Enumere les services dont le nom ou le nom d'affichage contient l'un des
+    /// motifs. Sert a decouvrir ce qui tourne sur un serveur sans le connaitre
+    /// d'avance - notamment un composant installe mais jamais declare.
+    /// </summary>
+    Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> ListServicesAsync(
+        ConnectorTarget target, IReadOnlyCollection<string> namePatterns, CancellationToken ct = default);
+
     /// <summary>Ressources systeme : processeur, memoire, disques, horloge.</summary>
     Task<ConnectorResult<SystemSnapshot>> GetSystemAsync(
         ConnectorTarget target, CancellationToken ct = default);
