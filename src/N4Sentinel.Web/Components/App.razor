@@ -10,10 +10,12 @@
     <!-- Theme Initialization Script -->
     <script src="theme.js"></script>
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    @* Polices systeme plutot que Google Fonts.
+       N4 Sentinel est destine a des reseaux d'exploitation isoles : un appel
+       vers fonts.googleapis.com y echoue, et la page bascule alors sur une
+       police de repli non choisie. Les piles ci-dessous rendent le meme aspect
+       sans aucune requete sortante, et sans les 200 Ko de fichiers de polices.
+       Segoe UI Variable est present sur Windows Server 2022 et ulterieur. *@
     
     <!-- Vector Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -62,8 +64,10 @@
                         }
                     },
                     fontFamily: {
-                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
-                        mono: ['"JetBrains Mono"', 'monospace'],
+                        sans: ['"Segoe UI Variable Text"', '"Segoe UI"', 'ui-sans-serif',
+                               'system-ui', '-apple-system', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+                        mono: ['ui-monospace', '"Cascadia Mono"', 'Consolas',
+                               '"SFMono-Regular"', 'Menlo', 'monospace'],
                     }
                 }
             }

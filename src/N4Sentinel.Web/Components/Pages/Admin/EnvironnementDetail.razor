@@ -46,6 +46,11 @@ else
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+                <a href="@($"/admin/environnements/{Id}/mise-en-service")"
+                   class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 transition inline-flex items-center gap-2">
+                    <i class="bi bi-list-check"></i>
+                    <span>Mise en service</span>
+                </a>
                 <button class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/20 transition disabled:opacity-50 inline-flex items-center gap-2" @onclick="TesterConfiguration" disabled="@_testEnCours">
                     <i class="bi bi-play-circle-fill"></i>
                     <span>@(_testEnCours ? "Test en cours..." : "Tester la configuration")</span>

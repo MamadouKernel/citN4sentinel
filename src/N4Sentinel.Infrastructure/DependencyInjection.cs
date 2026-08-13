@@ -91,6 +91,7 @@ public static class DependencyInjection
         services.AddScoped<ConnectorTargetFactory>();
         services.AddScoped<ServerProbe>();
         services.AddScoped<ReadinessDiscovery>();
+        services.AddScoped<CommissioningStatus>();
 
         return services;
     }
