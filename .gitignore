@@ -40,6 +40,8 @@ desktop.ini
 # Retirez les lignes correspondantes si la DSI decide de les versionner
 # dans un depot prive.
 doc/*.pdf
+# La note d'arbitrage est un livrable du projet, elle reste versionnee.
+!doc/Note-arbitrage-perimetre-V1.md
 doc/*.docx
 doc/*.png
 doc/*.jpg
