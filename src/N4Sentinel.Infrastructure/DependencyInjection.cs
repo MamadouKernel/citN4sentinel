@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using N4Sentinel.Domain;
@@ -94,8 +94,11 @@ public static class DependencyInjection
         services.AddScoped<ReadinessDiscovery>();
         services.AddScoped<CommissioningStatus>();
 
-        // Supervision (sprint 2) : Moteur de santé, cache temps réel et service d'arrière-plan
+        // Supervision : moteur de santé, cache temps réel, service d'arrière-plan.
+        // Les alertes sont dérivées du même instantané que l'état affiché, dans
+        // la même passe : elles ne peuvent donc jamais le contredire.
         services.AddScoped<SupervisionService>();
+        services.AddScoped<AlertService>();
         services.AddSingleton<SupervisionStateCache>();
         services.AddHostedService<SupervisionBackgroundService>();
 

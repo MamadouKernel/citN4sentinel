@@ -62,22 +62,24 @@ public sealed class SupervisionBackgroundService(
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var componentIds = await db.Components
+        var alertService = scope.ServiceProvider.GetRequiredService<AlertService>();
+
+        var composants = await db.Components
             .AsNoTracking()
             .Where(c => c.Environment != null && (c.Environment.Status == Domain.LifecycleStatus.Valide || c.Environment.Status == Domain.LifecycleStatus.Actif))
-            .Select(c => c.Id)
+            .Select(c => new { c.Id, c.EnvironmentId })
             .ToListAsync(ct);
 
-        if (componentIds.Count == 0) return;
+        if (composants.Count == 0) return;
 
-        foreach (var id in componentIds)
+        foreach (var composant in composants)
         {
             if (ct.IsCancellationRequested) break;
 
             try
             {
-                var previous = stateCache.GetSnapshot(id);
-                var current = await supervisionService.EvaluateComponentAsync(id, ct);
+                var previous = stateCache.GetSnapshot(composant.Id);
+                var current = await supervisionService.EvaluateComponentAsync(composant.Id, ct);
 
                 stateCache.UpdateSnapshot(current);
 
@@ -86,10 +88,15 @@ public sealed class SupervisionBackgroundService(
                     logger.LogWarning("Changement d'état détecté pour {Composant} ({Env}) : {AncienState} -> {NouveauState}. Verdict : {Verdict}",
                         current.LogicalName, current.EnvironmentCode, previous.State, current.State, current.Verdict);
                 }
+
+                // Les alertes sont derivees du meme instantane, dans la meme
+                // passe : elles ne peuvent donc jamais contredire ce
+                // qu'affiche le tableau de bord.
+                await alertService.EvaluateAsync(current, composant.EnvironmentId, ct);
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Échec d'évaluation du composant {Id}", id);
+                logger.LogDebug(ex, "Échec d'évaluation du composant {Id}", composant.Id);
             }
         }
     }

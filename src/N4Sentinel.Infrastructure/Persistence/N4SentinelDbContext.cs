@@ -26,6 +26,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<ComponentHealthCheck> ComponentHealthChecks => Set<ComponentHealthCheck>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<TechnicalCredential> Credentials => Set<TechnicalCredential>();
+    public DbSet<Alert> Alerts => Set<Alert>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -206,6 +207,44 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.HasIndex(x => new { x.EnvironmentId, x.OccurredAt });
             e.HasIndex(x => new { x.EntityType, x.EntityId });
             e.HasIndex(x => x.CorrelationId);
+        });
+
+        builder.Entity<Alert>(e =>
+        {
+            e.ToTable("Alerts");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.Signature).HasMaxLength(120).IsRequired();
+            e.Property(x => x.ComponentName).HasMaxLength(150);
+            e.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Detail).HasMaxLength(2000);
+            e.Property(x => x.Recommendation).HasMaxLength(2000);
+            e.Property(x => x.AcknowledgedBy).HasMaxLength(256);
+            e.Property(x => x.AcknowledgementNote).HasMaxLength(1000);
+
+            e.Ignore(x => x.IsOpen);
+            e.Ignore(x => x.Duration);
+
+            // Index de deduplication : chaque passe de collecte cherche une
+            // alerte ouverte portant cette signature. Sans lui, la recherche
+            // balayerait toute la table toutes les trente secondes.
+            e.HasIndex(x => new { x.ComponentId, x.Signature, x.Status });
+
+            // Index de consultation : "que se passe-t-il en ce moment sur cet
+            // environnement".
+            e.HasIndex(x => new { x.EnvironmentId, x.Status, x.LastOccurredAt });
+
+            e.HasOne(x => x.Environment)
+             .WithMany()
+             .HasForeignKey(x => x.EnvironmentId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            // Pas de cascade depuis le composant : supprimer un composant ne
+            // doit pas effacer l'historique des alertes qu'il a produites.
+            e.HasOne(x => x.Component)
+             .WithMany()
+             .HasForeignKey(x => x.ComponentId)
+             .OnDelete(DeleteBehavior.NoAction);
         });
 
         builder.Entity<ApplicationUser>(e =>
