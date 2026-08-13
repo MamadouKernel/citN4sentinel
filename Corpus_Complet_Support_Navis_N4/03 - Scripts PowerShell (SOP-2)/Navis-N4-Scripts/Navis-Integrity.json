@@ -1,0 +1,19 @@
+{
+  "Files": {
+    "Enable-N4FileAuditing.ps1": "b6f29140dd53a40fa84ae9d02805c331a578b473c505a5f136f9957db72b02bf",
+    "Fix-N4-AMQCorruption.ps1": "da5a10617445c6a0712b2b4b8a130d5ed7de118480a85d91caf4ed4fd5722c3c",
+    "Get-N4FileModificationEvents.ps1": "256d5c650ae87dbb6b42a77947fb7e348e67f270474674007c9def0f88b55949",
+    "Navis-Common.psm1": "c7764580a3a755659bf35d704409150fee3dcdd6853e0d88dbf5c17d898c9671",
+    "New-N4IntegrityManifest.ps1": "732a378ff4598c29845de56a3b777ccef134cfead68db994cb8b77510b6c6a50",
+    "Restart-N4-BridgeChain.ps1": "454a5617ef7b2486fad151feb99d060a4e87ba50bd1e8bbca80f138b208a3c6b",
+    "Restart-N4-CenterOnly.ps1": "ff8ee60fe09d2ec3b6cbaae54c2615c4e34951aa1fbb40f92cd9dbd4db9bd1dd",
+    "Restart-N4-StandbyOnly.ps1": "eb5afeee63e61cb5c7fbd09dbb474cbe2b3a99193b3b143bd431f10de7369039",
+    "RollingRestart-N4-Cluster.ps1": "2e6652c032bf9761f6c9ab952ba8bb4e25814663aaef6cab0fe4b6893140ad86",
+    "Set-N4CopyrightPin.ps1": "bfac5b9ba9afd1e5920ad1605559a62ffd9f6c13f33ec1f11ffff00df148f323",
+    "Start-N4Sequence.ps1": "e3c7e1481c2cca099f00ddfd39ec86a80b7193defe5ee320f0f666afea7553e2",
+    "Stop-N4Sequence.ps1": "0774350c8d1c1021309d1184d50f0bab664fe10b90c53431155454db13addc98",
+    "Test-N4IncidentPreCheck.ps1": "ac1cb4a4c25e3891ac9f978dda3a4a4918493b582e9ba1139fc29c02cd19a4b4"
+  },
+  "GeneratedAt": "2026-07-29T07:54:41",
+  "GeneratedBy": "KMKernel (generation de livraison)"
+}

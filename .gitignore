@@ -1,0 +1,55 @@
+# --- Build .NET ---
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# --- Reglages locaux de l'outillage ---
+.claude/settings.local.json
+
+# --- Secrets et configuration locale ---
+# Les mots de passe ne doivent jamais rejoindre le depot (SEC-003) :
+# ils vivent dans les secrets utilisateur ou les variables d'environnement.
+appsettings.*.local.json
+*.pfx
+*.p12
+secrets.json
+
+# --- Journaux d'execution ---
+logs/
+*.log
+
+# --- Sortie de scripts et fichiers temporaires ---
+*.tmp
+Thumbs.db
+desktop.ini
+
+# --- Corpus documentaire et documents internes ---
+# Ces fichiers ne sont pas du code source et n'ont pas vocation a etre publies.
+#   - les guides Navis/Kaleris portent la mention "CONFIDENTIAL INFORMATION
+#     OF Navis LLC - UNAUTHORIZED USE IS STRICTLY PROHIBITED" ;
+#   - le cahier des charges est un document interne DSI, nominatif ;
+#   - le schema d'architecture decrit la topologie reelle de la Production.
+# Ils restent presents dans doc/ sur le poste, simplement hors du depot.
+# Retirez les lignes correspondantes si la DSI decide de les versionner
+# dans un depot prive.
+doc/*.pdf
+doc/*.docx
+doc/*.png
+doc/*.jpg
+doc/*.vsdx
+Corpus_Complet_Support_Navis_N4/**/*.pdf
+Corpus_Complet_Support_Navis_N4/**/*.docx
+Corpus_Complet_Support_Navis_N4/**/*.zip
+*.zip
+
+# --- Configuration d'exploitation contenant des noms d'hotes reels ---
+# Navis-Config.json decrit l'infrastructure reelle. Le modele d'exemple,
+# lui, est versionne.
+Corpus_Complet_Support_Navis_N4/**/Navis-Config.json

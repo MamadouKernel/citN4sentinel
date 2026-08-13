@@ -1,0 +1,195 @@
+{
+  "_comment": "Fichier de configuration Navis N4 - modifiez librement sans toucher au code PowerShell. Ajoutez ou retirez autant d'entrees que necessaire dans ClusterNodes.",
+
+  "CenterNode": "N4CENTER01",
+  "StandbyNode": "N4STANDBY01",
+
+  "ClusterNodes": [
+    "N4CLUSTER01",
+    "N4CLUSTER02",
+    "N4CLUSTER03"
+  ],
+
+  "_bridgeXpsNote": "Bridge et XPS tournent sur le meme serveur physique dans cet environnement - c'est volontaire, les deux champs pointent vers le meme hote.",
+  "BridgeHost": "N4XPSBRIDGE01",
+  "XPSHost": "N4XPSBRIDGE01",
+  "ECN4Host": "N4ECN401",
+
+  "ServiceNames": {
+    "Center": "Navis N4 Center Node",
+    "Cluster": "Navis N4 Cluster Node",
+    "Standby": "Navis N4 Center Node",
+    "Bridge": "Navis XPS Bridge Daemon",
+    "XPS": "Navis XPS Service",
+    "ECN4": "Navis ECN4 Daemon",
+    "ECN4Web": "Navis ECN4web"
+  },
+
+  "SharedFolder": "\\\\N4CLUSTER01\\NavisShared",
+
+  "DatabaseHost": "N4DB01",
+  "DatabasePort": 1433,
+  "DatabaseEngine": "SQL Server",
+  "_databaseNote": "Verification de connectivite reseau (port) uniquement. Toute investigation approfondie de la base de donnees (cluster actif, charge, requetes) reste du ressort du DBA.",
+
+  "LocalLogFolder": "C:\\NavisScripts\\Logs",
+
+  "_readinessNote": [
+    "SECTION READINESS - PREUVE DE DEMARRAGE PAR LE LOG APPLICATIF.",
+    "Un service Windows passe 'Running' en quelques secondes ; la JVM N4 met souvent",
+    "plusieurs minutes a charger sa configuration, ouvrir la base, rejoindre le cluster",
+    "Hazelcast et initialiser son tier web. Les scripts n'attendent donc plus un statut",
+    "Windows : ils attendent qu'un MARQUEUR precis apparaisse dans le log du composant.",
+    "",
+    "LogPath      : chemin du log tel que vu PAR LE SERVEUR LUI-MEME (chemin local, pas UNC).",
+    "               Peut contenir un caractere generique (*) : plusieurs composants N4",
+    "               horodatent le nom de leur fichier. Le fichier le PLUS RECENT est retenu,",
+    "               et un nouveau fichier cree au demarrage est detecte et analyse depuis",
+    "               son debut (cas du log XPS, qui repart a zero a chaque lancement).",
+    "ReadyPatterns: expressions regulieres. La PREMIERE qui apparait apres le lancement",
+    "               vaut preuve de demarrage. Insensible a la casse.",
+    "ErrorPatterns: expressions regulieres d'echec caracterise. Si l'une apparait, le script",
+    "               arrete d'attendre immediatement au lieu de consommer tout le timeout.",
+    "IgnorePatterns: lignes a ecarter AVANT evaluation (neutralise un ERROR connu et benin).",
+    "LogReadyTimeoutSeconds : duree max d'attente du marqueur. Genereuse par defaut.",
+    "",
+    "ORIGINE DES VALEURS CI-DESSOUS",
+    "Les chemins de logs et le marqueur des noeuds N4/Center proviennent de la",
+    "documentation editeur (Kaleris, 'N4 IT Admin 4.x - Day 1: Installation, Startup',",
+    "modules 1.4 et 1.5) : le formateur fait explicitement tailler navis-apex.log et",
+    "attendre la ligne \"Web tier servlet 'action' initialized...\" avant de passer au",
+    "composant suivant. C'est exactement ce que ces scripts automatisent.",
+    "Les marqueurs de Bridge, XPS, ECN4 et ECN4Web restent des CANDIDATS : la",
+    "documentation indique pour eux de surveiller le statut ACTIVE dans la vue Cluster",
+    "Services de N4, pas une ligne de log precise. A relever sur vos serveurs avec",
+    "Find-N4ReadinessPattern.ps1 avant tout usage en production.",
+    "",
+    "RAPPEL : les chemins ci-dessous supposent une installation standard sous",
+    "C:\\ProgramData\\Navis. Verifier le nom exact du sous-dossier de chaque noeud",
+    "(il porte le nom du noeud) et corriger en consequence."
+  ],
+
+  "Readiness": {
+    "Defaults": {
+      "_comment": "Valeurs appliquees a tout composant qui ne les redefinit pas.",
+      "ServiceRunningTimeoutSeconds": 300,
+      "LogReadyTimeoutSeconds": 1800,
+      "StopTimeoutSeconds": 600,
+      "PollIntervalSeconds": 10,
+      "ProgressEverySeconds": 60,
+      "PostReadySettleSeconds": 0,
+      "LogTailBytes": 262144,
+      "ErrorPatterns": [
+        "OutOfMemoryError",
+        "NegativeArraySizeException",
+        "Address already in use",
+        "Unable to (start|initialize|connect)",
+        "Failed to (start|initialize)",
+        "FATAL",
+        "Startup failed",
+        "BeanCreationException",
+        "Could not (open|obtain) .*(connection|JDBC)"
+      ],
+      "IgnorePatterns": [
+        "Deprecated",
+        "will be removed in a future release"
+      ]
+    },
+
+    "Components": {
+      "Cluster": {
+        "_comment": "Noeud applicatif N4. Marqueur confirme par la doc editeur : la ligne \"Web tier servlet 'action' initialized...\" dans navis-apex.log signale la fin d'initialisation. Le sous-dossier porte le nom du noeud - a adapter, ou utiliser le generique ci-dessous si un seul noeud est installe par serveur. Le log apex repart a zero au-dela de 10 Mo : la rotation est geree automatiquement. Timeout large : un noeud qui rejoint Hazelcast et reconstruit son cache peut depasser 15 min a froid.",
+        "LogPath": "C:\\ProgramData\\Navis\\*\\logs\\navis-apex.log",
+        "ReadyPatterns": [
+          "Web tier servlet .*initialized"
+        ],
+        "LogReadyTimeoutSeconds": 1800,
+        "PostReadySettleSeconds": 30
+      },
+
+      "Center": {
+        "_comment": "Center Node. Meme marqueur que les noeuds Cluster. ATTENTION : ce marqueur prouve la fin d'initialisation du service, PAS la detention du role actif. Confirmer le role dans Administration > System > Cluster Services (statut ACTIVE, un seul Center actif).",
+        "LogPath": "C:\\ProgramData\\Navis\\*\\logs\\navis-apex.log",
+        "ReadyPatterns": [
+          "Web tier servlet .*initialized"
+        ],
+        "ErrorPatterns": [
+          "OutOfMemoryError",
+          "NegativeArraySizeException",
+          "IOException.*(amq|kahadb|db\\.data)",
+          "Address already in use",
+          "Unable to (start|initialize|connect)",
+          "FATAL"
+        ],
+        "LogReadyTimeoutSeconds": 1800,
+        "PostReadySettleSeconds": 30
+      },
+
+      "Standby": {
+        "_comment": "Standby Center Node. POINT CRITIQUE confirme par la doc editeur : un Standby en attente ne doit PAS ecrire \"Web tier servlet 'action' initialized\" - c'est le comportement NORMAL d'une instance en veille. Aucun marqueur de veille fiable n'est documente : ReadyPatterns est donc volontairement VIDE, ce qui fait retourner 'A CONFIRMER' et renvoie la decision a l'operateur via Node Info Desk. Ne remplir ce champ qu'avec un marqueur de veille releve sur vos propres serveurs - et jamais avec celui d'un Center actif, qui signalerait un conflit de role (incident 5.7).",
+        "LogPath": "C:\\ProgramData\\Navis\\*\\logs\\navis-apex.log",
+        "ReadyPatterns": [],
+        "LogReadyTimeoutSeconds": 900,
+        "PostReadySettleSeconds": 0
+      },
+
+      "Bridge": {
+        "_comment": "XPS Bridge Daemon (services BridgeDaemon, BridgeControl, BridgeService). CANDIDAT A VALIDER. La doc editeur indique de surveiller le statut dans Cluster Services : le Bridge passe WAITING (il demande les donnees conteneurs au Center) puis LOADING (il les recoit) puis ACTIVE - et precise NE PAS DEMARRER XPS avant ACTIVE. Le critere qui compte est donc la connexion au Center etablie, pas le demarrage du daemon.",
+        "LogPath": "C:\\ProgramData\\Navis\\bridge\\logs\\navis-bridged*",
+        "ReadyPatterns": [
+          "(connected|connection established).*(center|n4|broker)",
+          "Bridge .*(started|ready|active)"
+        ],
+        "ErrorPatterns": [
+          "SocketTimeoutException",
+          "Connection refused",
+          "Unable to (start|connect)",
+          "FATAL",
+          "OutOfMemoryError"
+        ],
+        "LogReadyTimeoutSeconds": 900,
+        "PostReadySettleSeconds": 30
+      },
+
+      "XPS": {
+        "_comment": "Service XPS (services XPSDaemon, XPSControl, XPSGateService, XPSMessageService). CANDIDAT A VALIDER. Le log XPS est horodate dans son nom ET REPART A ZERO A CHAQUE DEMARRAGE : le generique est donc indispensable ici, le script detecte le nouveau fichier et l'analyse depuis son debut. Chargement initial long (plan de parc, equipements) : timeout eleve.",
+        "LogPath": "C:\\ProgramData\\Navis\\xps\\log\\xps_*",
+        "ReadyPatterns": [
+          "(initialization|startup|loading) complete",
+          "XPS .*(started|ready)"
+        ],
+        "ErrorPatterns": [
+          "SocketTimeoutException",
+          "Connection refused",
+          "Unable to (start|connect)",
+          "FATAL",
+          "OutOfMemoryError"
+        ],
+        "LogReadyTimeoutSeconds": 2400,
+        "PostReadySettleSeconds": 30
+      },
+
+      "ECN4": {
+        "_comment": "ECN4 Daemon (Equipment Control). CANDIDAT A VALIDER.",
+        "LogPath": "C:\\ProgramData\\Navis\\ecn4\\logs\\navis-ecn4*",
+        "ReadyPatterns": [
+          "(initialization|startup) complete",
+          "ECN4 .*(started|ready)"
+        ],
+        "LogReadyTimeoutSeconds": 900,
+        "PostReadySettleSeconds": 0
+      },
+
+      "ECN4Web": {
+        "_comment": "ECN4Web (tier web). CANDIDAT A VALIDER. Souvent un Tomcat : le marqueur 'Server startup in N ms' est alors le bon.",
+        "LogPath": "C:\\ProgramData\\Navis\\ecn4web\\logs\\navis-ecn4web*",
+        "ReadyPatterns": [
+          "Server startup in \\d+ ms",
+          "(initialization|startup) complete"
+        ],
+        "LogReadyTimeoutSeconds": 900,
+        "PostReadySettleSeconds": 0
+      }
+    }
+  }
+}

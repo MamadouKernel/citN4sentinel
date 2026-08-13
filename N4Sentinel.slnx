@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/N4Sentinel.Domain/N4Sentinel.Domain.csproj" />
+    <Project Path="src/N4Sentinel.Infrastructure/N4Sentinel.Infrastructure.csproj" />
+    <Project Path="src/N4Sentinel.Web/N4Sentinel.Web.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,124 @@
+CORPUS COMPLET — SUPPORT NAVIS N4 (DOCUMENTS + SCRIPTS)
+© KMKernel
+
+===========================================
+01 - SOP (corpus principal)
+===========================================
+À utiliser au quotidien par l'équipe support.
+
+- SOP-0 — Cadre de Gouvernance
+  Processus ITIL, rôles (RACI), matrice de priorisation, SLA, règles
+  d'escalade, répertoire des catégories A-H, modèles (ticket, communication
+  incident majeur), Annexe E (rôles/accès Navis requis), Annexe F (checklist
+  d'onboarding Niveau 1).
+
+- SOP-1 — Guide Support Niveau 1
+  À diffuser à toute l'équipe support. Règles d'or, contact d'escalade
+  (Mamadou KONATE — compléter téléphone/email avant diffusion), 8 fiches
+  symptôme -> action -> critère d'escalade, annexe technique accessible,
+  glossaire.
+
+- SOP-2 — Guide Expertise Niveau 2/3
+  Réservé au support expert. 8 fiches de diagnostic et résolution avancés,
+  annexe sécurité (vulnérabilité CISA/Kaleris), annexe technique approfondie
+  (architecture, JMX, deadlocks, etc.).
+
+- SOP-3 — Supervision Préventive
+  Checklists quotidienne / hebdomadaire / mensuelle avec chemins d'accès et
+  rôles requis pour chaque vérification, registre de traçabilité,
+  indicateurs de suivi, annexe expliquant la fréquence de chaque check.
+
+Ordre de lecture recommandé : SOP-0 d'abord (cadre commun), puis SOP-1
+pour l'équipe / SOP-2 pour l'expertise / SOP-3 pour la prévention.
+
+===========================================
+02 - Documents complémentaires
+===========================================
+- Guide_Diagnostic_Incidents_Navis_N4 (Word + PDF)
+  Version pédagogique antérieure aux SOP, avec exemples de symptômes
+  détaillés pas à pas. Reste utile comme support de formation.
+
+- Playbook_Navis_N4_Diagnostic_Integration.md
+  Arbres de décision synthétiques : diagnostic d'incident et choix d'API
+  d'intégration Navis N4 (Universal Query, REST, SNX, Gate API, etc.).
+
+===========================================
+03 - Scripts PowerShell (SOP-2)
+===========================================
+Automatisation des procédures serveur — réservé au Niveau 2/3.
+Voir le README.txt du dossier Navis-N4-Scripts pour le mode d'emploi complet.
+
+CHANGEMENT MAJEUR — ATTENTE PAR PREUVE DE LOG
+Les scripts n'attendent plus qu'un service Windows passe « Running » : ils
+attendent qu'un marqueur de fin d'initialisation apparaisse dans le log
+applicatif du composant. « Running » signifie que Windows a lancé le
+processus, pas que la JVM N4 a fini de charger. Les timeouts, très courts
+auparavant (180 s), sont désormais généreux (30 min par défaut) et se
+règlent par composant dans Navis-Config.json, section Readiness.
+Chaque étape retourne OPÉRATIONNEL, ÉCHEC ou À CONFIRMER — jamais une
+affirmation non prouvée.
+À FAIRE AVANT USAGE : valider les marqueurs de log sur vos serveurs avec
+Find-N4ReadinessPattern.ps1 (lecture seule). Les valeurs livrées sont des
+candidats issus de la documentation, pas des relevés réels.
+
+Résumé :
+- Navis-Config.json         Configuration (serveurs, services, DB, marqueurs
+                              et délais de démarrage) — seul fichier à
+                              éditer, aucun code à toucher
+- Find-N4ReadinessPattern.ps1  Aide à identifier, dans un log réel, le
+                              marqueur de démarrage à déclarer dans la config
+- Navis-Common.psm1         Module partagé (log horodaté + IP/utilisateur,
+                              vérifications réseau/services/DB)
+- Start-N4Sequence.ps1      Démarrage complet dans l'ordre, avec vérification
+                              préalable que tous les serveurs sont joignables
+- Stop-N4Sequence.ps1       Arrêt complet dans l'ordre inverse, option
+                              -InstallUpdates (patching Windows encadré,
+                              désactivé par défaut)
+- Test-N4IncidentPreCheck.ps1  Premier réflexe dès qu'un incident est signalé :
+                              réseau, horloges, disque, base de données —
+                              AVANT la lecture des logs
+- Enable-N4FileAuditing.ps1, Get-N4FileModificationEvents.ps1
+                              Traçabilité complète (qui/quand/IP) des modifications
+                              de scripts — via l'audit de sécurité Windows natif
+- Fix-N4-AMQCorruption.ps1, Restart-N4-BridgeChain.ps1,
+  Restart-N4-CenterOnly.ps1, Restart-N4-StandbyOnly.ps1,
+  RollingRestart-N4-Cluster.ps1
+                              Scripts ciblés par type d'incident (Fiches
+                              SOP-2 A, C, F, §5.6, §5.7)
+
+Particularité de votre environnement déjà prise en compte : Bridge et XPS
+tournent sur le même serveur physique (BridgeHost = XPSHost dans la config).
+
+PROTECTION PAR CODE PIN (nouveau) : les scripts vérifient leur propre
+intégrité au démarrage et les PDF sont protégés en édition. Code PIN par
+défaut : 123456 — À CHANGER IMMÉDIATEMENT (voir README.txt du dossier
+scripts, section "PROTECTION PAR CODE PIN").
+
+IMPORTANT : ces scripts n'ont pas été testés sur un environnement N4 réel
+(PowerShell non disponible dans l'environnement de rédaction). À valider
+impérativement sur un serveur de test avant tout usage en production.
+
+===========================================
+À FAIRE AVANT DIFFUSION / MISE EN PRODUCTION
+===========================================
+- Dans SOP-1, compléter les champs [Numéro à renseigner] / [Email à
+  renseigner] de la fiche contact d'escalade.
+- Valider les noms exacts des rôles/groupes de sécurité Navis avec
+  l'administrateur Sécurité en place (SOP-0, Annexe E).
+- Ajuster les délais SLA indicatifs (SOP-0, section 4) selon vos contrats
+  clients réels.
+- Éditer Navis-Config.json avec les vrais noms de serveurs de votre
+  installation (les valeurs actuelles sont des exemples).
+- Activer PowerShell Remoting (WinRM) sur tous les serveurs N4 cibles et
+  tester la connectivité (Test-WSMan) avant tout usage des scripts.
+- Tester chaque script sur un environnement hors production avant tout
+  usage réel, en particulier Stop-N4Sequence.ps1 -InstallUpdates
+  (redémarrage automatique de serveurs).
+- Changer le code PIN par défaut (123456) avec Set-N4CopyrightPin.ps1
+  avant toute diffusion ou mise en production.
+- Les scripts ayant été modifiés, régénérer le manifeste d'intégrité une
+  fois les changements relus et validés : .\New-N4IntegrityManifest.ps1
+  (code PIN requis). Sans cela, chaque lancement réclamera le code PIN.
+- Renseigner la section Readiness de Navis-Config.json (chemins de logs et
+  marqueurs de démarrage réels), sans quoi les séquences ne pourront rien
+  prouver et retourneront « À CONFIRMER » à chaque étape.
