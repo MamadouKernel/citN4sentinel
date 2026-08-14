@@ -1,0 +1,241 @@
+@page "/diagnostics"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Diagnostic
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutDiagnostiquer)]
+@rendermode InteractiveServer
+@inject DiagnosticSessionService Sessions
+@inject ReferentialService Referential
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+
+<PageTitle>Diagnostics — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Diagnostics</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Une session de diagnostic est une <strong class="text-white">investigation</strong>, pas une
+                lecture de journal. Elle porte ce que l'on cherche, ce qui a été regardé, ce qui a été trouvé —
+                et ce qui n'a pas pu l'être.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Recharger">
+                <option value="@Guid.Empty">Tous les environnements</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition"
+                    @onclick="() => _creation = true">
+                <i class="bi bi-plus-lg"></i> Nouveau diagnostic
+            </button>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    @if (_creation)
+    {
+        <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-4 text-xs">
+            <h3 class="text-sm font-bold text-white">Nouveau diagnostic</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Environnement</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_nouvelEnv">
+                        <option value="@Guid.Empty">Choisir…</option>
+                        @foreach (var e in _environnements)
+                        {
+                            <option value="@e.Id">@e.Code — @e.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-slate-400 font-semibold mb-1">Intitulé</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Incident du 14/08 — Center Node injoignable" @bind="_titre" />
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Ce que l'on cherche</label>
+                <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                          placeholder="Le symptôme observé, et depuis quand." @bind="_objet"></textarea>
+                <p class="text-[10px] text-slate-500 mt-1">
+                    Sans cela, un diagnostic n'est qu'une lecture de journal — et son rapport ne dit
+                    à personne pourquoi il a été produit.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Ticket</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="INC-1234 (facultatif)" @bind="_ticket" />
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Fenêtre — début</label>
+                    <input type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           @bind="_debut" />
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Fenêtre — fin</label>
+                    <input type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           @bind="_fin" />
+                </div>
+            </div>
+            <p class="text-[10px] text-slate-500 -mt-2">
+                La fenêtre borne le verdict : ce qui sera dit ne vaudra que pour cette plage, et le rapport le rappellera.
+                Laissez vide pour analyser tout le contenu collecté.
+            </p>
+
+            <div class="flex items-center gap-3">
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                        disabled="@(_nouvelEnv == Guid.Empty || string.IsNullOrWhiteSpace(_titre))"
+                        @onclick="Creer">
+                    Créer et collecter
+                </button>
+                <button class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs transition"
+                        @onclick="() => _creation = false">
+                    Annuler
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (_sessions.Count == 0)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs space-y-2">
+            <i class="bi bi-search text-2xl text-slate-600"></i>
+            <p>Aucun diagnostic enregistré.</p>
+        </div>
+    }
+    else
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <tr>
+                            <th class="text-left px-5 py-3 font-bold">Diagnostic</th>
+                            <th class="text-left px-5 py-3 font-bold">Demandeur</th>
+                            <th class="text-left px-5 py-3 font-bold">Ouvert</th>
+                            <th class="text-center px-5 py-3 font-bold">Verdict</th>
+                            <th class="text-right px-5 py-3 font-bold"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        @foreach (var s in _sessions)
+                        {
+                            <tr class="hover:bg-white/[0.02] transition">
+                                <td class="px-5 py-3.5">
+                                    <div class="font-bold text-white">@s.Title</div>
+                                    <div class="text-[10px] text-slate-500">@s.EnvironmentCode
+                                        @if (s.TicketReference is { Length: > 0 })
+                                        {
+                                            <span class="font-mono"> &middot; @s.TicketReference</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="px-5 py-3.5 text-slate-300">@s.RequestedBy</td>
+                                <td class="px-5 py-3.5 text-slate-400">@s.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                                <td class="px-5 py-3.5 text-center">
+                                    @if (s.HasBeenAnalysed)
+                                    {
+                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold @PastilleVerdict(s.Verdict)">
+                                            @CourtVerdict(s.Verdict)
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                            non analysé
+                                        </span>
+                                    }
+                                </td>
+                                <td class="px-5 py-3.5 text-right">
+                                    <a href="@($"/diagnostics/{s.Id}")"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition">
+                                        <i class="bi bi-eye"></i> Ouvrir
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<DiagnosticSession> _sessions = [];
+    private Guid _envId;
+
+    private bool _creation;
+    private Guid _nouvelEnv;
+    private string _titre = string.Empty;
+    private string _objet = string.Empty;
+    private string _ticket = string.Empty;
+    private DateTime? _debut;
+    private DateTime? _fin;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1) _nouvelEnv = _environnements[0].Id;
+        await Recharger();
+    }
+
+    private async Task Recharger() =>
+        _sessions = await Sessions.GetRecentAsync(_envId == Guid.Empty ? null : _envId);
+
+    private async Task Creer()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var id = await Sessions.CreateAsync(
+            _nouvelEnv, _titre.Trim(),
+            string.IsNullOrWhiteSpace(_objet) ? null : _objet.Trim(),
+            string.IsNullOrWhiteSpace(_ticket) ? null : _ticket.Trim(),
+            acteur,
+            _debut is null ? null : new DateTimeOffset(_debut.Value, TimeZoneInfo.Local.GetUtcOffset(_debut.Value)),
+            _fin is null ? null : new DateTimeOffset(_fin.Value, TimeZoneInfo.Local.GetUtcOffset(_fin.Value)));
+
+        Nav.NavigateTo($"/diagnostics/{id}");
+    }
+
+    public static string CourtVerdict(DiagnosticVerdict v) => v switch
+    {
+        DiagnosticVerdict.CauseCaracterisee => "cause caractérisée",
+        DiagnosticVerdict.PisteSerieuse => "piste sérieuse",
+        DiagnosticVerdict.AnomaliesSansCause => "anomalies, cause inconnue",
+        DiagnosticVerdict.RienDeConcluant => "rien de concluant",
+        _ => v.ToString()
+    };
+
+    public static string PastilleVerdict(DiagnosticVerdict v) => v switch
+    {
+        DiagnosticVerdict.CauseCaracterisee => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+        DiagnosticVerdict.PisteSerieuse => "bg-sky-500/10 text-sky-400 border border-sky-500/20",
+        DiagnosticVerdict.AnomaliesSansCause => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+        _ => "bg-slate-800 text-slate-400 border border-slate-700"
+    };
+}

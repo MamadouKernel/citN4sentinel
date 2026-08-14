@@ -1,0 +1,355 @@
+@page "/admin/signatures"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Diagnostic
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject SignatureCatalogue Catalogue
+
+<PageTitle>Signatures de diagnostic — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Signatures de diagnostic</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Le catalogue est amorcé de la documentation éditeur, puis vous appartient.
+                Chaque site voit passer des erreurs que personne n'avait prévues — un catalogue figé
+                cesserait d'être utile au bout de six mois.
+            </p>
+        </div>
+
+        <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition whitespace-nowrap"
+                @onclick="Nouvelle">
+            <i class="bi bi-plus-lg"></i> Nouvelle signature
+        </button>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <!-- Édition -->
+    @if (_edition is not null)
+    {
+        <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-4 text-xs">
+            <h3 class="text-sm font-bold text-white">
+                @(_estNouvelle ? "Nouvelle signature" : $"Modifier « {_edition.Name} »")
+            </h3>
+
+            @if (!_estNouvelle && _edition.Origin == SignatureOrigin.Editeur)
+            {
+                <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 leading-relaxed">
+                    Cette signature provient de la documentation éditeur. La modifier est permis — un motif
+                    peut produire des faux positifs sur votre installation — mais faites-le en connaissance
+                    de cause. <strong>Votre correction ne sera pas écrasée au redémarrage.</strong>
+                </div>
+            }
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Code</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           placeholder="DB-CONN-REFUSED" @bind="_edition.Code" disabled="@(!_estNouvelle)" />
+                </div>
+                <div class="md:col-span-3">
+                    <label class="block text-slate-400 font-semibold mb-1">Nom</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Connexion à la base refusée" @bind="_edition.Name" />
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Expression régulière</label>
+                <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sky-400 font-mono"
+                          @bind="_edition.Pattern"></textarea>
+            </div>
+
+            <!-- Essai du motif -->
+            <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-700 space-y-2">
+                <label class="block text-slate-400 font-semibold">Essayer sur une ligne réelle</label>
+                <input class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono"
+                       placeholder="Collez une ligne de journal ici" @bind="_essai" @bind:event="oninput" />
+                @if (!string.IsNullOrWhiteSpace(_essai))
+                {
+                    var resultat = Essayer();
+                    <p class="@(resultat.Item1 ? "text-emerald-400" : "text-slate-500")">
+                        <i class="bi @(resultat.Item1 ? "bi-check2-circle" : "bi-dash-circle")"></i>
+                        @resultat.Item2
+                    </p>
+                }
+                <p class="text-[10px] text-slate-500">
+                    Ne devinez pas un motif : essayez-le sur une ligne que vous avez réellement vue.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Domaine</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_edition.Domain">
+                        @foreach (var d in Enum.GetValues<DiagnosticDomain>())
+                        {
+                            <option value="@d">@LogAnalysisService.Libelle(d)</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Gravité</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_edition.Severity">
+                        @foreach (var s in Enum.GetValues<SignatureSeverity>())
+                        {
+                            <option value="@s">@s</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Poids de confiance</label>
+                    <input type="number" min="1" max="100"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           @bind="_edition.ConfidenceWeight" />
+                    <p class="text-[10px] text-slate-500 mt-1">
+                        70 et plus : la signature peut nommer une cause. En dessous, elle contribue
+                        au faisceau sans le conclure.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Composant concerné</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                            value="@(_edition.AppliesToRole?.ToString() ?? "")"
+                            @onchange="e => { var v = e.Value?.ToString(); _edition.AppliesToRole = string.IsNullOrEmpty(v) ? null : Enum.Parse<ComponentRole>(v); }">
+                        <option value="">Toutes natures</option>
+                        @foreach (var r in Enum.GetValues<ComponentRole>())
+                        {
+                            <option value="@r">@r</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">
+                    Ce que cette ligne signifie
+                    @if (_edition.ConfidenceWeight >= 70)
+                    {
+                        <span class="text-rose-400">obligatoire au-delà de 70</span>
+                    }
+                </label>
+                <textarea rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                          placeholder="Une pile d'exception ne dit rien à qui ne la connaît pas. C'est ici qu'un catalogue apporte quelque chose."
+                          @bind="_edition.Meaning"></textarea>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Conduite à tenir</label>
+                <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                          placeholder="Un conseil, jamais une action automatique." @bind="_edition.Remediation"></textarea>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Référence documentaire</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Guide 3.8.25, § 4.2" @bind="_edition.DocumentReference" />
+                </div>
+                <label class="flex items-center gap-2 text-slate-300 cursor-pointer pt-6">
+                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_edition.IsEnabled" />
+                    <span>Active</span>
+                </label>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition" @onclick="Enregistrer">
+                    Enregistrer
+                </button>
+                <button class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs transition" @onclick="() => _edition = null">
+                    Annuler
+                </button>
+            </div>
+        </div>
+    }
+
+    <!-- Catalogue -->
+    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+        <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-fingerprint text-sky-400"></i> Catalogue (@_signatures.Count)
+            </h3>
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold" @bind="_filtreDomaine">
+                <option value="-1">Tous domaines</option>
+                @foreach (var d in Enum.GetValues<DiagnosticDomain>())
+                {
+                    <option value="@((int)d)">@LogAnalysisService.Libelle(d)</option>
+                }
+            </select>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                    <tr>
+                        <th class="text-left px-5 py-3 font-bold">Code</th>
+                        <th class="text-left px-5 py-3 font-bold">Signature</th>
+                        <th class="text-left px-5 py-3 font-bold">Domaine</th>
+                        <th class="text-center px-5 py-3 font-bold">Gravité</th>
+                        <th class="text-center px-5 py-3 font-bold">Poids</th>
+                        <th class="text-center px-5 py-3 font-bold">Origine</th>
+                        <th class="text-right px-5 py-3 font-bold"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                    @foreach (var s in _signatures.Where(x => _filtreDomaine < 0 || (int)x.Domain == _filtreDomaine))
+                    {
+                        <tr class="hover:bg-white/[0.02] transition @(s.IsEnabled ? "" : "opacity-50")">
+                            <td class="px-5 py-3 font-mono text-slate-300">@s.Code</td>
+                            <td class="px-5 py-3">
+                                <div class="font-bold text-white">@s.Name</div>
+                                @if (!s.IsEnabled)
+                                {
+                                    <div class="text-[10px] text-slate-500">désactivée</div>
+                                }
+                            </td>
+                            <td class="px-5 py-3 text-slate-400">@LogAnalysisService.Libelle(s.Domain)</td>
+                            <td class="px-5 py-3 text-center">
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold @PastilleGravite(s.Severity)">
+                                    @s.Severity
+                                </span>
+                            </td>
+                            <td class="px-5 py-3 text-center font-mono @(s.EstConcluante ? "text-emerald-400" : "text-slate-400")">
+                                @s.ConfidenceWeight
+                            </td>
+                            <td class="px-5 py-3 text-center text-slate-400">
+                                @(s.Origin == SignatureOrigin.Editeur ? "éditeur" : "site")
+                            </td>
+                            <td class="px-5 py-3 text-right whitespace-nowrap">
+                                <button class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition"
+                                        @onclick="() => Modifier(s)">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold transition ml-1"
+                                        @onclick="() => Supprimer(s)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<DiagnosticSignature> _signatures = [];
+    private DiagnosticSignature? _edition;
+    private bool _estNouvelle;
+    private int _filtreDomaine = -1;
+    private string _essai = string.Empty;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync() => await Recharger();
+
+    private async Task Recharger() => _signatures = await Catalogue.GetAllAsync();
+
+    private void Nouvelle()
+    {
+        _estNouvelle = true;
+        _essai = string.Empty;
+        _edition = new DiagnosticSignature
+        {
+            Origin = SignatureOrigin.Site,
+            ConfidenceWeight = 50,
+            Severity = SignatureSeverity.Erreur,
+            IsEnabled = true
+        };
+    }
+
+    private void Modifier(DiagnosticSignature s)
+    {
+        _estNouvelle = false;
+        _essai = string.Empty;
+        _edition = new DiagnosticSignature
+        {
+            Id = s.Id,
+            Code = s.Code,
+            Name = s.Name,
+            Pattern = s.Pattern,
+            Domain = s.Domain,
+            Severity = s.Severity,
+            Origin = s.Origin,
+            Meaning = s.Meaning,
+            Remediation = s.Remediation,
+            DocumentReference = s.DocumentReference,
+            ConfidenceWeight = s.ConfidenceWeight,
+            AppliesToRole = s.AppliesToRole,
+            IsEnabled = s.IsEnabled
+        };
+    }
+
+    private async Task Enregistrer()
+    {
+        if (_edition is null) return;
+
+        var erreur = await Catalogue.SaveAsync(_edition);
+        if (erreur is not null) { Signaler(erreur, false); return; }
+
+        _edition = null;
+        await Recharger();
+        Signaler("Signature enregistrée.", true);
+    }
+
+    private async Task Supprimer(DiagnosticSignature s)
+    {
+        var message = await Catalogue.DeleteAsync(s.Id);
+        await Recharger();
+
+        if (message is not null) Signaler(message, false);
+        else Signaler($"Signature « {s.Name} » supprimée.", true);
+    }
+
+    /// <summary>Essai du motif sur une ligne réelle, sans quitter l'écran.</summary>
+    private (bool, string) Essayer()
+    {
+        if (_edition is null || string.IsNullOrWhiteSpace(_edition.Pattern))
+            return (false, "Renseignez d'abord une expression régulière.");
+
+        try
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(
+                _essai, _edition.Pattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+                TimeSpan.FromMilliseconds(200));
+
+            return m.Success
+                ? (true, $"Reconnue — le motif correspond à « {m.Value} ».")
+                : (false, "Le motif ne correspond pas à cette ligne.");
+        }
+        catch (ArgumentException ex)
+        {
+            return (false, $"Expression invalide : {ex.Message}");
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return (false, "L'expression met trop de temps à s'évaluer : elle est trop coûteuse pour servir.");
+        }
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    private static string PastilleGravite(SignatureSeverity s) => s switch
+    {
+        SignatureSeverity.Critique => "bg-rose-500/15 text-rose-300",
+        SignatureSeverity.Erreur => "bg-orange-500/15 text-orange-300",
+        SignatureSeverity.Avertissement => "bg-amber-500/15 text-amber-300",
+        _ => "bg-slate-800 text-slate-400"
+    };
+}

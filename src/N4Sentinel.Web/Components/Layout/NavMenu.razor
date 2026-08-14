@@ -150,6 +150,30 @@
                                 </div>
                             </NavLink>
                         </AuthorizeView>
+
+                        <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="diagCtx">
+                            <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="diagnostics">
+                                <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0">
+                                    <i class="bi bi-search"></i>
+                                </div>
+                                <div>
+                                    <div class="font-bold text-white text-xs">Diagnostics</div>
+                                    <div class="text-[10px] text-slate-400 font-normal">Journaux, anomalies et hypothèses</div>
+                                </div>
+                            </NavLink>
+                        </AuthorizeView>
+
+                        <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="sigCtx">
+                            <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/signatures">
+                                <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+                                    <i class="bi bi-fingerprint"></i>
+                                </div>
+                                <div>
+                                    <div class="font-bold text-white text-xs">Signatures d'anomalie</div>
+                                    <div class="text-[10px] text-slate-400 font-normal">Catalogue de diagnostic administrable</div>
+                                </div>
+                            </NavLink>
+                        </AuthorizeView>
                     </div>
                 </div>
             </div>
@@ -282,6 +306,18 @@
                     <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/workflows" @onclick="CloseMobileMenu">
                         <i class="bi bi-diagram-3-fill text-theme-primary text-base"></i>
                         <span>Workflows</span>
+                    </NavLink>
+                </AuthorizeView>
+                <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="mobileDiagCtx">
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="diagnostics" @onclick="CloseMobileMenu">
+                        <i class="bi bi-search text-theme-primary text-base"></i>
+                        <span>Diagnostics</span>
+                    </NavLink>
+                </AuthorizeView>
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="mobileSigCtx">
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/signatures" @onclick="CloseMobileMenu">
+                        <i class="bi bi-fingerprint text-theme-primary text-base"></i>
+                        <span>Signatures</span>
                     </NavLink>
                 </AuthorizeView>
             </div>

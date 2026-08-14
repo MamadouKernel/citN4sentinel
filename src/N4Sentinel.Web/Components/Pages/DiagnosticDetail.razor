@@ -1,0 +1,479 @@
+@page "/diagnostics/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Diagnostic
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutDiagnostiquer)]
+@rendermode InteractiveServer
+@inject DiagnosticSessionService Sessions
+@inject LogAnalysisService Analyse
+@inject ReferentialService Referential
+@inject IJSRuntime JS
+
+<PageTitle>@(_s?.Title ?? "Diagnostic") — N4 Sentinel</PageTitle>
+
+@if (_s is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement…</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <!-- En-tête -->
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+                <a href="/diagnostics" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour aux diagnostics
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_s.Title</h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    @_s.EnvironmentCode &middot; ouvert par @_s.RequestedBy
+                    le @_s.CreatedAt.ToLocalTime().ToString("dd/MM à HH:mm")
+                    @if (_s.TicketReference is { Length: > 0 })
+                    {
+                        <span class="font-mono"> &middot; @_s.TicketReference</span>
+                    }
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                        disabled="@(_enCours || _s.Sources.Count == 0)" @onclick="Conclure">
+                    <i class="bi bi-lightbulb"></i> @(_enCours ? "Analyse…" : "Conclure")
+                </button>
+
+                @if (_s.HasBeenAnalysed)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                            @onclick="TelechargerRapport">
+                        <i class="bi bi-file-earmark-text"></i> Rapport
+                    </button>
+                }
+            </div>
+        </div>
+
+        @if (_s.Reason is { Length: > 0 })
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 p-4 text-xs">
+                <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Ce que l'on cherche</div>
+                <p class="text-slate-200 leading-relaxed">@_s.Reason</p>
+                <p class="text-slate-500 mt-2">
+                    Fenêtre analysée :
+                    @if (_s.WindowStart is null && _s.WindowEnd is null)
+                    {
+                        <text>tout le contenu collecté.</text>
+                    }
+                    else
+                    {
+                        <text>
+                            de @(_s.WindowStart?.ToLocalTime().ToString("dd/MM HH:mm") ?? "l'origine")
+                            à @(_s.WindowEnd?.ToLocalTime().ToString("dd/MM HH:mm") ?? "la fin").
+                        </text>
+                    }
+                </p>
+            </div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <!-- Verdict -->
+        @if (_s.HasBeenAnalysed)
+        {
+            <div class="glass-card rounded-2xl border p-5 space-y-2 @BordureVerdict()">
+                <div class="flex items-center gap-2">
+                    <i class="bi @IconeVerdict() text-lg"></i>
+                    <h3 class="text-sm font-bold text-white">@DiagnosticSessionService.LibelleVerdict(_s.Verdict)</h3>
+                </div>
+                <p class="text-xs text-slate-200 leading-relaxed">@_s.VerdictExplanation</p>
+            </div>
+        }
+
+        <!-- Collecte -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-journal-arrow-down text-sky-400"></i>
+                    Journaux (@_s.Sources.Count)
+                </h3>
+                <p class="text-[11px] text-slate-500 mt-1 max-w-3xl leading-relaxed">
+                    Le contenu des journaux <strong class="text-slate-400">n'est pas conservé</strong> :
+                    seuls les constats le sont, avec leur ligne représentative et leur contexte, tous deux
+                    masqués. La base de N4 Sentinel ne devient pas un second endroit où traînent les journaux
+                    de production.
+                </p>
+            </div>
+
+            <div class="p-5 space-y-4 text-xs">
+                <div class="flex flex-wrap items-end gap-3">
+                    <div class="flex-1 min-w-56">
+                        <label class="block text-slate-400 font-semibold mb-1">Collecter le journal d'un composant</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_composantId">
+                            <option value="@Guid.Empty">Choisir un composant…</option>
+                            @foreach (var c in _composants)
+                            {
+                                <option value="@c.Id">@c.LogicalName — @c.Role</option>
+                            }
+                        </select>
+                    </div>
+                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
+                            disabled="@(_composantId == Guid.Empty || _enCours)" @onclick="Collecter">
+                        <i class="bi bi-download"></i> Collecter
+                    </button>
+                </div>
+
+                <div class="pt-3 border-t border-slate-800">
+                    <label class="block text-slate-400 font-semibold mb-1">
+                        Ou verser un fichier
+                    </label>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <InputFile OnChange="Verser" accept=".log,.txt,.out"
+                                   class="text-slate-300 text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200 file:font-bold file:cursor-pointer" />
+                        <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_composantImport">
+                            <option value="@Guid.Empty">Composant non précisé</option>
+                            @foreach (var c in _composants)
+                            {
+                                <option value="@c.Id">@c.LogicalName</option>
+                            }
+                        </select>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1">
+                        Le chemin de repli quand le serveur est inaccessible — c'est-à-dire souvent,
+                        en situation d'incident grave. 2 Mo au maximum sont analysés, en partant de la fin.
+                    </p>
+                </div>
+
+                @if (_s.Sources.Count > 0)
+                {
+                    <div class="pt-3 border-t border-slate-800 overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="text-slate-500 uppercase text-[10px] tracking-wider">
+                                <tr>
+                                    <th class="text-left py-2 font-bold">Fichier</th>
+                                    <th class="text-left py-2 font-bold">Composant</th>
+                                    <th class="text-left py-2 font-bold">Origine</th>
+                                    <th class="text-right py-2 font-bold">Lignes</th>
+                                    <th class="text-right py-2 font-bold">Secrets masqués</th>
+                                    <th class="text-left py-2 font-bold pl-4">État</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800">
+                                @foreach (var src in _s.Sources)
+                                {
+                                    <tr>
+                                        <td class="py-2 font-mono text-slate-300">@src.FileName</td>
+                                        <td class="py-2 text-slate-400">@(src.ComponentName ?? "—")</td>
+                                        <td class="py-2 text-slate-400">
+                                            @(src.Origin == LogOriginKind.CollecteCiblee ? "collecte" : "import")
+                                        </td>
+                                        <td class="py-2 text-right text-slate-300 font-mono">@src.LineCount</td>
+                                        <td class="py-2 text-right font-mono @(src.MaskedSecretCount > 0 ? "text-amber-400" : "text-slate-500")">
+                                            @src.MaskedSecretCount
+                                        </td>
+                                        <td class="py-2 pl-4">
+                                            @if (!src.Succeeded)
+                                            {
+                                                <span class="text-rose-300">@src.Error</span>
+                                            }
+                                            else if (src.Truncated)
+                                            {
+                                                <span class="text-amber-400">fin de fichier seulement</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-emerald-400">complet</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Hypothèses -->
+        @if (_s.Hypotheses.Count > 0)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-5 border-b border-slate-800">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-lightbulb text-amber-400"></i> Hypothèses
+                    </h3>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        Ce sont des hypothèses, présentées avec ce sur quoi elles reposent.
+                        <strong class="text-slate-400">Elles peuvent être contestées.</strong>
+                    </p>
+                </div>
+
+                <div class="divide-y divide-slate-800">
+                    @foreach (var h in _s.Hypotheses.OrderBy(x => x.Rank))
+                    {
+                        <div class="p-5 space-y-2 text-xs">
+                            <div class="flex items-start justify-between gap-3 flex-wrap">
+                                <div class="font-bold text-white">
+                                    @h.Rank. @LogAnalysisService.Libelle(h.Domain)
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    <div class="w-24 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                        <div class="h-full rounded-full @(h.EstEtablie ? "bg-emerald-500" : "bg-amber-500")"
+                                             style="width:@h.Confidence%"></div>
+                                    </div>
+                                    <span class="font-mono text-[11px] @(h.EstEtablie ? "text-emerald-400" : "text-amber-400")">
+                                        @h.Confidence %
+                                    </span>
+                                </div>
+                            </div>
+
+                            <p class="text-slate-200 leading-relaxed">@h.Statement</p>
+
+                            @if (!h.EstEtablie)
+                            {
+                                <p class="text-[11px] text-amber-300/80">
+                                    Confiance insuffisante pour conclure : à traiter comme une piste.
+                                </p>
+                            }
+
+                            <p class="text-slate-400"><strong>Sur quoi elle repose.</strong> @h.Evidence</p>
+
+                            @if (h.Recommendation is { Length: > 0 })
+                            {
+                                <p class="text-slate-400"><strong>À vérifier.</strong> @h.Recommendation</p>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Constats -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-exclamation-diamond text-rose-400"></i> Constats (@_s.Findings.Count)
+                </h3>
+
+                @if (_s.Findings.Count > 0)
+                {
+                    <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                            @bind="_filtreGravite">
+                        <option value="-1">Toutes gravités</option>
+                        <option value="3">Critique seulement</option>
+                        <option value="2">Erreur et au-dessus</option>
+                        <option value="1">Avertissement et au-dessus</option>
+                    </select>
+                }
+            </div>
+
+            @if (_s.Findings.Count == 0)
+            {
+                <div class="p-8 text-center text-slate-400 text-xs">
+                    Aucune anomalie relevée dans ce qui a été analysé.
+                    @if (_s.Sources.Count == 0)
+                    {
+                        <text>Commencez par collecter ou verser un journal.</text>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="divide-y divide-slate-800">
+                    @foreach (var f in _s.Findings
+                        .Where(x => _filtreGravite < 0 || (int)x.Severity >= _filtreGravite)
+                        .OrderByDescending(x => x.Severity).ThenByDescending(x => x.OccurrenceCount))
+                    {
+                        <div class="p-5 space-y-2 text-xs">
+                            <div class="flex items-start gap-3 flex-wrap">
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 @PastilleGravite(f.Severity)">
+                                    @f.Severity.ToString().ToUpperInvariant()
+                                </span>
+                                <span class="font-bold text-white flex-1 min-w-0">@f.Title</span>
+                                <span class="text-slate-400 shrink-0">
+                                    @f.OccurrenceCount occurrence@(f.OccurrenceCount > 1 ? "s" : "")
+                                    &middot; ligne @f.FirstLineNumber
+                                </span>
+                            </div>
+
+                            <div class="text-slate-500">
+                                @LogAnalysisService.Libelle(f.Domain)
+                                @if (f.SignatureCode is { Length: > 0 })
+                                {
+                                    <span class="font-mono"> &middot; @f.SignatureCode</span>
+                                }
+                                else
+                                {
+                                    <span> &middot; non répertorié au catalogue</span>
+                                }
+                                @if (f.FirstSeenAt is not null)
+                                {
+                                    <span> &middot; de @f.FirstSeenAt.Value.ToString("HH:mm:ss") à @f.LastSeenAt?.ToString("HH:mm:ss")</span>
+                                }
+                            </div>
+
+                            @if (f.Meaning is { Length: > 0 })
+                            {
+                                <p class="text-slate-200 leading-relaxed">
+                                    <strong class="text-white">Ce que cela signifie.</strong> @f.Meaning
+                                </p>
+                            }
+
+                            @if (f.Remediation is { Length: > 0 })
+                            {
+                                <p class="text-slate-300 leading-relaxed">
+                                    <strong class="text-white">Conduite à tenir.</strong> @f.Remediation
+                                </p>
+                            }
+
+                            <details class="mt-2">
+                                <summary class="cursor-pointer text-theme-primary hover:underline select-none">
+                                    Voir le passage du journal
+                                </summary>
+                                <pre class="mt-2 p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto whitespace-pre">@(f.Context ?? f.SampleLine)</pre>
+                            </details>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private DiagnosticSession? _s;
+    private List<N4Component> _composants = [];
+    private Guid _composantId;
+    private Guid _composantImport;
+    private int _filtreGravite = -1;
+    private bool _enCours;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    /// <summary>2 Mo : au-delà, seule la fin du fichier est retenue de toute façon.</summary>
+    private const long TailleMaximale = 2L * 1024 * 1024;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Charger();
+        if (_s is not null) _composants = await Referential.GetComponentsAsync(_s.EnvironmentId);
+    }
+
+    private async Task Charger() => _s = await Sessions.GetAsync(Id);
+
+    private async Task Collecter()
+    {
+        _enCours = true;
+        _message = null;
+
+        var r = await Analyse.CollectFromServerAsync(Id, _composantId);
+        _enCours = false;
+
+        await Charger();
+        Signaler(r);
+    }
+
+    private async Task Verser(InputFileChangeEventArgs e)
+    {
+        _enCours = true;
+        _message = null;
+
+        try
+        {
+            var fichier = e.File;
+
+            using var flux = fichier.OpenReadStream(TailleMaximale);
+            using var lecteur = new StreamReader(flux);
+            var contenu = await lecteur.ReadToEndAsync();
+
+            var r = await Analyse.ImportAsync(
+                Id, fichier.Name, contenu,
+                _composantImport == Guid.Empty ? null : _composantImport);
+
+            await Charger();
+            Signaler(r);
+        }
+        catch (IOException)
+        {
+            Signaler(SourceResult.Failed(
+                $"Fichier trop volumineux : {TailleMaximale / 1024 / 1024} Mo au maximum. "
+                + "Extrayez la portion utile avant de la verser."));
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    private async Task Conclure()
+    {
+        _enCours = true;
+        _message = null;
+
+        await Analyse.ConcludeAsync(Id);
+        _enCours = false;
+
+        await Charger();
+    }
+
+    private async Task TelechargerRapport()
+    {
+        var markdown = await Sessions.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var nom = $"N4Sentinel-diagnostic-{_s!.EnvironmentCode}-{_s.CreatedAt:yyyyMMdd-HHmm}.md";
+        var octets = System.Text.Encoding.UTF8.GetBytes(markdown);
+
+        await JS.InvokeVoidAsync("n4TelechargerTexte", nom, Convert.ToBase64String(octets));
+    }
+
+    private void Signaler(SourceResult r)
+    {
+        if (!r.Succeeded)
+        {
+            _message = r.Error;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        _message = $"{r.LineCount} ligne(s) analysée(s), {r.FindingCount} constat(s)."
+                 + (r.MaskedSecretCount > 0
+                     ? $" {r.MaskedSecretCount} secret(s) masqué(s) avant enregistrement."
+                     : string.Empty);
+
+        _messageClass = "bg-emerald-500/10 border-emerald-500/20 text-emerald-300";
+    }
+
+    private string BordureVerdict() => _s!.Verdict switch
+    {
+        DiagnosticVerdict.CauseCaracterisee => "border-emerald-500/30 bg-emerald-500/5",
+        DiagnosticVerdict.PisteSerieuse => "border-sky-500/30 bg-sky-500/5",
+        DiagnosticVerdict.AnomaliesSansCause => "border-amber-500/30 bg-amber-500/5",
+        _ => "border-slate-700 bg-slate-900/40"
+    };
+
+    private string IconeVerdict() => _s!.Verdict switch
+    {
+        DiagnosticVerdict.CauseCaracterisee => "bi-check-circle-fill text-emerald-400",
+        DiagnosticVerdict.PisteSerieuse => "bi-signpost-split-fill text-sky-400",
+        DiagnosticVerdict.AnomaliesSansCause => "bi-question-circle-fill text-amber-400",
+        _ => "bi-dash-circle text-slate-400"
+    };
+
+    private static string PastilleGravite(SignatureSeverity s) => s switch
+    {
+        SignatureSeverity.Critique => "bg-rose-500/15 text-rose-300",
+        SignatureSeverity.Erreur => "bg-orange-500/15 text-orange-300",
+        SignatureSeverity.Avertissement => "bg-amber-500/15 text-amber-300",
+        _ => "bg-slate-800 text-slate-400"
+    };
+}
