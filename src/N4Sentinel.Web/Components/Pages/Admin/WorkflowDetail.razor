@@ -1,0 +1,407 @@
+@page "/admin/workflows/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Orchestration
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject WorkflowService Workflows
+@inject SequenceValidator Validator
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+
+<PageTitle>@(_workflow?.Name ?? "Workflow") — N4 Sentinel</PageTitle>
+
+@if (_workflow is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement…</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div>
+                <a href="/admin/workflows" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour aux workflows
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                    @_workflow.Name
+                    <span class="text-base font-mono text-sky-400 align-middle">v@_workflow.Version</span>
+                </h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    <span class="font-mono">@_workflow.Code</span> &middot; @LibelleNature(_workflow.Kind)
+                    &middot; @_workflow.Environment?.Code
+                </p>
+            </div>
+
+            <div class="flex items-center gap-2">
+                @if (_workflow.Status is LifecycleStatus.Brouillon or LifecycleStatus.AValider)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@(_etapes.Count == 0 || _bloquantes > 0)" @onclick="Valider">
+                        <i class="bi bi-check2-circle"></i> Valider
+                    </button>
+                }
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                        disabled="@(_enregistrement || _bloquantes > 0)" @onclick="Enregistrer">
+                    <i class="bi bi-save"></i> @(_enregistrement ? "Enregistrement…" : "Enregistrer")
+                </button>
+            </div>
+        </div>
+
+        @if (_workflow.HasBeenExecuted)
+        {
+            <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs leading-relaxed">
+                <strong class="flex items-center gap-2 mb-1"><i class="bi bi-lock-fill"></i> Cette version a déjà servi.</strong>
+                Elle ne sera pas modifiée. Enregistrer créera la <strong>version @(_workflow.Version + 1)</strong>,
+                et la v@(_workflow.Version) restera attachée aux exécutions qu'elle a produites — sans quoi le rapport
+                d'une opération passée décrirait des étapes qui ne sont pas celles qui ont tourné.
+            </div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <!-- Contrôle de séquence (FR-044) -->
+        @if (_violations.Count > 0)
+        {
+            <div class="glass-card rounded-2xl border @(_bloquantes > 0 ? "border-rose-500/40" : "border-amber-500/30") overflow-hidden">
+                <div class="p-4 border-b border-slate-800 flex items-center gap-2">
+                    <i class="bi @(_bloquantes > 0 ? "bi-x-octagon-fill text-rose-400" : "bi-exclamation-triangle-fill text-amber-400")"></i>
+                    <h3 class="text-sm font-bold text-white">
+                        @if (_bloquantes > 0)
+                        {
+                            <text>Séquence refusée — @_bloquantes incohérence(s) bloquante(s)</text>
+                        }
+                        else
+                        {
+                            <text>Séquence acceptable, @_violations.Count point(s) à vérifier</text>
+                        }
+                    </h3>
+                </div>
+                <div class="divide-y divide-slate-800">
+                    @foreach (var v in _violations)
+                    {
+                        <div class="p-4 text-xs">
+                            <div class="flex items-start gap-2">
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 @(v.Blocking ? "bg-rose-500/15 text-rose-300" : "bg-amber-500/15 text-amber-300")">
+                                    @(v.Blocking ? "BLOQUANT" : "À VÉRIFIER")
+                                </span>
+                                <div class="space-y-1">
+                                    <p class="text-slate-200 leading-relaxed">@v.Message</p>
+                                    @if (v.Remedy is not null)
+                                    {
+                                        <p class="text-slate-400"><i class="bi bi-arrow-return-right"></i> @v.Remedy</p>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (_etapes.Count > 0)
+        {
+            <div class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                <i class="bi bi-check2-circle"></i>
+                Séquence cohérente avec le graphe de dépendances déclaré.
+            </div>
+        }
+
+        <!-- Étapes -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-list-ol text-sky-400"></i> Étapes (@_etapes.Count)
+                </h3>
+                <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                        @onclick="AjouterEtape">
+                    <i class="bi bi-plus-lg"></i> Ajouter une étape
+                </button>
+            </div>
+
+            @if (_etapes.Count == 0)
+            {
+                <div class="p-8 text-center text-slate-400 text-xs">
+                    Aucune étape. Un workflow sans étape ne peut pas être validé.
+                </div>
+            }
+            else
+            {
+                <div class="divide-y divide-slate-800">
+                    @for (var i = 0; i < _etapes.Count; i++)
+                    {
+                        var index = i;
+                        var etape = _etapes[index];
+
+                        <div class="p-5 space-y-3">
+                            <div class="flex items-start gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-xs shrink-0 mt-1">
+                                    @(index + 1)
+                                </div>
+
+                                <div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                                    <div class="md:col-span-2">
+                                        <label class="block text-slate-500 font-semibold mb-1">Nom de l'étape</label>
+                                        <input class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                               value="@etape.Name" @onchange="e => { etape.Name = e.Value?.ToString() ?? string.Empty; }" />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-slate-500 font-semibold mb-1">Action</label>
+                                        <select class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                                value="@etape.Action" @onchange="async e => { etape.Action = Enum.Parse<StepAction>(e.Value!.ToString()!); await Controler(); }">
+                                            @foreach (var a in Enum.GetValues<StepAction>())
+                                            {
+                                                <option value="@a">@LibelleAction(a)</option>
+                                            }
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-slate-500 font-semibold mb-1">Composant</label>
+                                        <select class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                                value="@(etape.ComponentId?.ToString() ?? "")"
+                                                @onchange="async e => { var v = e.Value?.ToString(); etape.ComponentId = string.IsNullOrEmpty(v) ? null : Guid.Parse(v); await Controler(); }">
+                                            <option value="">— aucun —</option>
+                                            @foreach (var c in _composants)
+                                            {
+                                                <option value="@c.Id">@c.LogicalName</option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center gap-1 shrink-0 mt-5">
+                                    <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
+                                            disabled="@(index == 0)" @onclick="() => Deplacer(index, -1)" title="Monter">
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                    <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
+                                            disabled="@(index == _etapes.Count - 1)" @onclick="() => Deplacer(index, 1)" title="Descendre">
+                                        <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                                            @onclick="() => Supprimer(index)" title="Supprimer">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (etape.Action == StepAction.InterventionManuelle)
+                            {
+                                <div class="pl-10 text-xs">
+                                    <label class="block text-slate-500 font-semibold mb-1">
+                                        Consigne à l'opérateur <span class="text-rose-400">obligatoire</span>
+                                    </label>
+                                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                              placeholder="Ce que l'opérateur doit faire, précisément."
+                                              value="@etape.Instruction" @onchange="e => etape.Instruction = e.Value?.ToString()"></textarea>
+                                    <p class="text-[10px] text-slate-500 mt-1">
+                                        Une intervention manuelle sans consigne reporte le travail sur l'opérateur au pire moment.
+                                    </p>
+                                </div>
+                            }
+
+                            <div class="pl-10 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">Durée normale (s)</label>
+                                    <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                           value="@etape.ExpectedSeconds" @onchange="e => etape.ExpectedSeconds = ToInt(e.Value, 60)" />
+                                </div>
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">Délai maximal (s)</label>
+                                    <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                           value="@etape.TimeoutSeconds" @onchange="e => etape.TimeoutSeconds = ToInt(e.Value, 1800)" />
+                                </div>
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">Si l'étape échoue</label>
+                                    <select class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                            value="@etape.FailurePolicy" @onchange="e => etape.FailurePolicy = Enum.Parse<StepFailurePolicy>(e.Value!.ToString()!)">
+                                        <option value="@StepFailurePolicy.Bloquer">Arrêter la séquence</option>
+                                        <option value="@StepFailurePolicy.Continuer">Continuer, marquer en échec</option>
+                                        <option value="@StepFailurePolicy.DemanderALOperateur">Suspendre et demander</option>
+                                    </select>
+                                </div>
+                                <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                                           checked="@etape.IsSkippable" @onchange="e => etape.IsSkippable = (bool)e.Value!" />
+                                    <span>Contournable</span>
+                                </label>
+                                <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                                           checked="@etape.RequiresConfirmation" @onchange="e => etape.RequiresConfirmation = (bool)e.Value!" />
+                                    <span>Confirmation avant</span>
+                                </label>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Workflow? _workflow;
+    private List<WorkflowStep> _etapes = [];
+    private List<N4Component> _composants = [];
+    private List<SequenceViolation> _violations = [];
+    private int _bloquantes;
+
+    private bool _enregistrement;
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _workflow = await Workflows.GetAsync(Id);
+        if (_workflow is null) return;
+
+        _etapes = _workflow.Steps.OrderBy(s => s.Order).ToList();
+        _composants = await Referential.GetComponentsAsync(_workflow.EnvironmentId);
+        await Controler();
+    }
+
+    private async Task Controler()
+    {
+        if (_workflow is null) return;
+
+        Renumeroter();
+        _violations = await Validator.ValidateAsync(_workflow.EnvironmentId, _etapes);
+        _bloquantes = _violations.Count(v => v.Blocking);
+    }
+
+    private void Renumeroter()
+    {
+        for (var i = 0; i < _etapes.Count; i++) _etapes[i].Order = i + 1;
+    }
+
+    private async Task AjouterEtape()
+    {
+        _etapes.Add(new WorkflowStep
+        {
+            Name = "Nouvelle étape",
+            Action = StepAction.Verifier,
+            Order = _etapes.Count + 1
+        });
+        await Controler();
+    }
+
+    private async Task Deplacer(int index, int sens)
+    {
+        var cible = index + sens;
+        if (cible < 0 || cible >= _etapes.Count) return;
+
+        (_etapes[index], _etapes[cible]) = (_etapes[cible], _etapes[index]);
+        await Controler();
+    }
+
+    private async Task Supprimer(int index)
+    {
+        _etapes.RemoveAt(index);
+        await Controler();
+    }
+
+    private async Task Enregistrer()
+    {
+        if (_workflow is null) return;
+
+        _enregistrement = true;
+        Renumeroter();
+
+        // Les etapes sont detachees avant envoi : le service reconstruit les
+        // siennes, qu'il s'agisse d'une mise a jour ou d'une nouvelle version.
+        var copies = _etapes.Select(s => new WorkflowStep
+        {
+            Name = s.Name,
+            Action = s.Action,
+            ComponentId = s.ComponentId,
+            Instruction = s.Instruction,
+            ExpectedSeconds = s.ExpectedSeconds,
+            TimeoutSeconds = s.TimeoutSeconds,
+            MaxRetries = s.MaxRetries,
+            AutomaticRetry = s.AutomaticRetry,
+            FailurePolicy = s.FailurePolicy,
+            IsSkippable = s.IsSkippable,
+            RequiresConfirmation = s.RequiresConfirmation,
+            CanRunInParallel = s.CanRunInParallel,
+            Notes = s.Notes
+        }).ToList();
+
+        var r = await Workflows.SaveAsync(_workflow.Id, _workflow.Name, _workflow.Description, copies);
+        _enregistrement = false;
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        if (r.CreatedNewVersion)
+        {
+            Nav.NavigateTo($"/admin/workflows/{r.WorkflowId}", forceLoad: false);
+            Id = r.WorkflowId;
+            await OnParametersSetAsync();
+            Signaler($"Version {r.Version} créée. La version précédente reste attachée à ses exécutions.", true);
+            return;
+        }
+
+        await OnParametersSetAsync();
+        Signaler("Étapes enregistrées.", true);
+    }
+
+    private async Task Valider()
+    {
+        if (_workflow is null) return;
+
+        var erreur = await Workflows.ChangeStatusAsync(_workflow.Id, LifecycleStatus.Valide);
+        if (erreur is not null) { Signaler(erreur, false); return; }
+
+        await OnParametersSetAsync();
+        Signaler("Workflow validé : il peut désormais être lancé.", true);
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    private static int ToInt(object? valeur, int defaut) =>
+        int.TryParse(valeur?.ToString(), out var i) && i > 0 ? i : defaut;
+
+    public static string LibelleNature(WorkflowKind k) => k switch
+    {
+        WorkflowKind.DemarrageComplet => "Démarrage complet",
+        WorkflowKind.ArretComplet => "Arrêt complet",
+        WorkflowKind.RedemarrageComplet => "Redémarrage complet",
+        WorkflowKind.OperationPartielle => "Opération partielle",
+        WorkflowKind.OperationUnitaire => "Opération unitaire",
+        WorkflowKind.RollingRestart => "Redémarrage tournant",
+        WorkflowKind.ControleSeul => "Contrôle seul (lecture)",
+        WorkflowKind.RepriseApresEchec => "Reprise après échec",
+        _ => k.ToString()
+    };
+
+    public static string LibelleAction(StepAction a) => a switch
+    {
+        StepAction.Verifier => "Vérifier (lecture seule)",
+        StepAction.Demarrer => "Démarrer",
+        StepAction.Arreter => "Arrêter",
+        StepAction.Redemarrer => "Redémarrer",
+        StepAction.InterventionManuelle => "Intervention manuelle",
+        StepAction.Attendre => "Attendre",
+        _ => a.ToString()
+    };
+}

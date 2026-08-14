@@ -18,8 +18,8 @@ namespace N4Sentinel.Infrastructure.Connectors;
 /// la meme chose. Une reimplementation en C# aurait diverge tot ou tard, et la
 /// divergence se serait manifestee un jour d'incident.
 ///
-/// TOUT CE QUI EST EXECUTE ICI EST EN LECTURE SEULE. Aucune methode de cette
-/// classe ne demarre, n'arrete ni ne modifie quoi que ce soit.
+/// TOUT CE QUI EST EXECUTE ICI EST EN LECTURE SEULE, sauf ControlServiceAsync,
+/// seule methode qui modifie l'etat du serveur cible.
 /// </summary>
 public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : IN4Connector
 {
@@ -370,6 +370,108 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         };
 
         return ConnectorResult<LogDelta>.Ok(delta, result.Duration);
+    }
+
+    public async Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
+        ConnectorTarget target, string serviceName, ServiceControlAction action,
+        CancellationToken ct = default)
+    {
+        // -Force sur l'arret : un service N4 a des services dependants declares,
+        // et sans -Force Windows refuse purement et simplement.
+        //
+        // Le script N'ATTEND PAS que le service atteigne son etat cible. Il emet
+        // la commande, laisse a Windows le temps de la prendre en compte, et
+        // rend l'etat observe. L'attente reelle - et surtout la preuve par le
+        // journal - appartient au moteur d'orchestration, qui sait afficher la
+        // progression a l'operateur pendant ce temps.
+        const string script = """
+            param([string]$Nom, [string]$Action)
+
+            $svc = Get-Service -Name $Nom -ErrorAction SilentlyContinue
+            if (-not $svc) {
+                $svc = Get-Service -ErrorAction SilentlyContinue |
+                       Where-Object { $_.DisplayName -eq $Nom } | Select-Object -First 1
+            }
+            if (-not $svc) {
+                [PSCustomObject]@{ Name = $Nom; DisplayName = $null; Status = 'Introuvable'
+                                   Accepte = $false; Message = "Le service '$Nom' n'existe pas sur $env:COMPUTERNAME." }
+                return
+            }
+
+            $message = $null
+            $accepte = $true
+            try {
+                if ($Action -eq 'Demarrer') {
+                    if ($svc.Status -eq 'Running') {
+                        $message = 'Le service etait deja en cours d''execution.'
+                    } else {
+                        Start-Service -Name $svc.Name -ErrorAction Stop
+                    }
+                } else {
+                    if ($svc.Status -eq 'Stopped') {
+                        $message = 'Le service etait deja a l''arret.'
+                    } else {
+                        Stop-Service -Name $svc.Name -Force -ErrorAction Stop
+                    }
+                }
+            } catch {
+                $accepte = $false
+                $message = $_.Exception.Message
+            }
+
+            Start-Sleep -Milliseconds 800
+            $svc.Refresh()
+
+            $pidValeur = $null
+            try {
+                $wmi = Get-CimInstance Win32_Service -Filter "Name='$($svc.Name)'" -ErrorAction SilentlyContinue
+                if ($wmi -and $wmi.ProcessId -gt 0) { $pidValeur = $wmi.ProcessId }
+            } catch { }
+
+            [PSCustomObject]@{
+                Name = $svc.Name; DisplayName = $svc.DisplayName; Status = [string]$svc.Status
+                ProcessId = $pidValeur; Accepte = $accepte; Message = $message
+            }
+            """;
+
+        logger.LogInformation("[{Hote}] {Action} du service {Service}", target.HostName, action, serviceName);
+
+        var result = await ExecuteAsync(target, script, new Dictionary<string, object?>
+        {
+            ["Nom"] = serviceName,
+            ["Action"] = action.ToString()
+        }, ct);
+
+        if (!result.Succeeded)
+            return ConnectorResult<ServiceSnapshot>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<ServiceSnapshot>.Fail(
+                ConnectorFailure.ErreurDistante,
+                $"Aucune reponse a la commande {action} sur '{serviceName}'.", result.Duration);
+
+        var statut = Get<string>(o, "Status") ?? "Inconnu";
+
+        if (string.Equals(statut, "Introuvable", StringComparison.OrdinalIgnoreCase))
+            return ConnectorResult<ServiceSnapshot>.Fail(
+                ConnectorFailure.CibleIntrouvable,
+                Get<string>(o, "Message") ?? $"Service '{serviceName}' introuvable.", result.Duration);
+
+        if (GetNullableBool(o, "Accepte") == false)
+            return ConnectorResult<ServiceSnapshot>.Fail(
+                ConnectorFailure.ErreurDistante,
+                Get<string>(o, "Message") ?? $"Commande {action} refusee sur '{serviceName}'.", result.Duration);
+
+        var snapshot = new ServiceSnapshot
+        {
+            Name = Get<string>(o, "Name") ?? serviceName,
+            DisplayName = Get<string>(o, "DisplayName"),
+            Status = statut,
+            ProcessId = GetNullableInt(o, "ProcessId")
+        };
+
+        return ConnectorResult<ServiceSnapshot>.Ok(snapshot, result.Duration);
     }
 
     // -----------------------------------------------------------------------

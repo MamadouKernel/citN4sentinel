@@ -256,6 +256,12 @@ public sealed class DecouverteTests : IAsyncLifetime
 
         public Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<LogFileInfo>.Ok(new LogFileInfo { Exists = false }, TimeSpan.Zero));
+
+        public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
+            ConnectorTarget t, string n, ServiceControlAction a, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<ServiceSnapshot>.Ok(
+                new ServiceSnapshot { Name = n, Status = a == ServiceControlAction.Demarrer ? "Running" : "Stopped" },
+                TimeSpan.Zero));
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<N4SentinelDbContext> options)

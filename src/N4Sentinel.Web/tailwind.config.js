@@ -68,6 +68,20 @@ module.exports = {
                'system-ui', '-apple-system', '"Helvetica Neue"', 'Arial', 'sans-serif'],
         mono: ['ui-monospace', '"Cascadia Mono"', 'Consolas',
                '"SFMono-Regular"', 'Menlo', 'monospace']
+      },
+
+      // Les menus déroulants et le tiroir mobile utilisent `animate-fadeIn`.
+      // Sans cette déclaration, Tailwind ne génère rien pour cette classe :
+      // l'apparition est brutale au lieu d'être fondue, sans qu'aucune erreur
+      // ne le signale.
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(-4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' }
+        }
+      },
+      animation: {
+        fadeIn: 'fadeIn 0.15s ease-out'
       }
     }
   },

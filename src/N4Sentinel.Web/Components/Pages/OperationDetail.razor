@@ -1,0 +1,443 @@
+@page "/operations/{Id:guid}"
+@implements IDisposable
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Orchestration
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject ExecutionService Executions
+@inject OrchestrationEngine Moteur
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>@(_x?.WorkflowName ?? "Opération") — N4 Sentinel</PageTitle>
+
+@if (_x is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement…</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <!-- En-tête -->
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+                <a href="/operations" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour aux opérations
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3 flex-wrap">
+                    @_x.WorkflowName
+                    <span class="text-base font-mono text-sky-400">v@_x.WorkflowVersion</span>
+                    @if (_x.IsSimulation)
+                    {
+                        <span class="px-2.5 py-1 rounded-lg bg-slate-700/60 text-slate-200 text-[11px] font-bold">SIMULATION</span>
+                    }
+                </h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    @_x.EnvironmentCode &middot; demandée par <span class="text-slate-200">@_x.RequestedBy</span>
+                    &middot; corrélation <span class="font-mono text-slate-500">@_x.CorrelationId</span>
+                </p>
+            </div>
+
+            <div class="text-right">
+                <span class="px-3 py-1.5 rounded-full text-xs font-bold @Operations.PastilleEtat(_x.Status)">
+                    @Operations.LibelleEtat(_x.Status)
+                </span>
+                <div class="text-[11px] text-slate-400 mt-2">
+                    @if (_x.StartedAt is { } debut)
+                    {
+                        <div>Lancée à @debut.ToLocalTime().ToString("dd/MM HH:mm:ss")</div>
+                    }
+                    @if (_x.Duration is { } duree)
+                    {
+                        <div class="font-mono">@StepExecutor.Formater(duree)</div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <!-- Motif et impact -->
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 text-xs space-y-2">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Motif</div>
+                    <div class="text-slate-200 leading-relaxed">@_x.Reason</div>
+                </div>
+                <div>
+                    <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Ticket</div>
+                    <div class="text-slate-200 font-mono">@(_x.TicketReference ?? "—")</div>
+                </div>
+                <div>
+                    <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Approbation</div>
+                    <div class="text-slate-200">
+                        @if (_x.ApprovedBy is not null)
+                        {
+                            <text>@_x.ApprovedBy, le @_x.ApprovedAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")</text>
+                        }
+                        else
+                        {
+                            <text>—</text>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (_x.ExpectedImpact is { Length: > 0 } impact)
+            {
+                <div class="pt-2 border-t border-slate-800">
+                    <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Impact attendu</div>
+                    <div class="@(impact.Contains("INTERRUPTION TOTALE") ? "text-rose-300 font-semibold" : "text-slate-300")">@impact</div>
+                </div>
+            }
+        </div>
+
+        <!-- Issue -->
+        @if (_x.Outcome is { Length: > 0 } issue)
+        {
+            <div class="p-4 rounded-xl text-xs leading-relaxed border @IssueClasse()">
+                <strong class="block mb-1">@Operations.LibelleEtat(_x.Status)</strong>
+                @issue
+            </div>
+        }
+
+        <!-- Commandes -->
+        <AuthorizeView Policy="@N4Policies.PeutExecuter">
+            <div class="flex flex-wrap items-center gap-2">
+                @if (_x.Status == ExecutionStatus.EnAttenteApprobation)
+                {
+                    <AuthorizeView Policy="@N4Policies.PeutApprouver" Context="approbateur">
+                        <button class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                                @onclick="Approuver">
+                            <i class="bi bi-check2-circle"></i> Approuver
+                        </button>
+                    </AuthorizeView>
+                }
+
+                @if (_x.Status == ExecutionStatus.EnPreparation)
+                {
+                    <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition"
+                            @onclick="Lancer">
+                        <i class="bi bi-play-fill"></i> Lancer maintenant
+                    </button>
+                }
+
+                @if (_x.Status == ExecutionStatus.EnCours)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition"
+                            @onclick="MettreEnPause">
+                        <i class="bi bi-pause-fill"></i> Mettre en pause
+                    </button>
+                }
+
+                @if (_x.Status is ExecutionStatus.EnPause or ExecutionStatus.ReconciliationRequise)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                            @onclick="Reprendre">
+                        <i class="bi bi-play-fill"></i> Reprendre
+                    </button>
+                }
+
+                @if (!_x.IsFinished)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-rose-600/80 hover:bg-rose-500 text-white font-bold text-xs transition"
+                            @onclick="Annuler">
+                        <i class="bi bi-x-lg"></i> Annuler
+                    </button>
+                }
+            </div>
+        </AuthorizeView>
+
+        @if (_x.Status is ExecutionStatus.AnnulationDemandee)
+        {
+            <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
+                Annulation demandée par @_x.CancelRequestedBy. <strong>L'étape en cours va à son terme</strong> :
+                l'interrompre au milieu laisserait le composant dans un état que personne ne saurait décrire.
+            </div>
+        }
+
+        <!-- Progression -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-list-check text-sky-400"></i>
+                    Étapes — @_termines / @_x.Steps.Count
+                </h3>
+                <div class="w-full sm:w-64 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-theme-gradient transition-all duration-500"
+                         style="width:@(_x.Steps.Count == 0 ? 0 : _termines * 100 / _x.Steps.Count)%"></div>
+                </div>
+            </div>
+
+            <div class="divide-y divide-slate-800">
+                @foreach (var etape in _x.Steps.OrderBy(s => s.Order))
+                {
+                    <div class="p-5 @(etape.State == ExecutionStepState.EnCours ? "bg-sky-500/[0.04]" : "")">
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 @PastilleEtape(etape.State)">
+                                <i class="bi @IconeEtape(etape.State) text-sm"></i>
+                            </div>
+
+                            <div class="flex-1 min-w-0 space-y-1.5">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-bold text-white text-sm">@etape.Order. @etape.Name</span>
+                                    <span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-bold">
+                                        @LibelleAction(etape.Action)
+                                    </span>
+                                    @if (etape.ComponentName is not null)
+                                    {
+                                        <span class="text-[11px] text-slate-400">
+                                            @etape.ComponentName
+                                            @if (etape.HostName is not null)
+                                            {
+                                                <span class="font-mono text-slate-500"> @@@etape.HostName</span>
+                                            }
+                                        </span>
+                                    }
+                                    @if (etape.Duration is { } d && etape.StartedAt is not null)
+                                    {
+                                        <span class="text-[11px] font-mono text-slate-500">@StepExecutor.Formater(d)</span>
+                                    }
+                                </div>
+
+                                @if (etape.State == ExecutionStepState.EnCours && etape.ProgressMessage is { Length: > 0 } avancement)
+                                {
+                                    <div class="text-xs text-sky-300 flex items-start gap-2">
+                                        <span class="inline-block w-3 h-3 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mt-0.5 shrink-0"></span>
+                                        <span>@avancement</span>
+                                    </div>
+                                }
+
+                                @if (etape.Evidence is { Length: > 0 } preuve)
+                                {
+                                    <div class="text-xs text-emerald-300/90 leading-relaxed flex items-start gap-2">
+                                        <i class="bi bi-patch-check-fill mt-0.5 shrink-0"></i>
+                                        <span>@preuve</span>
+                                    </div>
+                                }
+
+                                @if (etape.Error is { Length: > 0 } erreur)
+                                {
+                                    <div class="text-xs text-rose-300 leading-relaxed flex items-start gap-2">
+                                        <i class="bi bi-exclamation-octagon-fill mt-0.5 shrink-0"></i>
+                                        <span>@erreur</span>
+                                    </div>
+                                }
+
+                                @if (etape.SkippedBy is not null)
+                                {
+                                    <div class="text-xs text-amber-300 leading-relaxed">
+                                        <i class="bi bi-skip-forward-fill"></i>
+                                        Contournée par <strong>@etape.SkippedBy</strong> — @etape.SkipReason
+                                    </div>
+                                }
+
+                                @if (etape.State == ExecutionStepState.EnAttente)
+                                {
+                                    <div class="mt-2 p-3.5 rounded-xl bg-violet-500/10 border border-violet-500/25 space-y-2.5">
+                                        <div class="text-xs text-violet-200 leading-relaxed">
+                                            @(etape.Instruction ?? etape.ProgressMessage ?? "Le moteur attend une décision.")
+                                        </div>
+
+                                        <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="operateur">
+                                            @if (etape.Action == StepAction.InterventionManuelle)
+                                            {
+                                                <input class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs"
+                                                       placeholder="Note (facultative) : ce qui a été constaté."
+                                                       @bind="_note" />
+                                                <div class="flex flex-wrap gap-2">
+                                                    <button class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                                                            @onclick="() => Confirmer(etape.Id, true)">
+                                                        <i class="bi bi-check2"></i> C'est fait
+                                                    </button>
+                                                    <button class="px-3 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white font-bold text-xs transition"
+                                                            @onclick="() => Confirmer(etape.Id, false)">
+                                                        <i class="bi bi-x-lg"></i> Impossible à réaliser
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <button class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                                                        @onclick="() => Autoriser(etape.Id)">
+                                                    <i class="bi bi-check2"></i> Autoriser cette étape
+                                                </button>
+                                            }
+                                        </AuthorizeView>
+                                    </div>
+                                }
+
+                                @if (etape.State == ExecutionStepState.Bloque)
+                                {
+                                    <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="decideur">
+                                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                                            <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                                                    @onclick="() => Reessayer(etape.Id)">
+                                                <i class="bi bi-arrow-clockwise"></i> Réessayer
+                                            </button>
+                                            @if (etape.IsSkippable)
+                                            {
+                                                <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
+                                                       placeholder="Justification du contournement" @bind="_justification" />
+                                                <button class="px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs transition"
+                                                        @onclick="() => Contourner(etape.Id)">
+                                                    <i class="bi bi-skip-forward"></i> Contourner
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-[11px] text-slate-500">
+                                                    Étape non contournable : elle ne peut être ignorée par personne.
+                                                </span>
+                                            }
+                                        </div>
+                                    </AuthorizeView>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private WorkflowExecution? _x;
+    private int _termines;
+    private string _note = string.Empty;
+    private string _justification = string.Empty;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    private Timer? _rafraichissement;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Charger();
+
+        // Rafraichissement periodique tant que l'operation vit. Le moteur
+        // notifie aussi, mais l'ecran ne doit pas dependre de cette
+        // notification : une operation N4 dure trop longtemps pour qu'on
+        // accepte un affichage fige sans le savoir.
+        _rafraichissement ??= new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await Charger();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+
+        Moteur.ExecutionChanged += SurChangement;
+    }
+
+    private void SurChangement(Guid executionId)
+    {
+        if (executionId != Id) return;
+        _ = InvokeAsync(async () => { await Charger(); StateHasChanged(); });
+    }
+
+    private async Task Charger()
+    {
+        _x = await Executions.GetAsync(Id);
+        _termines = _x?.Steps.Count(s => s.IsTerminal) ?? 0;
+    }
+
+    private async Task<string> ActeurAsync()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        return etat.User.Identity?.Name ?? "inconnu";
+    }
+
+    private async Task Approuver() => await Executer(async a => await Executions.ApproveAsync(Id, a));
+    private async Task Lancer() => await Executer(async a => await Executions.StartAsync(Id, a));
+    private async Task MettreEnPause() => await Executer(async a => await Executions.RequestPauseAsync(Id, a));
+    private async Task Reprendre() => await Executer(async a => await Executions.ResumeAsync(Id, a));
+    private async Task Annuler() => await Executer(async a => await Executions.RequestCancelAsync(Id, a));
+
+    private async Task Autoriser(Guid stepId) =>
+        await Executer(async a => await Executions.AuthorizeStepAsync(stepId, a));
+
+    private async Task Reessayer(Guid stepId) =>
+        await Executer(async a => await Executions.RetryStepAsync(stepId, a));
+
+    private async Task Confirmer(Guid stepId, bool reussi) =>
+        await Executer(async a => await Executions.ConfirmStepAsync(
+            stepId, a, string.IsNullOrWhiteSpace(_note) ? null : _note.Trim(), reussi));
+
+    private async Task Contourner(Guid stepId) =>
+        await Executer(async a => await Executions.SkipStepAsync(stepId, a, _justification.Trim()));
+
+    private async Task Executer(Func<string, Task<string?>> action)
+    {
+        var acteur = await ActeurAsync();
+        var erreur = await action(acteur);
+
+        _message = erreur;
+        _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+
+        _note = string.Empty;
+        _justification = string.Empty;
+
+        await Charger();
+    }
+
+    private string IssueClasse() => _x!.Status switch
+    {
+        ExecutionStatus.TermineSucces => "bg-emerald-500/10 border-emerald-500/20 text-emerald-200",
+        ExecutionStatus.Echec => "bg-rose-500/10 border-rose-500/20 text-rose-200",
+        ExecutionStatus.ReconciliationRequise => "bg-amber-500/10 border-amber-500/30 text-amber-100",
+        _ => "bg-amber-500/10 border-amber-500/20 text-amber-200"
+    };
+
+    private static string LibelleAction(StepAction a) => a switch
+    {
+        StepAction.Verifier => "Vérifier",
+        StepAction.Demarrer => "Démarrer",
+        StepAction.Arreter => "Arrêter",
+        StepAction.Redemarrer => "Redémarrer",
+        StepAction.InterventionManuelle => "Intervention manuelle",
+        StepAction.Attendre => "Attendre",
+        _ => a.ToString()
+    };
+
+    private static string PastilleEtape(ExecutionStepState s) => s switch
+    {
+        ExecutionStepState.Reussi => "bg-emerald-500/15 text-emerald-400",
+        ExecutionStepState.Avertissement => "bg-amber-500/15 text-amber-400",
+        ExecutionStepState.Echec => "bg-rose-500/15 text-rose-400",
+        ExecutionStepState.EnCours or ExecutionStepState.Verification => "bg-sky-500/15 text-sky-400",
+        ExecutionStepState.EnAttente => "bg-violet-500/15 text-violet-300",
+        ExecutionStepState.Bloque => "bg-rose-500/15 text-rose-300",
+        ExecutionStepState.Ignore => "bg-slate-700/40 text-slate-300",
+        ExecutionStepState.Annule => "bg-slate-800 text-slate-500",
+        _ => "bg-slate-800 text-slate-500"
+    };
+
+    private static string IconeEtape(ExecutionStepState s) => s switch
+    {
+        ExecutionStepState.Reussi => "bi-check-lg",
+        ExecutionStepState.Avertissement => "bi-exclamation-triangle-fill",
+        ExecutionStepState.Echec => "bi-x-lg",
+        ExecutionStepState.EnCours or ExecutionStepState.Verification => "bi-arrow-repeat",
+        ExecutionStepState.EnAttente => "bi-person-raised-hand",
+        ExecutionStepState.Bloque => "bi-pause-fill",
+        ExecutionStepState.Ignore => "bi-skip-forward-fill",
+        ExecutionStepState.Annule => "bi-slash-circle",
+        _ => "bi-circle"
+    };
+
+    public void Dispose()
+    {
+        Moteur.ExecutionChanged -= SurChangement;
+        _rafraichissement?.Dispose();
+    }
+}

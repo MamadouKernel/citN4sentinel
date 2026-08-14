@@ -1,10 +1,12 @@
 @page "/admin/composants/{Id:guid}"
 @using Microsoft.AspNetCore.Authorization
 @using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Orchestration
 @using N4Sentinel.Infrastructure.Referential
 @attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
 @rendermode InteractiveServer
 @inject ReferentialService Referential
+@inject SequenceValidator Validator
 @inject NavigationManager Nav
 
 <PageTitle>@(_c?.LogicalName ?? "Composant") — N4 Sentinel</PageTitle>
@@ -152,6 +154,101 @@ else
             </div>
         </div>
 
+        <!-- Dépendances (FR-002, FR-044) -->
+        <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+            <div class="border-b border-slate-800 pb-3">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-diagram-3-fill text-theme-primary"></i>
+                    Dépendances
+                </h3>
+                <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    Le graphe sert à déterminer l'ordre des séquences et à <strong class="text-slate-400">refuser
+                    celles qui ne peuvent pas aboutir</strong> — démarrer XPS avant que le Bridge soit confirmé
+                    opérationnel, par exemple. Il sert aussi à savoir qui tombe avec ce composant si on l'arrête.
+                </p>
+            </div>
+
+            @if (_erreurDependance is not null)
+            {
+                <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">@_erreurDependance</div>
+            }
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
+                <!-- Ce composant dépend de -->
+                <div class="space-y-2">
+                    <div class="font-semibold text-slate-300">Ce composant a besoin de</div>
+
+                    @if (_dependances.Count == 0)
+                    {
+                        <p class="text-slate-500">Aucune dépendance déclarée.</p>
+                    }
+                    else
+                    {
+                        @foreach (var d in _dependances)
+                        {
+                            <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                                <div>
+                                    <div class="text-white font-semibold">@d.DependsOnComponent?.LogicalName</div>
+                                    <div class="text-[10px] text-slate-500">@LibelleDependance(d.Kind)</div>
+                                </div>
+                                <button class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                                        @onclick="() => SupprimerDependance(d.Id)" title="Supprimer">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        }
+                    }
+
+                    <div class="flex flex-wrap items-center gap-2 pt-2">
+                        <select class="flex-1 min-w-40 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_nouvelleDependance">
+                            <option value="@Guid.Empty">Ajouter un prérequis…</option>
+                            @foreach (var c in _voisins.Where(c => c.Id != Id && _dependances.All(d => d.DependsOnComponentId != c.Id)))
+                            {
+                                <option value="@c.Id">@c.LogicalName</option>
+                            }
+                        </select>
+                        <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_natureDependance">
+                            @foreach (var k in Enum.GetValues<DependencyKind>())
+                            {
+                                <option value="@k">@LibelleDependance(k)</option>
+                            }
+                        </select>
+                        <button class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
+                                disabled="@(_nouvelleDependance == Guid.Empty)" @onclick="AjouterDependance">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Ce qui dépend de lui -->
+                <div class="space-y-2">
+                    <div class="font-semibold text-slate-300">Tomberait avec lui</div>
+
+                    @if (_dependants.Count == 0)
+                    {
+                        <p class="text-slate-500">Aucun composant déclaré dépendant de celui-ci.</p>
+                    }
+                    else
+                    {
+                        <div class="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-1.5">
+                            @foreach (var d in _dependants)
+                            {
+                                <div class="flex items-center gap-2">
+                                    <i class="bi bi-arrow-return-right text-amber-400"></i>
+                                    <span class="text-white font-semibold">@d.Component?.LogicalName</span>
+                                    <span class="text-[10px] text-slate-500">@LibelleDependance(d.Kind)</span>
+                                </div>
+                            }
+                            <p class="text-[11px] text-amber-300/80 pt-1">
+                                Arrêter ce composant rendra ces composants inopérants. Une séquence d'arrêt doit
+                                les traiter en premier.
+                            </p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
         @if (_message is not null)
         {
             <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
@@ -182,6 +279,13 @@ else
         ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
         : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
 
+    private List<ComponentDependency> _dependances = [];
+    private List<ComponentDependency> _dependants = [];
+    private List<N4Component> _voisins = [];
+    private Guid _nouvelleDependance;
+    private DependencyKind _natureDependance = DependencyKind.RequisAuDemarrage;
+    private string? _erreurDependance;
+
     protected override async Task OnParametersSetAsync()
     {
         _c = await Referential.GetComponentAsync(Id);
@@ -189,7 +293,49 @@ else
         _marqueurs = string.Join(Environment.NewLine, _c.Readiness.ReadyPatterns);
         _erreurs = string.Join(Environment.NewLine, _c.Readiness.ErrorPatterns);
         _ignores = string.Join(Environment.NewLine, _c.Readiness.IgnorePatterns);
+
+        await ChargerDependances();
     }
+
+    private async Task ChargerDependances()
+    {
+        if (_c is null) return;
+        _dependances = await Referential.GetDependenciesAsync(Id);
+        _dependants = await Referential.GetDependentsAsync(Id);
+        _voisins = await Referential.GetComponentsAsync(_c.EnvironmentId);
+    }
+
+    private async Task AjouterDependance()
+    {
+        if (_c is null || _nouvelleDependance == Guid.Empty) return;
+        _erreurDependance = null;
+
+        // Le cycle est detecte AVANT enregistrement : mieux vaut le dire au
+        // moment de la saisie qu'un dimanche matin de reprise apres incident,
+        // ou aucun des composants concernes ne pourrait demarrer en premier.
+        var cycle = await Validator.DetectCycleAsync(_c.EnvironmentId, Id, _nouvelleDependance);
+        if (cycle is not null) { _erreurDependance = cycle; return; }
+
+        _erreurDependance = await Referential.AddDependencyAsync(
+            Id, _nouvelleDependance, _natureDependance, null);
+
+        _nouvelleDependance = Guid.Empty;
+        await ChargerDependances();
+    }
+
+    private async Task SupprimerDependance(Guid dependencyId)
+    {
+        await Referential.RemoveDependencyAsync(dependencyId);
+        await ChargerDependances();
+    }
+
+    private static string LibelleDependance(DependencyKind k) => k switch
+    {
+        DependencyKind.RequisAuDemarrage => "Requis au démarrage",
+        DependencyKind.RequisEnFonctionnement => "Requis en fonctionnement",
+        DependencyKind.Informative => "Informative (non bloquante)",
+        _ => k.ToString()
+    };
 
     private async Task Enregistrer()
     {

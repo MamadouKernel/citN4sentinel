@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectivity;
 using N4Sentinel.Infrastructure.Connectors;
+using N4Sentinel.Infrastructure.Orchestration;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Referential;
 using N4Sentinel.Infrastructure.Security;
@@ -103,6 +104,18 @@ public static class DependencyInjection
         services.AddScoped<UndeclaredComponentScanner>();
         services.AddSingleton<SupervisionStateCache>();
         services.AddHostedService<SupervisionBackgroundService>();
+
+        // Orchestration (sprint 4). Le moteur est un SINGLETON : il pilote des
+        // opérations qui durent bien plus longtemps qu'une requête HTTP, et doit
+        // survivre à la fermeture de l'écran qui les a lancées. Il ouvre ses
+        // propres portées pour tout ce qui touche la base.
+        services.AddScoped<WorkflowService>();
+        services.AddScoped<ExecutionService>();
+        services.AddScoped<EnvironmentLockService>();
+        services.AddScoped<SequenceValidator>();
+        services.AddScoped<StepExecutor>();
+        services.AddSingleton<OrchestrationEngine>();
+        services.AddHostedService<OrchestrationBackgroundService>();
 
         return services;
     }

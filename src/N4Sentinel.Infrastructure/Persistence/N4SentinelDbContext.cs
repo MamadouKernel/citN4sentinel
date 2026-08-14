@@ -27,6 +27,11 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<TechnicalCredential> Credentials => Set<TechnicalCredential>();
     public DbSet<Alert> Alerts => Set<Alert>();
+    public DbSet<Workflow> Workflows => Set<Workflow>();
+    public DbSet<WorkflowStep> WorkflowSteps => Set<WorkflowStep>();
+    public DbSet<WorkflowExecution> Executions => Set<WorkflowExecution>();
+    public DbSet<ExecutionStep> ExecutionSteps => Set<ExecutionStep>();
+    public DbSet<EnvironmentLock> EnvironmentLocks => Set<EnvironmentLock>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -245,6 +250,118 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
              .WithMany()
              .HasForeignKey(x => x.ComponentId)
              .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<Workflow>(e =>
+        {
+            e.ToTable("Workflows");
+
+            // Le couple code + version est unique : c'est ce qui permet a
+            // plusieurs versions d'un meme workflow de coexister, l'ancienne
+            // restant rattachee aux executions qu'elle a produites.
+            e.HasIndex(x => new { x.EnvironmentId, x.Code, x.Version }).IsUnique();
+
+            e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsRunnable);
+            e.Ignore(x => x.DisplayName);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<WorkflowStep>(e =>
+        {
+            e.ToTable("WorkflowSteps");
+            e.HasIndex(x => new { x.WorkflowId, x.Order });
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Instruction).HasMaxLength(2000);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Workflow).WithMany(x => x.Steps)
+             .HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+
+            // Supprimer un composant ne doit pas effacer en silence les etapes
+            // qui le visent : l'echec doit etre bruyant.
+            e.HasOne(x => x.Component).WithMany()
+             .HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<WorkflowExecution>(e =>
+        {
+            e.ToTable("Executions");
+            e.HasIndex(x => new { x.EnvironmentId, x.Status });
+            e.HasIndex(x => x.CorrelationId);
+            e.HasIndex(x => x.StartedAt);
+
+            e.Property(x => x.WorkflowName).HasMaxLength(200);
+            e.Property(x => x.EnvironmentCode).HasMaxLength(20);
+            e.Property(x => x.RequestedBy).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(2000);
+            e.Property(x => x.TicketReference).HasMaxLength(100);
+            e.Property(x => x.ExpectedImpact).HasMaxLength(2000);
+            e.Property(x => x.ApprovedBy).HasMaxLength(256);
+            e.Property(x => x.PauseRequestedBy).HasMaxLength(256);
+            e.Property(x => x.CancelRequestedBy).HasMaxLength(256);
+            e.Property(x => x.Outcome).HasMaxLength(2000);
+            e.Property(x => x.CorrelationId).HasMaxLength(40);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsActive);
+            e.Ignore(x => x.IsFinished);
+            e.Ignore(x => x.Duration);
+
+            // Le workflow ne se supprime pas en cascade : l'historique des
+            // executions doit survivre a la suppression du modele.
+            e.HasOne(x => x.Workflow).WithMany()
+             .HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<ExecutionStep>(e =>
+        {
+            e.ToTable("ExecutionSteps");
+            e.HasIndex(x => new { x.ExecutionId, x.Order });
+
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.ComponentName).HasMaxLength(150);
+            e.Property(x => x.HostName).HasMaxLength(255);
+            e.Property(x => x.ProgressMessage).HasMaxLength(1000);
+            e.Property(x => x.Evidence).HasMaxLength(2000);
+            e.Property(x => x.Error).HasMaxLength(2000);
+            e.Property(x => x.SkippedBy).HasMaxLength(256);
+            e.Property(x => x.SkipReason).HasMaxLength(1000);
+            e.Property(x => x.ConfirmedBy).HasMaxLength(256);
+            e.Property(x => x.OperatorNote).HasMaxLength(2000);
+            e.Property(x => x.Instruction).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsTerminal);
+            e.Ignore(x => x.Duration);
+
+            e.HasOne(x => x.Execution).WithMany(x => x.Steps)
+             .HasForeignKey(x => x.ExecutionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<EnvironmentLock>(e =>
+        {
+            e.ToTable("EnvironmentLocks");
+
+            // UN SEUL VERROU PAR ENVIRONNEMENT, garanti par la base et non par
+            // le code applicatif. Deux instances de N4 Sentinel, ou deux
+            // requetes simultanees, ne peuvent pas obtenir le meme verrou : la
+            // seconde insertion echoue sur la contrainte d'unicite.
+            e.HasIndex(x => x.EnvironmentId).IsUnique();
+
+            e.Property(x => x.HeldBy).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.Ignore(x => x.IsExpired);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<ApplicationUser>(e =>

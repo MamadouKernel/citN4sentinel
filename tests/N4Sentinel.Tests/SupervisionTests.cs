@@ -274,5 +274,14 @@ public sealed class SupervisionTests : IAsyncLifetime
 
         public Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(ConnectorTarget target, string logPathOrPattern, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<LogFileInfo>.Ok(new LogFileInfo { Exists = true, Path = logPathOrPattern }, TimeSpan.FromMilliseconds(10)));
+
+        public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
+            ConnectorTarget target, string serviceName, ServiceControlAction action, CancellationToken ct = default)
+        {
+            ServiceStatusToReturn = action == ServiceControlAction.Demarrer ? "Running" : "Stopped";
+            return Task.FromResult(ConnectorResult<ServiceSnapshot>.Ok(
+                new ServiceSnapshot { Name = serviceName, Status = ServiceStatusToReturn },
+                TimeSpan.FromMilliseconds(10)));
+        }
     }
 }

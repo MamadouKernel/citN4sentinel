@@ -3,10 +3,15 @@ namespace N4Sentinel.Infrastructure.Connectors;
 /// <summary>
 /// Acces technique a un serveur de l'ecosysteme N4.
 ///
-/// LECTURE SEULE A CE STADE. Le pilotage - demarrage, arret, redemarrage -
-/// n'est pas expose par cette interface : il viendra avec l'orchestrateur, et
-/// passera par des workflows valides. Aucun ecran ne doit pouvoir arreter un
-/// service en appelant directement un connecteur.
+/// TOUT EST EN LECTURE SEULE SAUF <see cref="ControlServiceAsync"/>, seule
+/// methode mutative de l'interface. Elle emet une commande et rend la main : la
+/// PREUVE que le composant est operationnel n'est pas de son ressort, c'est
+/// celui du moteur d'orchestration, qui la cherche dans le journal applicatif.
+/// Confondre les deux reviendrait a reintroduire ici l'erreur que tout le
+/// projet cherche a corriger.
+///
+/// Aucun ecran n'appelle ControlServiceAsync directement : le pilotage passe
+/// par un workflow valide, tracé, et sous verrou d'environnement.
 ///
 /// Les implementations ne levent pas d'exception sur echec technique : elles
 /// retournent un resultat portant l'echec et sa cause. Un serveur injoignable
@@ -50,6 +55,32 @@ public interface IN4Connector
     /// <summary>Resout un motif de chemin vers le fichier le plus recent.</summary>
     Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(
         ConnectorTarget target, string logPathOrPattern, CancellationToken ct = default);
+
+    /// <summary>
+    /// SEULE OPERATION MUTATIVE DE L'INTERFACE. Demande a Windows de demarrer
+    /// ou d'arreter un service, et retourne l'etat observe juste apres.
+    ///
+    /// Cette methode ne dit PAS que le composant est operationnel : elle dit que
+    /// la commande a ete acceptee. La preuve applicative est cherchee ensuite
+    /// dans le journal par le moteur d'orchestration.
+    /// </summary>
+    Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
+        ConnectorTarget target, string serviceName, ServiceControlAction action,
+        CancellationToken ct = default);
+}
+
+/// <summary>
+/// Commande adressee au gestionnaire de services Windows.
+///
+/// Il n'y a pas de "Redemarrer" ici volontairement : un redemarrage est un arret
+/// dont on prouve l'aboutissement, suivi d'un demarrage dont on prouve
+/// l'aboutissement. Le fondre en une seule commande ferait perdre la preuve
+/// intermediaire, et donc la capacite a dire lequel des deux a echoue.
+/// </summary>
+public enum ServiceControlAction
+{
+    Demarrer = 0,
+    Arreter = 1
 }
 
 /// <summary>Serveur cible et mode d'acces.</summary>

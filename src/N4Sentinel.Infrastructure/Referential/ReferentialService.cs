@@ -116,6 +116,75 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
     }
 
     // -----------------------------------------------------------------------
+    // Dependances (FR-002, FR-044)
+    // -----------------------------------------------------------------------
+    /// <summary>Dependances declarees par ce composant : ce dont il a besoin.</summary>
+    public async Task<List<ComponentDependency>> GetDependenciesAsync(
+        Guid componentId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.ComponentDependencies
+            .AsNoTracking()
+            .Include(d => d.DependsOnComponent)
+            .Where(d => d.ComponentId == componentId)
+            .OrderBy(d => d.Kind)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Composants qui dependent de celui-ci. C'est la question a laquelle il
+    /// faut repondre AVANT d'arreter quoi que ce soit : qui va tomber avec lui.
+    /// </summary>
+    public async Task<List<ComponentDependency>> GetDependentsAsync(
+        Guid componentId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.ComponentDependencies
+            .AsNoTracking()
+            .Include(d => d.Component)
+            .Where(d => d.DependsOnComponentId == componentId)
+            .OrderBy(d => d.Kind)
+            .ToListAsync(ct);
+    }
+
+    public async Task<string?> AddDependencyAsync(
+        Guid componentId, Guid dependsOnId, DependencyKind kind, string? notes,
+        CancellationToken ct = default)
+    {
+        if (componentId == dependsOnId)
+            return "Un composant ne peut pas dependre de lui-meme.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var doublon = await db.ComponentDependencies.AnyAsync(
+            d => d.ComponentId == componentId && d.DependsOnComponentId == dependsOnId, ct);
+
+        if (doublon) return "Cette dependance est deja declaree.";
+
+        db.ComponentDependencies.Add(new ComponentDependency
+        {
+            ComponentId = componentId,
+            DependsOnComponentId = dependsOnId,
+            Kind = kind,
+            Notes = notes
+        });
+
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    public async Task RemoveDependencyAsync(Guid dependencyId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var dependance = await db.ComponentDependencies.FirstOrDefaultAsync(d => d.Id == dependencyId, ct);
+        if (dependance is null) return;
+
+        db.ComponentDependencies.Remove(dependance);
+        await db.SaveChangesAsync(ct);
+    }
+
+    // -----------------------------------------------------------------------
     // Ecriture
     // -----------------------------------------------------------------------
     // NOTE IMPORTANTE SUR LA MISE A JOUR

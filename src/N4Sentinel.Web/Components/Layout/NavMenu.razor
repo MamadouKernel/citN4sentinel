@@ -6,79 +6,169 @@
 @inject NavigationManager NavigationManager
 @inject CurrentEnvironmentState EnvState
 
-<div class="w-full px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
-    <!-- Left Section: Brand Logo & Title -->
-    <div class="flex items-center gap-3 shrink-0">
+<div class="w-full px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-4">
+    <!-- Left Section: Brand Logo & Environment Badge -->
+    <div class="flex items-center gap-4 shrink-0">
         <a href="" class="flex items-center gap-3 group">
-            <div class="w-10 h-10 rounded-2xl bg-theme-gradient text-white flex items-center justify-center shadow-lg glow-theme text-lg font-bold group-hover:scale-105 transition-transform">
+            <div class="w-9 h-9 rounded-xl bg-theme-gradient text-white flex items-center justify-center shadow-lg glow-theme text-base font-extrabold group-hover:scale-105 transition-transform duration-200">
                 <i class="bi bi-shield-check"></i>
             </div>
             <div class="hidden sm:block">
-                <h2 class="text-base font-black text-white tracking-tight leading-none mb-0.5">N4 Sentinel</h2>
-                <span class="text-[11px] text-slate-400 font-medium">CIT Supervision N4</span>
+                <h2 class="text-sm font-black text-white tracking-tight leading-none mb-0.5">N4 Sentinel</h2>
+                <span class="text-[10px] text-slate-400 font-medium">CIT Supervision N4</span>
             </div>
         </a>
 
         <!-- Environment Badge Indicator -->
-        <div class="hidden md:flex items-center pl-2 border-l border-slate-800">
+        <div class="hidden md:flex items-center pl-3 border-l border-slate-800/60">
             @if (EnvState.Current is { } env)
             {
                 @if (env.IsProduction)
                 {
-                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-500/15 text-rose-300 border border-rose-500/40 shadow-sm"
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-rose-500/10 text-rose-300 border border-rose-500/30 shadow-sm"
                           title="Vous travaillez sur la Production. Toute action mutative y a un impact immédiat.">
-                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <i class="bi bi-exclamation-triangle-fill text-rose-400"></i>
                         <span>PROD &middot; @env.Code</span>
                     </span>
                 }
                 else
                 {
-                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/10 text-sky-300 border border-sky-500/25 shadow-sm"
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-sky-500/10 text-sky-300 border border-sky-500/20 shadow-sm"
                           title="@env.Name">
-                        <i class="bi bi-hdd-stack"></i>
+                        <i class="bi bi-hdd-stack text-sky-400"></i>
                         <span>@env.Kind &middot; @env.Code</span>
                     </span>
                 }
             }
             else
             {
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-900 text-slate-400 border border-slate-800">
-                    <i class="bi bi-dash-circle"></i>
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-slate-900/60 text-slate-400 border border-slate-800/60">
+                    <i class="bi bi-dash-circle text-slate-500"></i>
                     <span>Aucun env.</span>
                 </span>
             }
         </div>
     </div>
 
-    <!-- Center Section: Horizontal Navigation Links (Desktop) -->
-    <nav class="hidden lg:flex items-center gap-1.5 font-semibold text-xs">
-        <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="" Match="NavLinkMatch.All">
-            <i class="bi bi-grid-1x2-fill text-theme-primary text-sm"></i>
-            <span>Tableau de bord</span>
-        </NavLink>
+    <!-- Center Section: Horizontal Soft Dropdown Navigation Menus (Desktop) -->
+    <nav class="hidden lg:flex items-center gap-2.5 font-bold text-xs">
+        
+        <!-- DROPDOWN GROUP 1: SUPERVISION & VUE GÉNÉRALE -->
+        <div class="relative group">
+            <button class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 focus:outline-none shadow-sm">
+                <i class="bi bi-activity text-theme-primary"></i>
+                <span>Supervision &amp; Vue Générales</span>
+                <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
+            </button>
 
-        <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="supervision">
-            <i class="bi bi-activity text-theme-primary text-sm"></i>
-            <span>Supervision Temps Réel</span>
-        </NavLink>
+            <!-- Dropdown Menu Box -->
+            <div class="absolute left-0 top-full pt-2 hidden group-hover:block z-50 min-w-[260px] animate-fadeIn">
+                <div class="p-2 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1">
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="" Match="NavLinkMatch.All">
+                        <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-grid-1x2-fill"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Tableau de bord</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Synthèse opérationnelle N4</div>
+                        </div>
+                    </NavLink>
 
-        <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="alertes">
-            <i class="bi bi-bell-fill text-amber-400 text-sm"></i>
-            <span>Alertes</span>
-        </NavLink>
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="supervision">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-activity"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Supervision Temps Réel</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Cartographie et états des nœuds</div>
+                        </div>
+                    </NavLink>
 
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="alertes">
+                        <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-bell-fill"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Centre d'Alertes</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Incidents et seuils de santé</div>
+                        </div>
+                    </NavLink>
+                </div>
+            </div>
+        </div>
+
+        <!-- DROPDOWN GROUP 2: RÉFERENTIEL & EXPLOITATION -->
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
-            <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="admin/environnements">
-                <i class="bi bi-hdd-stack-fill text-theme-primary text-sm"></i>
-                <span>Environnements</span>
-            </NavLink>
+            <div class="relative group">
+                <button class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 focus:outline-none shadow-sm">
+                    <i class="bi bi-hdd-stack-fill text-theme-primary"></i>
+                    <span>Référentiel &amp; Exploitation</span>
+                    <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
+                </button>
+
+                <!-- Dropdown Menu Box -->
+                <div class="absolute left-0 top-full pt-2 hidden group-hover:block z-50 min-w-[260px] animate-fadeIn">
+                    <div class="p-2 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1">
+                        <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/environnements">
+                            <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
+                                <i class="bi bi-hdd-stack-fill"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">Environnements</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Serveurs et composants N4</div>
+                            </div>
+                        </NavLink>
+
+                        <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="operations">
+                            <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+                                <i class="bi bi-play-circle-fill"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">Opérations &amp; Pilotage</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Démarrage, arrêt et redémarrages</div>
+                            </div>
+                        </NavLink>
+
+                        <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="authCtx">
+                            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/workflows">
+                                <div class="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
+                                    <i class="bi bi-diagram-3-fill"></i>
+                                </div>
+                                <div>
+                                    <div class="font-bold text-white text-xs">Workflows &amp; Procédures</div>
+                                    <div class="text-[10px] text-slate-400 font-normal">Séquences de démarrage automatisées</div>
+                                </div>
+                            </NavLink>
+                        </AuthorizeView>
+                    </div>
+                </div>
+            </div>
         </AuthorizeView>
 
+        <!-- DROPDOWN GROUP 3: SÉCURITÉ & AUDIT -->
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
-            <NavLink class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition nav-item-link" href="admin/audit">
-                <i class="bi bi-journal-text text-theme-primary text-sm"></i>
-                <span>Journal d'audit</span>
-            </NavLink>
+            <div class="relative group">
+                <button class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 focus:outline-none shadow-sm">
+                    <i class="bi bi-shield-lock-fill text-theme-primary"></i>
+                    <span>Sécurité &amp; Audit</span>
+                    <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
+                </button>
+
+                <!-- Dropdown Menu Box -->
+                <div class="absolute left-0 top-full pt-2 hidden group-hover:block z-50 min-w-[260px] animate-fadeIn">
+                    <div class="p-2 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1">
+                        <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/audit">
+                            <div class="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center shrink-0">
+                                <i class="bi bi-journal-text"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">Journal d'audit</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Traçabilité SEC-008 &amp; Preuves</div>
+                            </div>
+                        </NavLink>
+                    </div>
+                </div>
+            </div>
         </AuthorizeView>
     </nav>
 
@@ -90,78 +180,101 @@
         <!-- User Authentication Control -->
         <AuthorizeView>
             <Authorized>
-                <div class="hidden sm:flex items-center gap-2.5 pl-3 border-l border-slate-800">
-                    <div class="w-8 h-8 rounded-xl bg-theme-gradient text-white flex items-center justify-center font-bold text-xs shadow-md glow-theme">
-                        @(context.User.Identity?.Name?.Substring(0, 1).ToUpper() ?? "U")
-                    </div>
-                    <div class="hidden xl:block text-left">
-                        <div class="text-xs font-bold text-white leading-none">@context.User.Identity?.Name</div>
-                        <div class="text-[10px] text-emerald-400 font-medium flex items-center gap-1 mt-0.5">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Connecté
+                <div class="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-800/60">
+                    <div class="flex items-center gap-2.5 px-3 py-1 rounded-full bg-slate-900/60 border border-slate-800/60">
+                        <div class="w-7 h-7 rounded-full bg-theme-gradient text-white flex items-center justify-center font-extrabold text-xs shadow-md glow-theme">
+                            @(context.User.Identity?.Name?.Substring(0, 1).ToUpper() ?? "U")
                         </div>
+                        <div class="hidden xl:block text-left">
+                            <div class="text-xs font-bold text-white leading-none">@context.User.Identity?.Name</div>
+                            <div class="text-[9px] text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Connecté
+                            </div>
+                        </div>
+                        <a href="Account/Manage" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors" title="Gérer le profil">
+                            <i class="bi bi-gear-fill text-xs"></i>
+                        </a>
+                        <form action="Account/Logout" method="post" class="inline">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                            <button type="submit" class="p-1 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors" title="Se déconnecter">
+                                <i class="bi bi-box-arrow-right text-xs"></i>
+                            </button>
+                        </form>
                     </div>
-                    <a href="Account/Manage" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition" title="Gérer le profil">
-                        <i class="bi bi-gear-fill text-sm"></i>
-                    </a>
-                    <form action="Account/Logout" method="post" class="inline">
-                        <AntiforgeryToken />
-                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
-                        <button type="submit" class="p-2 rounded-xl text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition" title="Se déconnecter">
-                            <i class="bi bi-box-arrow-right text-sm"></i>
-                        </button>
-                    </form>
                 </div>
             </Authorized>
             <NotAuthorized>
-                <a href="Account/Login" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-theme-gradient text-white font-bold text-xs shadow-lg glow-theme transition">
+                <a href="Account/Login" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-theme-gradient text-white font-bold text-xs shadow-lg glow-theme transition">
                     <i class="bi bi-box-arrow-in-right"></i> Connexion
                 </a>
             </NotAuthorized>
         </AuthorizeView>
 
         <!-- Mobile Hamburger Toggle Button -->
-        <button @onclick="ToggleMobileMenu" class="lg:hidden p-2 rounded-xl text-slate-300 hover:text-white bg-slate-900 border border-slate-800 transition">
-            <i class="bi @_mobileIcon text-lg"></i>
+        <button @onclick="ToggleMobileMenu" class="lg:hidden p-2 rounded-xl text-slate-300 hover:text-white bg-slate-900/80 border border-slate-800 transition-colors">
+            <i class="bi @_mobileIcon text-base"></i>
         </button>
     </div>
 </div>
 
-<!-- Mobile Drawer Dropdown Menu -->
+<!-- Mobile Drawer Categorized Accordion Dropdown -->
 @if (_mobileMenuOpen)
 {
-    <div class="lg:hidden px-4 py-3 bg-slate-950/95 border-b border-slate-800 space-y-2 text-xs font-bold animate-fadeIn">
-        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="" Match="NavLinkMatch.All" @onclick="CloseMobileMenu">
-            <i class="bi bi-grid-1x2-fill text-theme-primary text-base"></i>
-            <span>Tableau de bord</span>
-        </NavLink>
+    <div class="lg:hidden px-4 py-3 bg-slate-950/95 border-b border-slate-800 space-y-4 text-xs font-bold animate-fadeIn">
+        <!-- Group 1 -->
+        <div class="space-y-1">
+            <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Supervision &amp; Vue Générales</div>
+            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="" Match="NavLinkMatch.All" @onclick="CloseMobileMenu">
+                <i class="bi bi-grid-1x2-fill text-theme-primary text-base"></i>
+                <span>Tableau de bord</span>
+            </NavLink>
+            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="supervision" @onclick="CloseMobileMenu">
+                <i class="bi bi-activity text-theme-primary text-base"></i>
+                <span>Supervision Temps Réel</span>
+            </NavLink>
+            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="alertes" @onclick="CloseMobileMenu">
+                <i class="bi bi-bell-fill text-amber-400 text-base"></i>
+                <span>Centre d'Alertes</span>
+            </NavLink>
+        </div>
 
-        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="supervision" @onclick="CloseMobileMenu">
-            <i class="bi bi-activity text-theme-primary text-base"></i>
-            <span>Supervision Temps Réel</span>
-        </NavLink>
-
-        <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="alertes" @onclick="CloseMobileMenu">
-            <i class="bi bi-bell-fill text-amber-400 text-base"></i>
-            <span>Alertes</span>
-        </NavLink>
-
+        <!-- Group 2 -->
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
-            <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="admin/environnements" @onclick="CloseMobileMenu">
-                <i class="bi bi-hdd-stack-fill text-theme-primary text-base"></i>
-                <span>Environnements</span>
-            </NavLink>
+            <div class="space-y-1 pt-2 border-t border-slate-900">
+                <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Référentiel &amp; Exploitation</div>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/environnements" @onclick="CloseMobileMenu">
+                    <i class="bi bi-hdd-stack-fill text-theme-primary text-base"></i>
+                    <span>Environnements</span>
+                </NavLink>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="operations" @onclick="CloseMobileMenu">
+                    <i class="bi bi-play-circle-fill text-theme-primary text-base"></i>
+                    <span>Opérations</span>
+                </NavLink>
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="mobileAuthCtx">
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/workflows" @onclick="CloseMobileMenu">
+                        <i class="bi bi-diagram-3-fill text-theme-primary text-base"></i>
+                        <span>Workflows</span>
+                    </NavLink>
+                </AuthorizeView>
+            </div>
         </AuthorizeView>
 
+        <!-- Group 3 -->
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
-            <NavLink class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition" href="admin/audit" @onclick="CloseMobileMenu">
-                <i class="bi bi-journal-text text-theme-primary text-base"></i>
-                <span>Journal d'audit</span>
-            </NavLink>
+            <div class="space-y-1 pt-2 border-t border-slate-900">
+                <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Sécurité &amp; Audit</div>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/audit" @onclick="CloseMobileMenu">
+                    <i class="bi bi-journal-text text-theme-primary text-base"></i>
+                    <span>Journal d'audit</span>
+                </NavLink>
+            </div>
         </AuthorizeView>
 
+        <!-- Profile / Logout -->
         <AuthorizeView>
             <Authorized>
-                <div class="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                <div class="pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
                     <a href="Account/Manage" class="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-bold" @onclick="CloseMobileMenu">
                         <i class="bi bi-gear-fill"></i> Mon Profil
                     </a>
