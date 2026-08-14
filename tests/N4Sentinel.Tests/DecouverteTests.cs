@@ -257,6 +257,15 @@ public sealed class DecouverteTests : IAsyncLifetime
         public Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<LogFileInfo>.Ok(new LogFileInfo { Exists = false }, TimeSpan.Zero));
 
+        public Task<ConnectorResult<LiveMetrics>> GetLiveMetricsAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<LiveMetrics>.Ok(new LiveMetrics { HostName = t.HostName }, TimeSpan.Zero));
+
+        public Task<ConnectorResult<TimeSyncSnapshot>> GetTimeSyncAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<TimeSyncSnapshot>.Ok(new TimeSyncSnapshot { HostName = t.HostName }, TimeSpan.Zero));
+
+        public Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<UpdateSnapshot>.Ok(new UpdateSnapshot { HostName = t.HostName }, TimeSpan.Zero));
+
         public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
             ConnectorTarget t, string n, ServiceControlAction a, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<ServiceSnapshot>.Ok(

@@ -65,6 +65,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.TechnicalOwner).HasMaxLength(150);
             e.Property(x => x.FunctionalOwner).HasMaxLength(150);
             e.Property(x => x.DefaultCredentialReference).HasMaxLength(200);
+            e.Property(x => x.ExpectedTimeSource).HasMaxLength(200);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.IsProduction);
             e.Ignore(x => x.IsOperable);

@@ -53,6 +53,26 @@ public class N4Environment : AuditableEntity
     public string? DefaultCredentialReference { get; set; }
 
     /// <summary>
+    /// Source de temps attendue sur les serveurs de cet environnement : nom du
+    /// contrôleur de domaine, ou fragment reconnaissable (ex. « cit.local »).
+    ///
+    /// Renseignee, elle permet de repondre OK/KO a la question « ce serveur
+    /// est-il synchronise sur l'horloge du domaine ». Vide, l'application sait
+    /// encore detecter les cas franchement anormaux - horloge locale, service
+    /// arrete, synchronisation desactivee - mais ne peut pas confirmer que la
+    /// source EST celle du domaine : elle repondra « a confirmer » plutot que
+    /// d'affirmer une conformite qu'elle n'a pas verifiee.
+    /// </summary>
+    public string? ExpectedTimeSource { get; set; }
+
+    /// <summary>
+    /// Ecart d'horloge tolere, en secondes. Au-dela, le serveur est declare non
+    /// conforme. Cinq secondes par defaut : c'est le seuil au-dela duquel N4
+    /// commence a produire des statuts DISCONNECTED trompeurs.
+    /// </summary>
+    public int ClockToleranceSeconds { get; set; } = 5;
+
+    /// <summary>
     /// Vrai pour l'environnement de Production. Declenche l'affichage
     /// permanent de l'indicateur de Production et les regles renforcees :
     /// motif obligatoire, approbation prealable, double validation.

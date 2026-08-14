@@ -372,6 +372,289 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         return ConnectorResult<LogDelta>.Ok(delta, result.Duration);
     }
 
+    public async Task<ConnectorResult<LiveMetrics>> GetLiveMetricsAsync(
+        ConnectorTarget target, CancellationToken ct = default)
+    {
+        // AUCUN COMPTEUR NOMME. Get-Counter attend des noms traduits selon la
+        // langue du serveur - "\Processor(_Total)\% Processor Time" devient
+        // "\Processeur(_Total)\% temps processeur" sur une installation
+        // francaise, et le releve echoue sans rien dire d'utile. Les classes
+        // Win32_PerfFormattedData portent les memes valeurs sous des noms de
+        // propriete qui, eux, ne sont jamais traduits.
+        const string script = """
+            $os = Get-CimInstance Win32_OperatingSystem
+
+            $cpu = $null; $file = $null; $queue = $null
+            try {
+                $p = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" -ErrorAction Stop
+                if ($p) { $cpu = [double]$p.PercentProcessorTime }
+            } catch {
+                try {
+                    $cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+                } catch { }
+            }
+
+            try {
+                $sys = Get-CimInstance Win32_PerfFormattedData_PerfOS_System -ErrorAction SilentlyContinue
+                if ($sys) { $queue = [double]$sys.ProcessorQueueLength }
+            } catch { }
+
+            try {
+                $pf = Get-CimInstance Win32_PerfFormattedData_PerfOS_PagingFile -Filter "Name='_Total'" -ErrorAction SilentlyContinue
+                if ($pf) { $file = [double]$pf.PercentUsage }
+            } catch { }
+
+            $coeurs = $null
+            try { $coeurs = (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors } catch { }
+
+            $disques = @()
+            foreach ($d in (Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3")) {
+                $disques += [PSCustomObject]@{ Drive = $d.DeviceID; Total = $d.Size; Free = $d.FreeSpace }
+            }
+
+            [PSCustomObject]@{
+                HostName = $env:COMPUTERNAME
+                Cpu = $cpu
+                Coeurs = $coeurs
+                File = $queue
+                TotalMemory = ($os.TotalVisibleMemorySize * 1KB)
+                FreeMemory = ($os.FreePhysicalMemory * 1KB)
+                PageFile = $file
+                SystemTime = (Get-Date)
+                LastBoot = $os.LastBootUpTime
+                Disks = $disques
+            }
+            """;
+
+        var reference = DateTimeOffset.UtcNow;
+        var result = await ExecuteAsync(target, script, null, ct);
+
+        if (!result.Succeeded)
+            return ConnectorResult<LiveMetrics>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<LiveMetrics>.Fail(
+                ConnectorFailure.ErreurDistante, "Aucune metrique retournee.", result.Duration);
+
+        var systemTime = GetNullableDate(o, "SystemTime");
+
+        // Meme correction que pour GetSystemAsync : sans deduction de l'aller-
+        // retour, une liaison lente ferait apparaitre un ecart qui n'existe pas.
+        double? skew = null;
+        if (systemTime.HasValue)
+        {
+            var attendu = reference.Add(result.Duration / 2);
+            skew = Math.Round((systemTime.Value.ToUniversalTime() - attendu.ToUniversalTime()).TotalSeconds, 2);
+        }
+
+        var disks = new List<DiskSnapshot>();
+        if (o.Properties["Disks"]?.Value is IEnumerable<object> bruts)
+        {
+            foreach (var d in bruts)
+            {
+                var pso = d as PSObject ?? PSObject.AsPSObject(d);
+                var drive = Get<string>(pso, "Drive");
+                if (drive is null) continue;
+                disks.Add(new DiskSnapshot
+                {
+                    Drive = drive,
+                    TotalBytes = GetNullableLong(pso, "Total") ?? 0,
+                    FreeBytes = GetNullableLong(pso, "Free") ?? 0
+                });
+            }
+        }
+
+        return ConnectorResult<LiveMetrics>.Ok(new LiveMetrics
+        {
+            HostName = Get<string>(o, "HostName") ?? target.HostName,
+            CpuPercent = GetNullableDouble(o, "Cpu"),
+            LogicalProcessors = GetNullableInt(o, "Coeurs"),
+            ProcessorQueueLength = GetNullableDouble(o, "File"),
+            TotalMemoryBytes = GetNullableLong(o, "TotalMemory"),
+            FreeMemoryBytes = GetNullableLong(o, "FreeMemory"),
+            PageFilePercent = GetNullableDouble(o, "PageFile"),
+            SystemTime = systemTime,
+            LastBootTime = GetNullableDate(o, "LastBoot"),
+            ClockSkewSeconds = skew,
+            Disks = disks
+        }, result.Duration);
+    }
+
+    public async Task<ConnectorResult<TimeSyncSnapshot>> GetTimeSyncAsync(
+        ConnectorTarget target, CancellationToken ct = default)
+    {
+        // Le mode et les pairs sont lus AU REGISTRE : ces valeurs (NT5DS, NTP,
+        // NoSync) ne sont jamais traduites, contrairement au texte de
+        // "w32tm /query /status" qui l'est integralement. La source effective
+        // vient de "w32tm /query /source", dont la sortie est courte et dont on
+        // se contente de reproduire le texte sans l'interpreter ici.
+        const string script = """
+            $svc = Get-Service -Name W32Time -ErrorAction SilentlyContinue
+            $statut = if ($svc) { [string]$svc.Status } else { 'Introuvable' }
+
+            $type = $null; $pairs = $null
+            try {
+                $cle = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters'
+                $p = Get-ItemProperty -Path $cle -ErrorAction Stop
+                $type = $p.Type
+                $pairs = $p.NtpServer
+            } catch { }
+
+            $source = $null
+            try {
+                $brut = & w32tm /query /source 2>$null
+                if ($LASTEXITCODE -eq 0 -and $brut) { $source = ($brut | Select-Object -First 1).Trim() }
+            } catch { }
+
+            $derniere = $null
+            try {
+                $cleEtat = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Config'
+                $e = Get-ItemProperty -Path $cleEtat -ErrorAction SilentlyContinue
+                if ($e -and $e.LastKnownGoodTime) { $derniere = $e.LastKnownGoodTime }
+            } catch { }
+
+            $cs = Get-CimInstance Win32_ComputerSystem
+
+            [PSCustomObject]@{
+                HostName = $env:COMPUTERNAME
+                Statut = $statut
+                Type = $type
+                Pairs = $pairs
+                Source = $source
+                Derniere = $derniere
+                DansDomaine = [bool]$cs.PartOfDomain
+                Domaine = $cs.Domain
+            }
+            """;
+
+        var result = await ExecuteAsync(target, script, null, ct);
+
+        if (!result.Succeeded)
+            return ConnectorResult<TimeSyncSnapshot>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<TimeSyncSnapshot>.Fail(
+                ConnectorFailure.ErreurDistante, "Aucun etat de synchronisation retourne.", result.Duration);
+
+        return ConnectorResult<TimeSyncSnapshot>.Ok(new TimeSyncSnapshot
+        {
+            HostName = Get<string>(o, "HostName") ?? target.HostName,
+            ServiceStatus = Get<string>(o, "Statut") ?? "Inconnu",
+            SyncType = Get<string>(o, "Type"),
+            ConfiguredPeers = Get<string>(o, "Pairs"),
+            ActualSource = Get<string>(o, "Source"),
+            LastSyncTime = GetNullableDate(o, "Derniere"),
+            IsDomainMember = GetNullableBool(o, "DansDomaine") ?? false,
+            DomainName = Get<string>(o, "Domaine")
+        }, result.Duration);
+    }
+
+    public async Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(
+        ConnectorTarget target, CancellationToken ct = default)
+    {
+        // LENTE PAR NATURE. L'agent Windows Update interroge WSUS ou le service
+        // en ligne. On lui laisse un delai large, tres au-dela de celui des
+        // autres appels, et l'appelant sait qu'il ne doit pas la repeter.
+        //
+        // L'objet COM Microsoft.Update.Session ne franchit pas toujours une
+        // session WinRM - restriction dite du double saut. L'echec est donc
+        // traite comme un cas normal, avec un message qui dit quoi faire,
+        // plutot que comme une panne.
+        const string script = """
+            $redemarrage = $false
+            foreach ($c in @(
+                'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
+                'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending')) {
+                if (Test-Path $c) { $redemarrage = $true }
+            }
+
+            $derniere = $null
+            try {
+                $auto = New-Object -ComObject Microsoft.Update.AutoUpdate
+                if ($auto.Results -and $auto.Results.LastInstallationSuccessDate) {
+                    $derniere = $auto.Results.LastInstallationSuccessDate
+                }
+            } catch { }
+
+            try {
+                $session = New-Object -ComObject Microsoft.Update.Session
+                $chercheur = $session.CreateUpdateSearcher()
+                $resultat = $chercheur.Search("IsInstalled=0 and IsHidden=0")
+
+                $total = $resultat.Updates.Count
+                $securite = 0; $critiques = 0; $titres = @()
+
+                for ($i = 0; $i -lt $total; $i++) {
+                    $u = $resultat.Updates.Item($i)
+                    foreach ($cat in $u.Categories) {
+                        if ($cat.Name -match 'Securit|Security') { $securite++; break }
+                    }
+                    if ($u.MsrcSeverity -eq 'Critical') { $critiques++ }
+                    if ($titres.Count -lt 5) { $titres += $u.Title }
+                }
+
+                [PSCustomObject]@{
+                    HostName = $env:COMPUTERNAME; Total = $total; Securite = $securite
+                    Critiques = $critiques; Redemarrage = $redemarrage; Titres = $titres
+                    Derniere = $derniere; Erreur = $null
+                }
+            } catch {
+                [PSCustomObject]@{
+                    HostName = $env:COMPUTERNAME; Total = -1; Securite = 0; Critiques = 0
+                    Redemarrage = $redemarrage; Titres = @(); Derniere = $derniere
+                    Erreur = $_.Exception.Message
+                }
+            }
+            """;
+
+        // Cible temporaire au delai elargi : la recherche depasse largement les
+        // trente secondes habituelles.
+        var cibleLente = target with { Timeout = TimeSpan.FromMinutes(3) };
+
+        var result = await ExecuteAsync(cibleLente, script, null, ct);
+
+        if (!result.Succeeded)
+            return ConnectorResult<UpdateSnapshot>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<UpdateSnapshot>.Fail(
+                ConnectorFailure.ErreurDistante, "Aucune reponse de l'agent Windows Update.", result.Duration);
+
+        var total = GetNullableInt(o, "Total") ?? -1;
+
+        if (total < 0)
+        {
+            var detail = Get<string>(o, "Erreur");
+            return ConnectorResult<UpdateSnapshot>.Fail(
+                ConnectorFailure.AccesRefuse,
+                "L'agent Windows Update n'a pas pu etre interroge a distance. "
+                + "L'objet COM Microsoft.Update.Session ne franchit pas une session WinRM sans "
+                + "delegation configuree (restriction du double saut). "
+                + "Executez le releve depuis le serveur lui-meme, ou configurez CredSSP. "
+                + (detail is null ? string.Empty : $"Detail : {detail}"),
+                result.Duration);
+        }
+
+        var titres = new List<string>();
+        if (o.Properties["Titres"]?.Value is IEnumerable<object> bruts)
+            foreach (var t in bruts)
+                if (t?.ToString() is { Length: > 0 } titre) titres.Add(titre);
+
+        return ConnectorResult<UpdateSnapshot>.Ok(new UpdateSnapshot
+        {
+            HostName = Get<string>(o, "HostName") ?? target.HostName,
+            PendingCount = total,
+            SecurityCount = GetNullableInt(o, "Securite") ?? 0,
+            CriticalCount = GetNullableInt(o, "Critiques") ?? 0,
+            RebootPending = GetNullableBool(o, "Redemarrage") ?? false,
+            LastInstallationDate = GetNullableDate(o, "Derniere"),
+            Sample = titres
+        }, result.Duration);
+    }
+
     public async Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
         ConnectorTarget target, string serviceName, ServiceControlAction action,
         CancellationToken ct = default)

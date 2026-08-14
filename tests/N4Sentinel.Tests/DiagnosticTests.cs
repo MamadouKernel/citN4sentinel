@@ -536,5 +536,14 @@ public sealed class DiagnosticTests : IAsyncLifetime
 
         public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(ConnectorTarget t, string n, ServiceControlAction a, CancellationToken ct = default) =>
             Task.FromResult(Injoignable<ServiceSnapshot>());
+
+        public Task<ConnectorResult<LiveMetrics>> GetLiveMetricsAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<LiveMetrics>());
+
+        public Task<ConnectorResult<TimeSyncSnapshot>> GetTimeSyncAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<TimeSyncSnapshot>());
+
+        public Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<UpdateSnapshot>());
     }
 }

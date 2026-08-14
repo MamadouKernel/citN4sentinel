@@ -1,0 +1,515 @@
+@page "/vitalite"
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Connectors
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject NodeVitalsService Vitals
+@inject ReferentialService Referential
+
+<PageTitle>Vitalité des nœuds — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Vitalité des nœuds</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Processeur, mémoire, disques et synchronisation horaire sont relevés
+                <strong class="text-white">en continu</strong>.
+                Les mises à jour Windows, non : leur relevé prend de trente secondes à deux minutes par
+                serveur, elles portent donc toujours l'âge de la mesure.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Redemarrer">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <label class="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer whitespace-nowrap">
+                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_actif" @bind:after="Redemarrer" />
+                <span>Temps réel</span>
+            </label>
+        </div>
+    </div>
+
+    @if (_envId == Guid.Empty)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            Choisissez un environnement pour voir l'état de ses serveurs.
+        </div>
+    }
+    else
+    {
+        <!-- Bandeau d'état du relevé -->
+        <div class="flex items-center justify-between flex-wrap gap-3 px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+            <div class="flex items-center gap-2">
+                @if (_actif)
+                {
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="text-slate-300">
+                        Relevé toutes les @(Cadence.TotalSeconds.ToString("0")) s
+                    </span>
+                }
+                else
+                {
+                    <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+                    <span class="text-slate-400">Relevé en pause</span>
+                }
+                @if (_dernier is not null)
+                {
+                    <span class="text-slate-500">
+                        &middot; dernière mesure à @_dernier.Value.ToLocalTime().ToString("HH:mm:ss")
+                        @if (_dureeReleve is { } d)
+                        {
+                            <text> (@d.TotalMilliseconds.ToString("0") ms)</text>
+                        }
+                    </span>
+                }
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
+                        disabled="@_enCours" @onclick="Relever">
+                    <i class="bi bi-arrow-clockwise"></i> Relever maintenant
+                </button>
+                <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer">
+                    <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
+                            disabled="@_misesAJourEnCours" @onclick="ReleverMisesAJour"
+                            title="Interroge l'agent Windows Update sur chaque serveur. Opération lente.">
+                        <i class="bi bi-windows"></i>
+                        @(_misesAJourEnCours ? "Interrogation…" : "Relever les mises à jour")
+                    </button>
+                </AuthorizeView>
+            </div>
+        </div>
+
+        @if (_misesAJourEnCours)
+        {
+            <div class="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs">
+                Interrogation de l'agent Windows Update sur @_noeuds.Count serveur(s).
+                Comptez de trente secondes à deux minutes par serveur — l'agent interroge WSUS ou le service
+                en ligne. Les métriques continuent de se rafraîchir pendant ce temps.
+            </div>
+        }
+
+        @if (_noeuds.Count == 0)
+        {
+            <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+                Aucun serveur déclaré dans cet environnement.
+            </div>
+        }
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            @foreach (var n in _noeuds)
+            {
+                <div class="glass-card rounded-2xl border @(n.Reachable ? "border-slate-800" : "border-rose-500/40") overflow-hidden">
+
+                    <!-- En-tête du serveur -->
+                    <div class="p-4 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <i class="bi bi-hdd-rack-fill text-theme-primary"></i>
+                            <span class="font-bold text-white text-sm truncate">@n.HostName</span>
+                            @if (n.Metrics?.Uptime is { } up)
+                            {
+                                <span class="text-[10px] text-slate-500 whitespace-nowrap">
+                                    actif depuis @Duree(up)
+                                </span>
+                            }
+                        </div>
+
+                        @if (n.Clock is { } horloge)
+                        {
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap @PastilleHorloge(horloge.State)"
+                                  title="@horloge.Detail">
+                                NTP @horloge.ShortVerdict
+                            </span>
+                        }
+                    </div>
+
+                    @if (!n.Reachable)
+                    {
+                        <div class="p-5 text-xs text-rose-300 leading-relaxed">
+                            <i class="bi bi-exclamation-octagon-fill"></i> @n.Error
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-4 space-y-4 text-xs">
+
+                            <!-- Processeur et mémoire -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div class="flex items-baseline justify-between mb-1">
+                                        <span class="text-slate-400 font-semibold">Processeur</span>
+                                        <span class="font-mono font-bold @Teinte(n.Metrics?.CpuPercent, 75, 90)">
+                                            @Pourcent(n.Metrics?.CpuPercent)
+                                        </span>
+                                    </div>
+                                    <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+                                        <div class="h-full rounded-full transition-all duration-500 @Barre(n.Metrics?.CpuPercent, 75, 90)"
+                                             style="width:@Largeur(n.Metrics?.CpuPercent)"></div>
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 mt-1">
+                                        @if (n.Metrics?.LogicalProcessors is { } coeurs)
+                                        {
+                                            <text>@coeurs cœur(s) logique(s)</text>
+                                        }
+                                        @if (n.Metrics?.ProcessorQueueLength is { } file && file > 0)
+                                        {
+                                            <text> &middot; file @file.ToString("0")</text>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="flex items-baseline justify-between mb-1">
+                                        <span class="text-slate-400 font-semibold">Mémoire</span>
+                                        <span class="font-mono font-bold @Teinte(n.Metrics?.MemoryUsedPercent, 85, 93)">
+                                            @Pourcent(n.Metrics?.MemoryUsedPercent)
+                                        </span>
+                                    </div>
+                                    <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+                                        <div class="h-full rounded-full transition-all duration-500 @Barre(n.Metrics?.MemoryUsedPercent, 85, 93)"
+                                             style="width:@Largeur(n.Metrics?.MemoryUsedPercent)"></div>
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 mt-1">
+                                        @Octets(n.Metrics?.UsedMemoryBytes) / @Octets(n.Metrics?.TotalMemoryBytes)
+                                        @if (n.Metrics?.PageFilePercent is { } pf && pf > 0)
+                                        {
+                                            <text> &middot; fichier d'échange @pf.ToString("0") %</text>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Disques -->
+                            @if (n.Metrics?.Disks is { Count: > 0 } disques)
+                            {
+                                <div class="pt-3 border-t border-slate-800 space-y-2">
+                                    <div class="text-slate-400 font-semibold">Stockage</div>
+                                    @foreach (var d in disques)
+                                    {
+                                        var utilise = 100 - d.FreePercent;
+                                        <div>
+                                            <div class="flex items-baseline justify-between mb-1">
+                                                <span class="font-mono text-slate-300">@d.Drive</span>
+                                                <span class="font-mono @TeinteDisque(d.FreePercent)">
+                                                    @Octets(d.FreeBytes) libres sur @Octets(d.TotalBytes)
+                                                    (@d.FreePercent.ToString("0.0") %)
+                                                </span>
+                                            </div>
+                                            <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                                <div class="h-full rounded-full transition-all duration-500 @BarreDisque(d.FreePercent)"
+                                                     style="width:@utilise.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            <!-- Horloge -->
+                            @if (n.Clock is { } h)
+                            {
+                                <div class="pt-3 border-t border-slate-800 space-y-1">
+                                    <div class="flex items-baseline justify-between">
+                                        <span class="text-slate-400 font-semibold">Synchronisation horaire</span>
+                                        <span class="font-bold @TexteHorloge(h.State)">@h.Summary</span>
+                                    </div>
+                                    <p class="text-[11px] text-slate-400 leading-relaxed">@h.Detail</p>
+                                    @if (h.Remedy is { Length: > 0 } conseil && h.State != ClockState.Conforme)
+                                    {
+                                        <p class="text-[11px] text-slate-500">
+                                            <i class="bi bi-arrow-return-right"></i> @conseil
+                                        </p>
+                                    }
+                                    @if (n.TimeSync is { } ts)
+                                    {
+                                        <p class="text-[10px] text-slate-600 font-mono">
+                                            mode @(ts.SyncType ?? "?") &middot; source @(ts.ActualSource ?? "?")
+                                            @if (ts.IsDomainMember)
+                                            {
+                                                <text> &middot; domaine @ts.DomainName</text>
+                                            }
+                                        </p>
+                                    }
+                                </div>
+                            }
+
+                            <!-- Mises à jour Windows -->
+                            <div class="pt-3 border-t border-slate-800">
+                                <div class="flex items-baseline justify-between mb-1">
+                                    <span class="text-slate-400 font-semibold">Mises à jour Windows</span>
+                                    @if (n.Updates is { Succeeded: true, Snapshot: { } entete })
+                                    {
+                                        <span class="font-mono font-bold @(entete.PendingCount == 0 ? "text-emerald-400" : entete.SecurityCount > 0 ? "text-amber-400" : "text-slate-300")">
+                                            @entete.PendingCount en attente
+                                        </span>
+                                    }
+                                </div>
+
+                                @if (n.Updates is null)
+                                {
+                                    <p class="text-[11px] text-slate-500">
+                                        Jamais relevé. Le relevé est lent : il se déclenche à la demande,
+                                        pas à chaque rafraîchissement.
+                                    </p>
+                                }
+                                else if (!n.Updates.Succeeded)
+                                {
+                                    <p class="text-[11px] text-rose-300 leading-relaxed">@n.Updates.Error</p>
+                                }
+                                else
+                                {
+                                    var maj = n.Updates.Snapshot!;
+                                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                                        @if (maj.SecurityCount > 0)
+                                        {
+                                            <span class="text-amber-400 font-semibold">@maj.SecurityCount de sécurité</span>
+                                        }
+                                        @if (maj.CriticalCount > 0)
+                                        {
+                                            <span class="text-rose-300 font-semibold">@maj.CriticalCount critiques</span>
+                                        }
+                                        @if (maj.RebootPending)
+                                        {
+                                            <span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 font-bold">
+                                                redémarrage déjà dû
+                                            </span>
+                                        }
+                                        @if (maj.LastInstallationDate is { } derniere)
+                                        {
+                                            <span>dernière installation le @derniere.ToLocalTime().ToString("dd/MM/yyyy")</span>
+                                        }
+                                    </div>
+
+                                    <p class="text-[10px] mt-1 @(n.Updates.IsStale ? "text-amber-400" : "text-slate-500")">
+                                        Mesuré il y a @Duree(n.Updates.Age)@(n.Updates.IsStale ? " — mesure périmée, à rafraîchir." : ".")
+                                    </p>
+
+                                    @if (maj.Sample.Count > 0)
+                                    {
+                                        <details class="mt-1.5">
+                                            <summary class="cursor-pointer text-theme-primary hover:underline select-none text-[11px]">
+                                                Voir les premières mises à jour
+                                            </summary>
+                                            <ul class="mt-1 space-y-0.5 text-[11px] text-slate-400 list-disc list-inside">
+                                                @foreach (var t in maj.Sample)
+                                                {
+                                                    <li>@t</li>
+                                                }
+                                            </ul>
+                                        </details>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// Trois secondes. Assez court pour que l'affichage suive une charge qui
+    /// monte, assez long pour ne pas saturer WinRM : chaque passe ouvre une
+    /// session distante par serveur.
+    /// </summary>
+    private static readonly TimeSpan Cadence = TimeSpan.FromSeconds(3);
+
+    private List<N4Environment> _environnements = [];
+    private List<NodeVitals> _noeuds = [];
+    private Guid _envId;
+    private bool _actif = true;
+    private bool _enCours;
+    private bool _misesAJourEnCours;
+
+    private DateTimeOffset? _dernier;
+    private TimeSpan? _dureeReleve;
+
+    private CancellationTokenSource? _boucle;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1) { _envId = _environnements[0].Id; await Redemarrer(); }
+    }
+
+    private async Task Redemarrer()
+    {
+        await ArreterBoucle();
+
+        if (_envId == Guid.Empty) { _noeuds = []; return; }
+
+        await Relever();
+
+        if (!_actif) return;
+
+        _boucle = new CancellationTokenSource();
+        _ = Boucler(_boucle.Token);
+    }
+
+    /// <summary>
+    /// La boucle attend la FIN d'un relevé avant de compter le délai suivant.
+    /// Un minuteur périodique lancerait un relevé pendant que le précédent
+    /// court encore : sur une liaison lente, les sessions WinRM s'empileraient
+    /// jusqu'à saturer le serveur.
+    /// </summary>
+    private async Task Boucler(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(Cadence, ct);
+                if (ct.IsCancellationRequested) return;
+
+                await InvokeAsync(async () =>
+                {
+                    await Relever();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) { /* changement d'environnement ou fermeture */ }
+    }
+
+    private async Task Relever()
+    {
+        if (_envId == Guid.Empty || _enCours) return;
+
+        _enCours = true;
+        var chrono = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            _noeuds = await Vitals.ReadEnvironmentAsync(_envId);
+            _dernier = DateTimeOffset.UtcNow;
+            _dureeReleve = chrono.Elapsed;
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    private async Task ReleverMisesAJour()
+    {
+        if (_noeuds.Count == 0) return;
+
+        _misesAJourEnCours = true;
+        StateHasChanged();
+
+        try
+        {
+            // En série, pas en parallèle : interroger dix agents Windows Update
+            // simultanément met la liaison et les serveurs à genoux, pour un
+            // gain nul — l'opérateur attendra de toute façon le plus lent.
+            foreach (var n in _noeuds.Where(x => x.Reachable).ToList())
+            {
+                await Vitals.RefreshUpdatesAsync(n.ServerId);
+                await InvokeAsync(async () => { await Relever(); StateHasChanged(); });
+            }
+        }
+        finally
+        {
+            _misesAJourEnCours = false;
+        }
+    }
+
+    private async Task ArreterBoucle()
+    {
+        if (_boucle is null) return;
+
+        await _boucle.CancelAsync();
+        _boucle.Dispose();
+        _boucle = null;
+    }
+
+    public async ValueTask DisposeAsync() => await ArreterBoucle();
+
+    // -----------------------------------------------------------------------
+    // Présentation
+    // -----------------------------------------------------------------------
+    private static string Pourcent(double? v) => v is null ? "—" : $"{v.Value:0.0} %";
+
+    private static string Largeur(double? v) =>
+        v is null ? "0%" : $"{Math.Clamp(v.Value, 0, 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}%";
+
+    private static string Octets(long? v)
+    {
+        if (v is null) return "—";
+        double o = v.Value;
+        string[] unites = ["o", "Ko", "Mo", "Go", "To"];
+        var i = 0;
+        while (o >= 1024 && i < unites.Length - 1) { o /= 1024; i++; }
+        return $"{o:0.0} {unites[i]}";
+    }
+
+    private static string Duree(TimeSpan d)
+    {
+        if (d.TotalMinutes < 1) return $"{(int)Math.Floor(d.TotalSeconds)} s";
+        if (d.TotalHours < 1) return $"{(int)Math.Floor(d.TotalMinutes)} min";
+        if (d.TotalDays < 1) return $"{(int)Math.Floor(d.TotalHours)} h";
+        return $"{(int)Math.Floor(d.TotalDays)} j";
+    }
+
+    /// <summary>Teinte du chiffre. Deux seuils : attention, puis critique.</summary>
+    private static string Teinte(double? v, double attention, double critique) => v switch
+    {
+        null => "text-slate-500",
+        var x when x >= critique => "text-rose-400",
+        var x when x >= attention => "text-amber-400",
+        _ => "text-emerald-400"
+    };
+
+    private static string Barre(double? v, double attention, double critique) => v switch
+    {
+        null => "bg-slate-700",
+        var x when x >= critique => "bg-rose-500",
+        var x when x >= attention => "bg-amber-500",
+        _ => "bg-emerald-500"
+    };
+
+    // Sur un disque, c'est l'espace LIBRE qui alerte : la logique s'inverse.
+    private static string TeinteDisque(double libre) => libre switch
+    {
+        < 5 => "text-rose-400",
+        < 10 => "text-amber-400",
+        _ => "text-slate-400"
+    };
+
+    private static string BarreDisque(double libre) => libre switch
+    {
+        < 5 => "bg-rose-500",
+        < 10 => "bg-amber-500",
+        _ => "bg-sky-500"
+    };
+
+    private static string PastilleHorloge(ClockState s) => s switch
+    {
+        ClockState.Conforme => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+        ClockState.NonConforme => "bg-rose-500/10 text-rose-300 border border-rose-500/25",
+        ClockState.AConfirmer => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+        _ => "bg-slate-800 text-slate-400 border border-slate-700"
+    };
+
+    private static string TexteHorloge(ClockState s) => s switch
+    {
+        ClockState.Conforme => "text-emerald-400",
+        ClockState.NonConforme => "text-rose-400",
+        ClockState.AConfirmer => "text-amber-400",
+        _ => "text-slate-400"
+    };
+}

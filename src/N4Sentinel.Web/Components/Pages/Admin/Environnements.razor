@@ -179,6 +179,25 @@
                     </div>
 
                     <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Source de temps attendue</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_edition.ExpectedTimeSource" placeholder="cit.local ou DC01.cit.local" />
+                        <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                            Permet de répondre <span class="font-mono">OK</span> ou <span class="font-mono">KO</span>
+                            à la conformité NTP de chaque nœud. Vide, l'application détecte encore les cas
+                            franchement anormaux, mais répondra « à confirmer » plutôt que d'affirmer une
+                            conformité qu'elle n'a pas vérifiée.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Écart d'horloge toléré (s)</label>
+                        <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_edition.ClockToleranceSeconds" />
+                        <p class="text-[10px] text-slate-500 mt-1">
+                            Au-delà, N4 produit des statuts DISCONNECTED sans cause apparente.
+                        </p>
+                    </div>
+
+                    <div>
                         <label class="block text-xs font-semibold text-slate-300 mb-1">Responsable technique</label>
                         <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_edition.TechnicalOwner" placeholder="Équipe DSI" />
                     </div>

@@ -84,6 +84,16 @@
                         </div>
                     </NavLink>
 
+                    <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="vitalite">
+                        <div class="w-8 h-8 rounded-lg bg-lime-500/10 text-lime-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-cpu-fill"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Vitalité des nœuds</div>
+                            <div class="text-[10px] text-slate-400 font-normal">CPU, mémoire, disques, NTP, mises à jour</div>
+                        </div>
+                    </NavLink>
+
                     <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="alertes">
                         <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
                             <i class="bi bi-bell-fill"></i>
@@ -283,6 +293,10 @@
             <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="supervision" @onclick="CloseMobileMenu">
                 <i class="bi bi-activity text-theme-primary text-base"></i>
                 <span>Supervision Temps Réel</span>
+            </NavLink>
+            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="vitalite" @onclick="CloseMobileMenu">
+                <i class="bi bi-cpu-fill text-lime-400 text-base"></i>
+                <span>Vitalité des nœuds</span>
             </NavLink>
             <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="alertes" @onclick="CloseMobileMenu">
                 <i class="bi bi-bell-fill text-amber-400 text-base"></i>

@@ -275,6 +275,21 @@ public sealed class SupervisionTests : IAsyncLifetime
         public Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(ConnectorTarget target, string logPathOrPattern, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<LogFileInfo>.Ok(new LogFileInfo { Exists = true, Path = logPathOrPattern }, TimeSpan.FromMilliseconds(10)));
 
+        /// <summary>Métriques que la doublure déclare, pour les tests de vitalité.</summary>
+        public LiveMetrics MetriquesARetourner { get; set; } = new() { HostName = "N4SRV01" };
+        public TimeSyncSnapshot HorlogeARetourner { get; set; } = new() { HostName = "N4SRV01" };
+
+        public Task<ConnectorResult<LiveMetrics>> GetLiveMetricsAsync(ConnectorTarget target, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<LiveMetrics>.Ok(MetriquesARetourner, TimeSpan.FromMilliseconds(10)));
+
+        public Task<ConnectorResult<TimeSyncSnapshot>> GetTimeSyncAsync(ConnectorTarget target, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<TimeSyncSnapshot>.Ok(HorlogeARetourner, TimeSpan.FromMilliseconds(10)));
+
+        public Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(ConnectorTarget target, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<UpdateSnapshot>.Ok(
+                new UpdateSnapshot { HostName = target.HostName, PendingCount = 3, SecurityCount = 2 },
+                TimeSpan.FromSeconds(45)));
+
         public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
             ConnectorTarget target, string serviceName, ServiceControlAction action, CancellationToken ct = default)
         {

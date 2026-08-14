@@ -102,6 +102,13 @@ public static class DependencyInjection
         services.AddScoped<SupervisionService>();
         services.AddScoped<AlertService>();
         services.AddScoped<UndeclaredComponentScanner>();
+
+        // Vitalité des nœuds. Le service est à portée de requête — il dépend du
+        // référentiel — mais le cache des mises à jour Windows est un singleton :
+        // une interrogation de l'agent coûte de trente secondes à deux minutes,
+        // il est hors de question de la refaire à chaque affichage d'écran.
+        services.AddScoped<NodeVitalsService>();
+        services.AddSingleton<UpdateReadingCache>();
         services.AddSingleton<SupervisionStateCache>();
         services.AddHostedService<SupervisionBackgroundService>();
 
