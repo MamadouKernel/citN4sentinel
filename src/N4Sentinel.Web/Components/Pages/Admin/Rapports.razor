@@ -1,0 +1,246 @@
+@page "/admin/rapports"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+
+@inject SlaService SlaEngine
+@inject ReferentialService Referential
+@inject IJSRuntime JS
+
+<PageTitle>Rapports &amp; SLA — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <!-- En-tête de la Page -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                <i class="bi bi-bar-chart-line-fill text-sky-400"></i> Rapports &amp; Performance SLA
+            </h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Suivi analytique de la disponibilité opérationnelle (SLA), temps de rétablissement (MTTR/MTBF) et rapports exécutifs certifiés (Sprint 5).
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900/80 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Recharger">
+                <option value="@Guid.Empty">Sélectionner un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <select class="bg-slate-900/80 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_periodeJours" @bind:after="Recharger">
+                <option value="1">Dernières 24 heures</option>
+                <option value="7">7 derniers jours</option>
+                <option value="30">30 derniers jours</option>
+                <option value="90">Trimestre en cours</option>
+            </select>
+
+            <button class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-bold transition flex items-center gap-2"
+                    @onclick="ImprimerRapport" title="Imprimer ou exporter en PDF">
+                <i class="bi bi-printer-fill text-sky-400"></i> Imprimer
+            </button>
+        </div>
+    </div>
+
+    @if (_chargement)
+    {
+        <div class="glass-card p-12 rounded-2xl border border-slate-800/80 text-center text-slate-400 text-xs space-y-3">
+            <div class="inline-block w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+            <div class="font-semibold text-white">Calcul des métriques SLA et analyse des incidents…</div>
+        </div>
+    }
+    else if (_report is not null)
+    {
+        <!-- Cartes KPI de Synthèse SLA & Métriques Exécutives -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            <!-- Carte SLA Globale -->
+            <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 shadow-xl space-y-2">
+                <div class="flex items-center justify-between text-xs font-bold text-slate-400">
+                    <span>Taux de Disponibilité SLA</span>
+                    <i class="bi bi-shield-check text-sky-400 text-base"></i>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span class="text-3xl font-black text-white">@_report.ActualSlaPercentage.ToString("F2")%</span>
+                    <span class="text-[10px] font-bold text-slate-400">Obj. @_report.TargetSlaPercentage%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div class="h-full rounded-full @(_report.ActualSlaPercentage >= _report.TargetSlaPercentage ? "bg-emerald-400" : "bg-amber-400")"
+                         style="width: @(Math.Min(100, _report.ActualSlaPercentage))%"></div>
+                </div>
+            </div>
+
+            <!-- Carte MTTR (Mean Time to Recovery) -->
+            <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 shadow-xl space-y-2">
+                <div class="flex items-center justify-between text-xs font-bold text-slate-400">
+                    <span>Temps de Rétablissement (MTTR)</span>
+                    <i class="bi bi-clock-history text-amber-400 text-base"></i>
+                </div>
+                <div class="flex items-baseline gap-1.5">
+                    <span class="text-3xl font-black text-white">@_report.MttrMinutes.ToString("F1")</span>
+                    <span class="text-xs font-bold text-slate-400">min</span>
+                </div>
+                <p class="text-[11px] text-slate-400">Durée moyenne de résolution par incident</p>
+            </div>
+
+            <!-- Carte MTBF (Mean Time Between Failures) -->
+            <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 shadow-xl space-y-2">
+                <div class="flex items-center justify-between text-xs font-bold text-slate-400">
+                    <span>Stabilité Système (MTBF)</span>
+                    <i class="bi bi-graph-up-arrow text-emerald-400 text-base"></i>
+                </div>
+                <div class="flex items-baseline gap-1.5">
+                    <span class="text-3xl font-black text-white">@_report.MtbfHours.ToString("F1")</span>
+                    <span class="text-xs font-bold text-slate-400">heures</span>
+                </div>
+                <p class="text-[11px] text-slate-400">Intervalle moyen sans indisponibilité</p>
+            </div>
+
+            <!-- Carte Exécutions & Incidents -->
+            <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 shadow-xl space-y-2">
+                <div class="flex items-center justify-between text-xs font-bold text-slate-400">
+                    <span>Incidents &amp; Exploitation</span>
+                    <i class="bi bi-exclamation-triangle text-rose-400 text-base"></i>
+                </div>
+                <div class="flex items-baseline gap-3">
+                    <div>
+                        <span class="text-2xl font-black text-rose-400">@_report.TotalIncidents</span>
+                        <span class="text-[10px] font-bold text-slate-400 block">Alertes Critiques</span>
+                    </div>
+                    <div class="border-l border-slate-800 pl-3">
+                        <span class="text-2xl font-black text-white">@_report.TotalExecutions</span>
+                        <span class="text-[10px] font-bold text-slate-400 block">Workflows Lancés</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tableau Détaillé du SLA par Composant N4 -->
+        <div class="glass-card rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl">
+            <div class="p-4 sm:p-5 border-b border-slate-800/80 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-hdd-stack-fill text-sky-400"></i> Métriques SLA par Nœud &amp; Composant N4
+                    </h3>
+                    <p class="text-[11px] text-slate-400 mt-0.5">Détail des temps d'arrêt et du taux de disponibilité calculé sur chaque composant.</p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-950/80 text-slate-400 uppercase font-bold text-[10px] tracking-wider border-b border-slate-800">
+                        <tr>
+                            <th class="px-5 py-3.5">Composant N4</th>
+                            <th class="px-5 py-3.5">Rôle</th>
+                            <th class="px-5 py-3.5">Service Windows</th>
+                            <th class="px-5 py-3.5">Hôte</th>
+                            <th class="px-5 py-3.5 text-center">Incidents</th>
+                            <th class="px-5 py-3.5 text-right">Indisponibilité</th>
+                            <th class="px-5 py-3.5 text-right">Taux SLA</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60 font-medium text-slate-300">
+                        @if (_report.ComponentMetrics.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" class="px-5 py-8 text-center text-slate-500 italic">
+                                    Aucun composant configuré dans cet environnement.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var c in _report.ComponentMetrics)
+                            {
+                                <tr class="hover:bg-white/5 transition-colors">
+                                    <td class="px-5 py-3 font-bold text-white">@c.LogicalName</td>
+                                    <td class="px-5 py-3">
+                                        <span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-mono">@c.Role</span>
+                                    </td>
+                                    <td class="px-5 py-3 font-mono text-[11px] text-sky-400">⚙️ @c.ServiceName</td>
+                                    <td class="px-5 py-3 font-mono text-slate-400">@c.HostName</td>
+                                    <td class="px-5 py-3 text-center">
+                                        @if (c.IncidentCount > 0)
+                                        {
+                                            <span class="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-300 font-bold border border-rose-500/20">@c.IncidentCount</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-slate-500">0</span>
+                                        }
+                                    </td>
+                                    <td class="px-5 py-3 text-right font-mono">
+                                        @if (c.DowntimeMinutes > 0)
+                                        {
+                                            <span class="text-amber-400 font-bold">@c.DowntimeMinutes min</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-emerald-400">0 min</span>
+                                        }
+                                    </td>
+                                    <td class="px-5 py-3 text-right">
+                                        <span class="font-bold text-xs @(c.SlaPercentage >= 99.9 ? "text-emerald-400" : c.SlaPercentage >= 98.0 ? "text-amber-400" : "text-rose-400")">
+                                            @c.SlaPercentage.ToString("F2")%
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = new();
+    private Guid _envId = Guid.Empty;
+    private int _periodeJours = 7;
+    private SlaReportDto? _report;
+    private bool _chargement = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count > 0)
+        {
+            _envId = _environnements.FirstOrDefault(e => e.IsProduction)?.Id ?? _environnements[0].Id;
+        }
+        await Recharger();
+    }
+
+    private async Task Recharger()
+    {
+        if (_envId == Guid.Empty)
+        {
+            _report = null;
+            _chargement = false;
+            return;
+        }
+
+        _chargement = true;
+        StateHasChanged();
+
+        _report = await SlaEngine.GenerateReportAsync(_envId, TimeSpan.FromDays(_periodeJours));
+        _chargement = false;
+    }
+
+    private async Task ImprimerRapport()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("window.print");
+        }
+        catch { }
+    }
+}

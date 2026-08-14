@@ -10,14 +10,26 @@
 <PageTitle>Tableau de bord — N4 Sentinel</PageTitle>
 
 <div class="space-y-8">
-    <!-- Header Banner -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <!-- Executive Header Banner -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-800/60">
         <div>
+            <div class="flex items-center gap-2 mb-1">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                    Console d'Exploitation
+                </span>
+                <span class="text-xs text-slate-500">&middot; Côte d'Ivoire Terminal</span>
+            </div>
             <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Tableau de bord N4</h1>
-            <p class="text-xs sm:text-sm text-slate-400 mt-1">Supervision globale et état du référentiel Navis N4 &middot; Côte d'Ivoire Terminal</p>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Supervision globale, état du référentiel et cartographie topologique temps réel de l'écosystème Navis N4.
+            </p>
         </div>
-        <div>
-            <a href="/admin/environnements" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition">
+        <div class="flex items-center gap-3 shrink-0">
+            <a href="/supervision" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs transition shadow-sm">
+                <i class="bi bi-activity text-emerald-400"></i>
+                <span>Supervision Temps Réel</span>
+            </a>
+            <a href="/admin/environnements" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-theme-gradient text-white font-bold text-xs transition shadow-lg glow-theme">
                 <i class="bi bi-hdd-stack-fill text-sm"></i>
                 <span>Gérer les environnements</span>
             </a>
@@ -26,67 +38,85 @@
 
     <!-- KPI Summary Grid -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="glass-card p-5 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-slate-700 transition">
-            <div class="w-12 h-12 rounded-xl bg-theme-tint text-theme-primary flex items-center justify-center text-xl font-bold border border-theme-primary flex-shrink-0">
+        <!-- KPI 1: Environnements -->
+        <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-4 hover:border-sky-500/30 transition-all duration-200 shadow-xl">
+            <div class="w-12 h-12 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center text-xl font-extrabold border border-sky-500/20 shrink-0">
                 <i class="bi bi-hdd-network-fill"></i>
             </div>
             <div>
-                <div class="text-2xl font-extrabold text-white tracking-tight">@(_environnements?.Count ?? 0)</div>
-                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Environnements</div>
+                <div class="text-2xl font-black text-white tracking-tight">@(_environnements?.Count ?? 0)</div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Environnements</div>
             </div>
         </div>
 
-        <div class="glass-card p-5 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-slate-700 transition">
-            <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-xl font-bold border border-emerald-500/20 flex-shrink-0">
+        <!-- KPI 2: Serveurs Nœuds -->
+        <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-4 hover:border-emerald-500/30 transition-all duration-200 shadow-xl">
+            <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-xl font-extrabold border border-emerald-500/20 shrink-0">
                 <i class="bi bi-server"></i>
             </div>
             <div>
-                <div class="text-2xl font-extrabold text-white tracking-tight">@_totalServeurs</div>
-                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Serveurs Nœuds</div>
+                <div class="text-2xl font-black text-white tracking-tight">@_totalServeurs</div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Serveurs Hôtes</div>
             </div>
         </div>
 
-        <div class="glass-card p-5 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-slate-700 transition">
-            <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xl font-bold border border-amber-500/20 flex-shrink-0">
+        <!-- KPI 3: Composants N4 -->
+        <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-4 hover:border-amber-500/30 transition-all duration-200 shadow-xl">
+            <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xl font-extrabold border border-amber-500/20 shrink-0">
                 <i class="bi bi-cpu-fill"></i>
             </div>
             <div>
-                <div class="text-2xl font-extrabold text-white tracking-tight">@_totalComposants</div>
-                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Composants N4</div>
+                <div class="text-2xl font-black text-white tracking-tight">@_totalComposants</div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Composants N4</div>
             </div>
         </div>
 
-        <div class="glass-card p-5 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-slate-700 transition">
-            <div class="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-xl font-bold border border-purple-500/20 flex-shrink-0">
+        <!-- KPI 4: Audit & SLA -->
+        <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-4 hover:border-purple-500/30 transition-all duration-200 shadow-xl">
+            <div class="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-xl font-extrabold border border-purple-500/20 shrink-0">
                 <i class="bi bi-shield-check"></i>
             </div>
             <div>
-                <div class="text-2xl font-extrabold text-white tracking-tight">100%</div>
-                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Audit & Traçabilité</div>
+                <div class="text-2xl font-black text-white tracking-tight">100%</div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Audit SEC-008</div>
             </div>
         </div>
     </div>
 
-    <!-- Interactive Live Visual Architecture Diagram (Navis N4 RFP Scope) -->
-    <N4TopologyDiagram />
+    <!-- Interactive Live Visual Architecture Diagram (Navis N4 Topo) -->
+    <div class="space-y-3">
+        <div class="flex items-center justify-between px-1">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-diagram-3-fill text-sky-400"></i> Cartographie Topologique 3D de l'Écosystème N4
+            </h3>
+            <span class="text-[11px] text-slate-400 font-medium">Vue Panoramique Grand Format</span>
+        </div>
+        <N4TopologyDiagram />
+    </div>
 
-    <!-- Main Grid Content -->
+    <!-- Main Section: Grid Content (Environments Table + Recent Audit Feed) -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Environments Table Card -->
-        <div class="lg:col-span-2 glass-card rounded-2xl border border-slate-800 overflow-hidden flex flex-col">
-            <div class="p-5 border-b border-slate-800 flex items-center justify-between">
-                <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-diagram-3-fill text-theme-primary"></i>
-                    Cartographie des Environnements
-                </h3>
-                <a href="/admin/environnements" class="text-xs text-theme-primary hover:underline font-semibold transition">Explorer tout &rarr;</a>
+        <div class="lg:col-span-2 rounded-2xl bg-slate-900/60 border border-slate-800/80 overflow-hidden shadow-xl flex flex-col">
+            <div class="p-5 border-b border-slate-800/80 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-hdd-stack-fill text-theme-primary"></i>
+                        Référentiel des Environnements N4
+                    </h3>
+                    <p class="text-[11px] text-slate-400 mt-0.5">Statut du cycle de vie et nombre de composants applicatifs.</p>
+                </div>
+                <a href="/admin/environnements" class="text-xs text-sky-400 hover:text-sky-300 font-bold transition flex items-center gap-1">
+                    <span>Explorer tout</span>
+                    <i class="bi bi-arrow-right"></i>
+                </a>
             </div>
 
             <div class="p-0 flex-1 overflow-x-auto">
                 @if (_environnements is null)
                 {
-                    <div class="p-8 text-center text-slate-400 text-xs">
-                        <div class="inline-block w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                    <div class="p-8 text-center text-slate-400 text-xs space-y-2">
+                        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
                         <div>Chargement du référentiel...</div>
                     </div>
                 }
@@ -95,49 +125,49 @@
                     <div class="p-8 text-center text-slate-400 text-xs space-y-3">
                         <i class="bi bi-inbox text-3xl text-slate-600 block"></i>
                         <div>Aucun environnement déclaré dans le référentiel.</div>
-                        <a href="/admin/environnements" class="inline-block px-3 py-1.5 rounded-lg bg-sky-600 text-white font-semibold text-xs">Créer un environnement</a>
+                        <a href="/admin/environnements" class="inline-block px-3 py-1.5 rounded-xl bg-sky-600 text-white font-bold text-xs">Créer un environnement</a>
                     </div>
                 }
                 else
                 {
-                    <table class="w-full text-left text-xs text-slate-300">
-                        <thead class="bg-slate-900/60 text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-950/80 text-slate-400 uppercase font-bold text-[10px] tracking-wider border-b border-slate-800">
                             <tr>
-                                <th class="py-3 px-4 font-bold">Code</th>
-                                <th class="py-3 px-4 font-bold">Nom</th>
-                                <th class="py-3 px-4 font-bold">Statut</th>
-                                <th class="py-3 px-4 font-bold">Éléments</th>
-                                <th class="py-3 px-4 font-bold text-right">Action</th>
+                                <th class="py-3.5 px-5">Code &amp; Type</th>
+                                <th class="py-3.5 px-5">Nom de l'Environnement</th>
+                                <th class="py-3.5 px-5">Cycle de Vie</th>
+                                <th class="py-3.5 px-5">Nœuds</th>
+                                <th class="py-3.5 px-5 text-right">Action</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-800/60">
+                        <tbody class="divide-y divide-slate-800/60 font-medium text-slate-300">
                             @foreach (var env in _environnements)
                             {
-                                <tr class="hover:bg-slate-800/40 transition">
-                                    <td class="py-3.5 px-4 font-mono font-bold text-white whitespace-nowrap">
+                                <tr class="hover:bg-white/5 transition-colors">
+                                    <td class="py-3.5 px-5 font-mono font-bold text-white whitespace-nowrap">
                                         <div class="flex items-center gap-2">
                                             <span>@env.Code</span>
                                             @if (env.IsProduction)
                                             {
-                                                <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30">PROD</span>
+                                                <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-rose-500/10 text-rose-300 border border-rose-500/30">PROD</span>
                                             }
                                         </div>
                                     </td>
-                                    <td class="py-3.5 px-4">
-                                        <div class="font-semibold text-slate-200">@env.Name</div>
+                                    <td class="py-3.5 px-5">
+                                        <div class="font-bold text-white">@env.Name</div>
                                     </td>
-                                    <td class="py-3.5 px-4 whitespace-nowrap">
+                                    <td class="py-3.5 px-5 whitespace-nowrap">
                                         <StatutBadge Statut="env.Status" />
                                     </td>
-                                    <td class="py-3.5 px-4 whitespace-nowrap">
-                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                                    <td class="py-3.5 px-5 whitespace-nowrap">
+                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800/80 text-slate-300 border border-slate-700/60">
                                             @(_compteursComposants.TryGetValue(env.Id, out var n) ? n : 0) composants
                                         </span>
                                     </td>
-                                    <td class="py-3.5 px-4 text-right whitespace-nowrap">
-                                        <a href="@($"/admin/environnements/{env.Id}")" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-[11px] transition">
-                                            <span>Ouvrir</span>
-                                            <i class="bi bi-chevron-right text-[9px]"></i>
+                                    <td class="py-3.5 px-5 text-right whitespace-nowrap">
+                                        <a href="@($"/admin/environnements/{env.Id}")" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white font-bold text-xs transition">
+                                            <span>Consulter</span>
+                                            <i class="bi bi-chevron-right text-[10px]"></i>
                                         </a>
                                     </td>
                                 </tr>
@@ -149,33 +179,36 @@
         </div>
 
         <!-- Recent Audit Feed Card -->
-        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden flex flex-col">
-            <div class="p-5 border-b border-slate-800 flex items-center justify-between">
-                <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-clock-history text-amber-400"></i>
-                    Activité d'Audit Récente
-                </h3>
-                <a href="/admin/audit" class="text-xs text-sky-400 hover:text-sky-300 font-semibold transition">Journal &rarr;</a>
+        <div class="rounded-2xl bg-slate-900/60 border border-slate-800/80 overflow-hidden shadow-xl flex flex-col">
+            <div class="p-5 border-b border-slate-800/80 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-clock-history text-amber-400"></i>
+                        Journal d'Activité Récent
+                    </h3>
+                    <p class="text-[11px] text-slate-400 mt-0.5">Dernières actions tracées (SEC-008).</p>
+                </div>
+                <a href="/admin/audit" class="text-xs text-sky-400 hover:text-sky-300 font-bold transition">Journal &rarr;</a>
             </div>
 
             <div class="p-4 flex-1 overflow-y-auto space-y-3">
                 @if (_auditRecent is null)
                 {
-                    <div class="text-center text-slate-400 text-xs py-4">Chargement...</div>
+                    <div class="text-center text-slate-400 text-xs py-6">Chargement de l'activité...</div>
                 }
                 else if (_auditRecent.Count == 0)
                 {
                     <div class="text-center text-slate-500 text-xs py-8 space-y-2">
-                        <i class="bi bi-shield-check text-2xl"></i>
-                        <div>Aucune entrée récente.</div>
+                        <i class="bi bi-shield-check text-3xl"></i>
+                        <div>Aucune entrée récente au journal.</div>
                     </div>
                 }
                 else
                 {
                     @foreach (var entry in _auditRecent.Take(5))
                     {
-                        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 flex items-start gap-3">
-                            <div class="w-7 h-7 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center text-xs flex-shrink-0 mt-0.5 border border-sky-500/20">
+                        <div class="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-start gap-3 hover:border-slate-700/60 transition-colors">
+                            <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center text-xs shrink-0 mt-0.5 border border-sky-500/20">
                                 <i class="bi bi-activity"></i>
                             </div>
                             <div class="min-w-0 flex-1">
@@ -184,7 +217,7 @@
                                     <span class="text-[10px] font-mono text-slate-500">@entry.OccurredAt.ToLocalTime().ToString("HH:mm")</span>
                                 </div>
                                 <div class="text-[11px] text-slate-400 truncate mt-0.5">
-                                    @entry.Actor &middot; <span class="text-slate-300 font-semibold">@entry.Action</span>
+                                    @entry.Actor &middot; <span class="text-slate-200 font-semibold">@entry.Action</span>
                                 </div>
                             </div>
                         </div>

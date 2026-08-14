@@ -32,6 +32,11 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<WorkflowExecution> Executions => Set<WorkflowExecution>();
     public DbSet<ExecutionStep> ExecutionSteps => Set<ExecutionStep>();
     public DbSet<EnvironmentLock> EnvironmentLocks => Set<EnvironmentLock>();
+    public DbSet<DiagnosticSignature> Signatures => Set<DiagnosticSignature>();
+    public DbSet<DiagnosticSession> Sessions => Set<DiagnosticSession>();
+    public DbSet<LogSource> Sources => Set<LogSource>();
+    public DbSet<LogFinding> Findings => Set<LogFinding>();
+    public DbSet<DiagnosticHypothesis> Hypotheses => Set<DiagnosticHypothesis>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -363,6 +368,101 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Environment).WithMany()
              .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -------------------------------------------------------------------
+        // Diagnostic (sprint 6)
+        // -------------------------------------------------------------------
+        builder.Entity<DiagnosticSignature>(e =>
+        {
+            e.ToTable("DiagnosticSignatures");
+            e.HasIndex(x => x.Code).IsUnique();
+
+            e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Pattern).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.Meaning).HasMaxLength(2000);
+            e.Property(x => x.Remediation).HasMaxLength(2000);
+            e.Property(x => x.DocumentReference).HasMaxLength(300);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.EstConcluante);
+        });
+
+        builder.Entity<DiagnosticSession>(e =>
+        {
+            e.ToTable("DiagnosticSessions");
+            e.HasIndex(x => new { x.EnvironmentId, x.CreatedAt });
+
+            e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            e.Property(x => x.EnvironmentCode).HasMaxLength(20);
+            e.Property(x => x.Reason).HasMaxLength(2000);
+            e.Property(x => x.TicketReference).HasMaxLength(100);
+            e.Property(x => x.RequestedBy).HasMaxLength(256).IsRequired();
+            e.Property(x => x.VerdictExplanation).HasMaxLength(4000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.HasBeenAnalysed);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<LogSource>(e =>
+        {
+            e.ToTable("LogSources");
+            e.HasIndex(x => x.SessionId);
+
+            e.Property(x => x.FileName).HasMaxLength(400).IsRequired();
+            e.Property(x => x.ResolvedPath).HasMaxLength(1000);
+            e.Property(x => x.ComponentName).HasMaxLength(150);
+            e.Property(x => x.HostName).HasMaxLength(255);
+            e.Property(x => x.Error).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.Succeeded);
+
+            e.HasOne(x => x.Session).WithMany(x => x.Sources)
+             .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<LogFinding>(e =>
+        {
+            e.ToTable("LogFindings");
+            e.HasIndex(x => x.SessionId);
+            e.HasIndex(x => x.SignatureCode);
+
+            e.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            e.Property(x => x.SignatureCode).HasMaxLength(60);
+
+            // SampleLine et Context sont DEJA MASQUES a l'ecriture : le service
+            // d'analyse ne persiste rien qui ne soit passe par le masqueur.
+            e.Property(x => x.SampleLine).HasMaxLength(1000);
+            e.Property(x => x.Context).HasMaxLength(4000);
+            e.Property(x => x.Meaning).HasMaxLength(2000);
+            e.Property(x => x.Remediation).HasMaxLength(2000);
+            e.Property(x => x.DocumentReference).HasMaxLength(300);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Session).WithMany(x => x.Findings)
+             .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+
+            // Pas de cascade depuis la source : la session porte deja la
+            // cascade, et SQL Server refuse deux chemins de suppression.
+            e.HasOne(x => x.Source).WithMany()
+             .HasForeignKey(x => x.SourceId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<DiagnosticHypothesis>(e =>
+        {
+            e.ToTable("DiagnosticHypotheses");
+            e.HasIndex(x => new { x.SessionId, x.Rank });
+
+            e.Property(x => x.Statement).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.Evidence).HasMaxLength(2000);
+            e.Property(x => x.Recommendation).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.EstEtablie);
+
+            e.HasOne(x => x.Session).WithMany(x => x.Hypotheses)
+             .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<ApplicationUser>(e =>

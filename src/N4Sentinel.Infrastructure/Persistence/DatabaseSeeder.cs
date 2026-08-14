@@ -31,6 +31,31 @@ public sealed class DatabaseSeeder(
         await SeedRolesAsync();
         await SeedFirstAdministratorAsync();
         await SeedTopologyDataAsync(cancellationToken);
+        await SeedDiagnosticSignaturesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Amorce le catalogue de signatures de diagnostic.
+    ///
+    /// N'ECRASE JAMAIS une signature existante : un exploitant qui a corrige
+    /// une expression reguliere parce qu'elle produisait des faux positifs sur
+    /// son site ne doit pas voir sa correction disparaitre au redemarrage.
+    /// </summary>
+    private async Task SeedDiagnosticSignaturesAsync(CancellationToken ct)
+    {
+        var codesExistants = await db.Signatures.Select(s => s.Code).ToListAsync(ct);
+
+        var aAjouter = Diagnostic.SignatureCatalogue.Livrees()
+            .Where(s => !codesExistants.Contains(s.Code))
+            .ToList();
+
+        if (aAjouter.Count == 0) return;
+
+        db.Signatures.AddRange(aAjouter);
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "{Nombre} signature(s) de diagnostic amorcée(s) depuis la documentation éditeur.", aAjouter.Count);
     }
 
     private async Task SeedRolesAsync()

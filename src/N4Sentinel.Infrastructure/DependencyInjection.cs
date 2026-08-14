@@ -120,6 +120,13 @@ public static class DependencyInjection
         services.AddSingleton<OrchestrationEngine>();
         services.AddHostedService<OrchestrationBackgroundService>();
 
+        // Diagnostic (sprint 6). Le masquage des secrets est statique et sans
+        // état : il n'a rien à enregistrer ici, mais tout ce qui écrit un
+        // fragment de journal doit passer par lui.
+        services.AddScoped<Diagnostic.SignatureCatalogue>();
+        services.AddScoped<Diagnostic.LogAnalysisService>();
+        services.AddScoped<Diagnostic.DiagnosticSessionService>();
+
         return services;
     }
 }
