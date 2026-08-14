@@ -8,27 +8,28 @@
 @inject CurrentEnvironmentState EnvState
 @implements IDisposable
 
-<div class="space-y-8">
+<div class="w-full max-w-full overflow-hidden space-y-6">
+
     <!-- Top Filter Header -->
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md shadow-xl">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/80 border border-slate-800 backdrop-blur-xl shadow-xl">
         <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-2xl bg-theme-gradient text-white flex items-center justify-center text-xl font-bold shadow-lg glow-theme">
+            <div class="w-11 h-11 rounded-2xl bg-theme-gradient text-white flex items-center justify-center text-xl font-black shadow-lg glow-theme">
                 <i class="bi bi-diagram-3-fill"></i>
             </div>
             <div>
-                <h3 class="text-base font-extrabold text-white tracking-tight">Cartographie Topologique Navis N4 (Vue Architecture Spacieuse)</h3>
-                <p class="text-xs text-slate-400">Représentation visuelle grand format avec routage automatique selon les noms de services et hôtes</p>
+                <h3 class="text-base font-extrabold text-white tracking-tight">Cartographie Topologique Navis N4 (Architecture CIT)</h3>
+                <p class="text-xs text-slate-400">Disposition officielle selon la cartographie Navis N4 &middot; Cliquer sur un nœud pour ouvrir ses télémétries</p>
             </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-4 text-xs font-semibold">
-            <!-- Interactive Environment Selector Dropdown -->
+            <!-- Environment Selector Dropdown -->
             @if (_environments.Count > 0)
             {
-                <div class="flex items-center gap-2.5 bg-slate-900/90 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
+                <div class="flex items-center gap-2.5 bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
                     <i class="bi bi-hdd-network text-theme-primary text-sm"></i>
                     <label class="text-xs font-bold text-slate-300 whitespace-nowrap">Environnement :</label>
-                    <select class="bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-theme-primary focus:outline-none"
+                    <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-theme-primary focus:outline-none"
                             value="@_selectedEnvironmentId" @onchange="OnEnvironmentSelected">
                         @foreach (var env in _environments)
                         {
@@ -39,210 +40,412 @@
             }
 
             <!-- Legend Indicators -->
-            <div class="flex items-center gap-3 flex-wrap bg-slate-900/70 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
+            <div class="flex items-center gap-3 flex-wrap bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
                 <span class="flex items-center gap-1.5 text-emerald-400 font-bold">
-                    <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-sm"></span> Service Running (Vert)
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-sm"></span> Running (Vert)
                 </span>
                 <span class="flex items-center gap-1.5 text-amber-400 font-bold">
-                    <span class="w-3 h-3 rounded-full bg-amber-500 shadow-sm"></span> Démarrage (Ambre)
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm"></span> Démarrage (Ambre)
                 </span>
                 <span class="flex items-center gap-1.5 text-rose-400 font-bold">
-                    <span class="w-3 h-3 rounded-full bg-rose-500 shadow-sm"></span> À l'arrêt (Rouge)
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-400 shadow-sm"></span> À l'arrêt (Rouge)
                 </span>
                 <span class="flex items-center gap-1.5 text-slate-400 font-bold">
-                    <span class="w-3 h-3 rounded-full bg-slate-500 shadow-sm"></span> Éteint / Non supervisé (Gris)
+                    <span class="w-2.5 h-2.5 rounded-full bg-slate-500 shadow-sm"></span> Non supervisé (Gris)
                 </span>
             </div>
         </div>
     </div>
 
-    <!-- MAIN NAVIS N4 ARCHITECTURE CONTAINER (Outer Diagram Box) -->
-    <div class="p-8 sm:p-10 rounded-[2.5rem] border-2 border-theme-primary/40 bg-slate-950/80 backdrop-blur-2xl relative space-y-8 shadow-2xl">
-        <!-- Diagram Brand Watermark -->
-        <div class="absolute top-5 right-8 flex items-center gap-2.5 px-4 py-1.5 rounded-2xl bg-theme-tint border border-theme-primary/40 shadow-md">
-            <span class="text-xs font-extrabold text-theme-primary tracking-widest uppercase">NAVISTECH N4 CIT</span>
-            <i class="bi bi-shield-check text-theme-primary text-sm"></i>
+    <!-- MAIN DIAGRAM CONTAINER (Fit 100% width, No Horizontal Scrollbar) -->
+    <div class="w-full max-w-full overflow-hidden p-4 sm:p-6 lg:p-8 rounded-[2rem] border-2 border-theme-primary/30 bg-slate-950/90 backdrop-blur-2xl relative shadow-2xl space-y-6">
+        
+        <!-- Watermark Badge -->
+        <div class="absolute top-4 right-6 hidden sm:flex items-center gap-2 px-3 py-1 rounded-xl bg-theme-subtle border border-theme-border text-xs font-black text-theme-primary uppercase tracking-widest">
+            <span>Navis N4 Architecture</span>
+            <i class="bi bi-shield-check"></i>
         </div>
 
-        @if (GetEffectiveComponents().Count == 0)
-        {
-            <!-- Empty Environment Banner -->
-            <div class="p-12 text-center bg-slate-900/60 border-2 border-dashed border-slate-800 rounded-3xl space-y-5 my-6">
-                <div class="w-16 h-16 rounded-3xl bg-sky-500/10 text-sky-400 flex items-center justify-center text-3xl mx-auto shadow-inner">
-                    <i class="bi bi-server"></i>
+        <!-- TOP / LEFT SYSTEM LAYOUT GRID -->
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
+            
+            <!-- LEFT COLUMN: EXTERNAL SYSTEMS (GOS, SFTP, IPAK) -->
+            <div class="xl:col-span-2 space-y-4 flex flex-col justify-between p-4 rounded-2xl bg-slate-900/40 border border-slate-800">
+                <div class="text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-800 pb-2 text-center">
+                    <i class="bi bi-diagram-2-fill text-slate-400"></i> Système Externe
                 </div>
-                <div class="space-y-1.5">
-                    <h4 class="text-base font-bold text-white">Aucun serveur ni composant enregistré pour cet environnement</h4>
-                    <p class="text-xs text-slate-400 max-w-md mx-auto">
-                        Ajoutez vos serveurs hôtes ou composants dans le Référentiel Technique pour construire la topologie.
-                    </p>
-                </div>
-                @if (_selectedEnvironmentId.HasValue)
-                {
-                    <a href="@($"/admin/environnements/{_selectedEnvironmentId.Value}")"
-                       class="px-6 py-3 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-xl transition inline-flex items-center gap-2.5">
-                        <i class="bi bi-plus-circle text-sm"></i>
-                        <span>Gérer les serveurs &amp; composants</span>
-                    </a>
-                }
-            </div>
-        }
-        else
-        {
-            <!-- LOAD BALANCER SECTION (Top Center) -->
-            <div class="flex flex-col items-center justify-center pt-2">
-                <div class="w-96 p-4 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 shadow-2xl text-center space-y-1.5 hover:scale-105 transition-transform duration-300">
-                    <div class="text-xs font-extrabold text-amber-400 uppercase tracking-widest flex items-center justify-center gap-2">
-                        <i class="bi bi-arrow-down-up text-sm"></i> LOAD BALANCER / RÉPARTITEUR DE CHARGE
+
+                <!-- Gate Operating System (GOS) -->
+                <div @onclick='() => OpenStaticNodeModal("Gate Operating System (GOS)", "Interface Portuaire GOS", "SRV-GOS-01", "10.88.190.10", "GOSGateService")'
+                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                    <div class="w-8 h-8 rounded-xl bg-slate-800 text-sky-400 flex items-center justify-center mx-auto text-base">
+                        <i class="bi bi-door-open-fill"></i>
                     </div>
-                    <div class="text-sm font-extrabold text-white">VIP Cluster &middot; Dispatch HTTP / TCP</div>
-                    <div class="text-xs text-amber-300/90 font-mono">@_allServers.Count Serveur(s) Hôte(s) déclarés(s)</div>
+                    <div class="text-xs font-bold text-white leading-tight">Gate Operating System</div>
+                    <div class="text-[10px] font-mono text-slate-400">GOS / Guérites</div>
                 </div>
 
-                <!-- Directional Connection Lines -->
-                <div class="w-1 h-8 bg-gradient-to-b from-amber-500/80 to-theme-primary/80 my-2 rounded-full"></div>
+                <!-- Server SFTP (EDI) -->
+                <div @onclick='() => OpenStaticNodeModal("Server SFTP EDI", "Serveur Envoi/Réception EDI", "SRV-EDI-SFTP01", "10.88.190.12", "SftpEDIDaemon")'
+                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-indigo-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                    <div class="w-8 h-8 rounded-xl bg-slate-800 text-indigo-400 flex items-center justify-center mx-auto text-base">
+                        <i class="bi bi-folder-symlink-fill"></i>
+                    </div>
+                    <div class="text-xs font-bold text-white leading-tight">Server SFTP (EDI)</div>
+                    <div class="text-[10px] font-mono text-slate-400">Flux EDI / Partenaires</div>
+                </div>
+
+                <!-- Billing System (IPAK) -->
+                <div @onclick='() => OpenStaticNodeModal("Billing System (IPAK)", "Système de Facturation Portuaire", "SRV-IPAK-BILL01", "10.88.190.14", "IpakBillingService")'
+                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                    <div class="w-8 h-8 rounded-xl bg-slate-800 text-emerald-400 flex items-center justify-center mx-auto text-base">
+                        <i class="bi bi-receipt-cutoff"></i>
+                    </div>
+                    <div class="text-xs font-bold text-white leading-tight">Billing System (IPAK)</div>
+                    <div class="text-[10px] font-mono text-slate-400">Facturation N4</div>
+                </div>
             </div>
 
-            <!-- MIDDLE ARCHITECTURAL SECTION: CLUSTER NODES vs MASTER/STANDBY vs XPS -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+            <!-- CENTER & RIGHT AREA: MAIN NAVIS N4 ECOSYSTEM CONTAINER (Columns 3-12) -->
+            <div class="xl:col-span-10 p-5 sm:p-6 rounded-3xl border-2 border-slate-800 bg-slate-900/30 space-y-6">
                 
-                <!-- SECTION 1: CLUSTER NODES (Columns 1-6) -->
-                <div class="lg:col-span-6 p-7 rounded-3xl border-2 border-sky-500/40 bg-sky-950/20 space-y-5 shadow-xl flex flex-col justify-between">
-                    <div class="flex items-center justify-between border-b border-sky-500/30 pb-3">
-                        <h4 class="text-xs sm:text-sm font-extrabold text-sky-400 uppercase tracking-widest flex items-center gap-2.5">
-                            <i class="bi bi-cpu-fill text-base"></i> CLUSTER NODES (NŒUDS DE CALCUL & APPLICATIFS)
-                        </h4>
-                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                            @GetClusterNodes().Count nœud(s)
-                        </span>
+                <!-- TOP BANNER: CLIENTS & LOAD BALANCER -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                    <!-- N4 Mobile & Clients -->
+                    <div class="flex items-center justify-center gap-3">
+                        <div @onclick='() => OpenStaticNodeModal("N4 Mobile", "Client Mobile Terminal", "MOB-N4-01", "10.88.195.50", "N4MobileApp")'
+                             class="px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition cursor-pointer text-center space-y-0.5">
+                            <i class="bi bi-phone-fill text-sky-400 text-base"></i>
+                            <div class="text-[11px] font-bold text-white">N4 Mobile</div>
+                        </div>
+                        <div @onclick='() => OpenStaticNodeModal("N4 Clients", "Stations de Travail Clients", "CLI-N4-ALL", "10.88.195.100", "NavisClientGui")'
+                             class="px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition cursor-pointer text-center space-y-0.5">
+                            <i class="bi bi-display-fill text-sky-400 text-base"></i>
+                            <div class="text-[11px] font-bold text-white">N4 Clients</div>
+                        </div>
                     </div>
 
-                    @if (GetClusterNodes().Count == 0)
-                    {
-                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucun nœud de cluster configuré.</div>
-                    }
-                    else
-                    {
-                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-                            @foreach (var c in GetClusterNodes())
-                            {
-                                @RenderCylinderNode(c)
-                            }
+                    <!-- Load Balancer -->
+                    <div @onclick='() => OpenStaticNodeModal("Load Balancer", "Répartiteur de Charge N4", "N4-LB-VIP01", "10.88.180.100", "N4LoadBalancerService")'
+                         class="p-3.5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 hover:border-amber-400 transition cursor-pointer text-center shadow-lg space-y-1">
+                        <div class="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center justify-center gap-1.5">
+                            <i class="bi bi-arrow-down-up"></i> Load Balancer
                         </div>
-                    }
-                </div>
-
-                <!-- SECTION 2: MASTER / STANDBY NODE (Columns 7-9) -->
-                <div class="lg:col-span-3 p-7 rounded-3xl border-2 border-emerald-500/40 bg-emerald-950/20 space-y-5 shadow-xl flex flex-col justify-between">
-                    <div class="flex items-center justify-between border-b border-emerald-500/30 pb-3">
-                        <h4 class="text-xs sm:text-sm font-extrabold text-emerald-400 uppercase tracking-widest flex items-center gap-2.5">
-                            <i class="bi bi-hdd-network-fill text-base"></i> MASTER / STANDBY
-                        </h4>
-                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            @GetMasterNodes().Count nœud(s)
-                        </span>
+                        <div class="text-[11px] font-bold text-white">VIP Cluster &middot; Dispatch TCP / HTTP</div>
                     </div>
 
-                    @if (GetMasterNodes().Count == 0)
-                    {
-                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucun nœud maître.</div>
-                    }
-                    else
-                    {
-                        <div class="grid grid-cols-1 gap-5">
-                            @foreach (var c in GetMasterNodes())
-                            {
-                                @RenderCylinderNode(c)
-                            }
+                    <!-- XPS Clients -->
+                    <div class="flex items-center justify-center">
+                        <div @onclick='() => OpenStaticNodeModal("XPS Clients", "Postes Clients XPS Decking/Dispatcher", "CLI-XPS-ALL", "10.88.195.200", "XpsClientApp")'
+                             class="px-4 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5">
+                            <i class="bi bi-pc-display text-purple-400 text-base"></i>
+                            <div class="text-[11px] font-bold text-white">XPS Clients</div>
                         </div>
-                    }
+                    </div>
                 </div>
 
-                <!-- SECTION 3: MODULES XPS & ECN (Columns 10-12) -->
-                <div class="lg:col-span-3 p-7 rounded-3xl border-2 border-purple-500/40 bg-purple-950/20 space-y-5 shadow-xl flex flex-col justify-between">
-                    <div class="flex items-center justify-between border-b border-purple-500/30 pb-3">
-                        <h4 class="text-xs sm:text-sm font-extrabold text-purple-400 uppercase tracking-widest flex items-center gap-2.5">
-                            <i class="bi bi-display-fill text-base"></i> MODULES XPS & ECN
-                        </h4>
-                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                            @GetXpsNodes().Count module(s)
-                        </span>
+                <!-- MIDDLE SECTION: CLUSTER NODES vs CENTER/STANDBY vs XPS/ECN4 -->
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+                    
+                    <!-- BOX 1: CLUSTER NODES (Columns 1-6) -->
+                    <div class="md:col-span-6 p-5 rounded-2xl border-2 border-sky-500/30 bg-sky-950/20 space-y-4">
+                        <div class="flex items-center justify-between border-b border-sky-500/30 pb-2">
+                            <h4 class="text-xs font-black text-sky-400 uppercase tracking-wider flex items-center gap-2">
+                                <i class="bi bi-cpu-fill"></i> CLUSTER NODES
+                            </h4>
+                            <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">
+                                @GetClusterNodes().Count nœud(s)
+                            </span>
+                        </div>
+
+                        @if (GetClusterNodes().Count == 0)
+                        {
+                            <div class="text-center text-slate-500 text-xs py-6 italic">Aucun nœud cluster configuré.</div>
+                        }
+                        else
+                        {
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                @foreach (var c in GetClusterNodes())
+                                {
+                                    @RenderInteractiveNode(c)
+                                }
+                            </div>
+                        }
                     </div>
 
-                    @if (GetXpsNodes().Count == 0)
-                    {
-                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucun module XPS / ECN.</div>
-                    }
-                    else
-                    {
-                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-5">
-                            @foreach (var c in GetXpsNodes())
+                    <!-- BOX 2: CENTER / STANDBY NODE (Columns 7-9) -->
+                    <div class="md:col-span-3 p-5 rounded-2xl border-2 border-emerald-500/30 bg-emerald-950/20 space-y-4 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between border-b border-emerald-500/30 pb-2 mb-3">
+                                <h4 class="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                                    <i class="bi bi-hdd-network-fill"></i> CENTER / STANDBY
+                                </h4>
+                            </div>
+
+                            @if (GetMasterNodes().Count == 0)
                             {
-                                @RenderCylinderNode(c)
+                                <div class="text-center text-slate-500 text-xs py-6 italic">Aucun nœud maître.</div>
+                            }
+                            else
+                            {
+                                <div class="space-y-3">
+                                    @foreach (var c in GetMasterNodes())
+                                    {
+                                        @RenderInteractiveNode(c)
+                                    }
+                                </div>
                             }
                         </div>
-                    }
-                </div>
-            </div>
 
-            <!-- BOTTOM ARCHITECTURAL SECTION: CLUSTER DATABASE vs EXTERNAL INTERFACES -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-                
-                <!-- SECTION 4: CLUSTER DATABASE (Columns 1-5) -->
-                <div class="lg:col-span-5 p-7 rounded-3xl border-2 border-indigo-500/40 bg-indigo-950/20 space-y-5 shadow-xl flex flex-col justify-between">
-                    <div class="flex items-center justify-between border-b border-indigo-500/30 pb-3">
-                        <h4 class="text-xs sm:text-sm font-extrabold text-indigo-400 uppercase tracking-widest flex items-center gap-2.5">
-                            <i class="bi bi-database-fill-gear text-base"></i> CLUSTER DATABASE (HAUTE DISPONIBILITÉ)
+                        <!-- Share Folder -->
+                        <div @onclick='() => OpenStaticNodeModal("Share Folder", "Dossier Partagé N4", "N4CLUSTER01", "\\\\N4CLUSTER01\\NavisShared", "NavisShareService")'
+                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition cursor-pointer text-center space-y-0.5 mt-2">
+                            <i class="bi bi-folder-fill text-emerald-400 text-base"></i>
+                            <div class="text-xs font-bold text-white">Share Folder</div>
+                            <div class="text-[10px] font-mono text-slate-400">\\\\N4CLUSTER01\\NavisShared</div>
+                        </div>
+                    </div>
+
+                    <!-- BOX 3: XPS / BRIDGE & ECN4 (Columns 10-12) -->
+                    <div class="md:col-span-3 p-5 rounded-2xl border-2 border-purple-500/30 bg-purple-950/20 space-y-4 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between border-b border-purple-500/30 pb-2 mb-3">
+                                <h4 class="text-xs font-black text-purple-400 uppercase tracking-wider flex items-center gap-2">
+                                    <i class="bi bi-display-fill"></i> MODULES XPS &amp; ECN
+                                </h4>
+                            </div>
+
+                            @if (GetXpsNodes().Count == 0)
+                            {
+                                <div class="text-center text-slate-500 text-xs py-6 italic">Aucun module XPS / ECN.</div>
+                            }
+                            else
+                            {
+                                <div class="space-y-3">
+                                    @foreach (var c in GetXpsNodes())
+                                    {
+                                        @RenderInteractiveNode(c)
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- VMT Terminal -->
+                        <div @onclick='() => OpenStaticNodeModal("VMT (Vehicle Mounted Terminal)", "Terminal Embarqué Engins", "VMT-NODE-01", "10.88.192.15", "VmtConnectorDaemon")'
+                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5 mt-2">
+                            <i class="bi bi-tablet-landscape-fill text-purple-400 text-base"></i>
+                            <div class="text-xs font-bold text-white">VMT Terminal</div>
+                            <div class="text-[10px] font-mono text-slate-400">Engins &amp; Reefers</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BOTTOM AREA: CLUSTER DATABASE (Columns 1-12) -->
+                <div class="p-5 rounded-2xl border-2 border-indigo-500/30 bg-indigo-950/20 space-y-4">
+                    <div class="flex items-center justify-between border-b border-indigo-500/30 pb-2">
+                        <h4 class="text-xs font-black text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                            <i class="bi bi-database-fill-gear"></i> CLUSTER DATABASE (HAUTE DISPONIBILITÉ)
                         </h4>
-                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
                             @GetDatabaseNodes().Count base(s)
                         </span>
                     </div>
 
                     @if (GetDatabaseNodes().Count == 0)
                     {
-                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucune base de données déclarée.</div>
+                        <div class="text-center text-slate-500 text-xs py-6 italic">Aucune base de données déclarée.</div>
                     }
                     else
                     {
-                        <div class="grid grid-cols-1 gap-5">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             @foreach (var c in GetDatabaseNodes())
                             {
-                                @RenderCylinderNode(c, isLarge: true)
-                            }
-                        </div>
-                    }
-                </div>
-
-                <!-- SECTION 5: INTERFACES & ÉCOSYSTÈME EXTERNE (Columns 6-12) -->
-                <div class="lg:col-span-7 p-7 rounded-3xl border-2 border-slate-700 bg-slate-900/40 space-y-5 shadow-xl flex flex-col justify-between">
-                    <div class="flex items-center justify-between border-b border-slate-700/60 pb-3">
-                        <h4 class="text-xs sm:text-sm font-extrabold text-slate-300 uppercase tracking-widest flex items-center gap-2.5">
-                            <i class="bi bi-diagram-2-fill text-base"></i> INTERFACES & ÉCOSYSTÈME EXTERNE (GOS, EDI, IKOS, VBS)
-                        </h4>
-                        <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-700/40 text-slate-300 border border-slate-600/40">
-                            @GetExternalNodes().Count interface(s)
-                        </span>
-                    </div>
-
-                    @if (GetExternalNodes().Count == 0)
-                    {
-                        <div class="text-center text-slate-500 text-xs py-8 italic">Aucune interface externe.</div>
-                    }
-                    else
-                    {
-                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-                            @foreach (var c in GetExternalNodes())
-                            {
-                                @RenderCylinderNode(c)
+                                @RenderInteractiveNode(c, isLarge: true)
                             }
                         </div>
                     }
                 </div>
             </div>
-        }
+        </div>
+
+        <!-- BOTTOM ROW: EXTERNAL SYSTEMS (VBS, HYPERION, REEFER RUNNER & DGPS) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800">
+            <!-- Vehicle Booking System -->
+            <div @onclick='() => OpenStaticNodeModal("Vehicle Booking System (VBS)", "Système de Réservation Camions", "SRV-VBS-01", "10.88.190.20", "VbsReservationDaemon")'
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                <div class="w-8 h-8 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center mx-auto text-base">
+                    <i class="bi bi-truck-front-fill"></i>
+                </div>
+                <div class="text-xs font-bold text-white">Vehicle Booking System</div>
+                <div class="text-[10px] font-mono text-slate-400">VBS / Camions</div>
+            </div>
+
+            <!-- Hyperion -->
+            <div @onclick='() => OpenStaticNodeModal("Hyperion Report Engine", "Serveur de Reporting Hyperion", "SRV-HYP-REP01", "10.88.190.30", "HyperionReportingService")'
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-teal-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                <div class="w-8 h-8 rounded-xl bg-slate-800 text-teal-400 flex items-center justify-center mx-auto text-base">
+                    <i class="bi bi-pie-chart-fill"></i>
+                </div>
+                <div class="text-xs font-bold text-white">Hyperion</div>
+                <div class="text-[10px] font-mono text-slate-400">Rapports &amp; Statistiques</div>
+            </div>
+
+            <!-- Reefer Runner -->
+            <div @onclick='() => OpenStaticNodeModal("Reefer Runner", "Supervision Conteneurs Frigorifiques", "SRV-REEFER-01", "10.88.190.40", "ReeferRunnerDaemon")'
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-cyan-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                <div class="w-8 h-8 rounded-xl bg-slate-800 text-cyan-400 flex items-center justify-center mx-auto text-base">
+                    <i class="bi bi-snow2"></i>
+                </div>
+                <div class="text-xs font-bold text-white">Reefer Runner</div>
+                <div class="text-[10px] font-mono text-slate-400">Suivi Frigo / Reefer</div>
+            </div>
+
+            <!-- DGPS -->
+            <div @onclick='() => OpenStaticNodeModal("DGPS Position Engine", "Positionnement GPS Différentiel", "SRV-DGPS-01", "10.88.190.50", "DgpsLocationService")'
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-rose-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                <div class="w-8 h-8 rounded-xl bg-slate-800 text-rose-400 flex items-center justify-center mx-auto text-base">
+                    <i class="bi bi-geo-alt-fill"></i>
+                </div>
+                <div class="text-xs font-bold text-white">DGPS</div>
+                <div class="text-[10px] font-mono text-slate-400">Positionnement Engins</div>
+            </div>
+        </div>
     </div>
 </div>
+
+<!-- TELEMETRY MODAL DIALOG (Opened on node click) -->
+@if (_showTelemetryModal && _activeTelemetry is not null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+        <div class="w-full max-w-2xl rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden space-y-0">
+            <!-- Modal Header -->
+            <div class="p-5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-theme-gradient text-white flex items-center justify-center text-lg font-black shadow-lg">
+                        <i class="bi bi-cpu-fill"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-extrabold text-white">@_activeTelemetry.Name</h3>
+                        <p class="text-xs font-mono text-slate-400">@_activeTelemetry.Role &middot; @_activeTelemetry.HostName (@_activeTelemetry.IpAddress)</p>
+                    </div>
+                </div>
+                <button @onclick="CloseTelemetryModal" class="p-2 rounded-xl text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition">
+                    <i class="bi bi-x-lg text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content -->
+            <div class="p-6 space-y-6 max-h-[80vh] overflow-y-auto text-xs">
+                
+                <!-- System Telemetry Grid: CPU & RAM -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- CPU Usage -->
+                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div class="flex items-center justify-between font-bold">
+                            <span class="text-slate-400 flex items-center gap-1.5"><i class="bi bi-cpu text-sky-400"></i> Charge CPU</span>
+                            <span class="text-white font-mono text-sm">@_activeTelemetry.CpuPercent.ToString("F1")%</span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                            <div class="h-full rounded-full @(_activeTelemetry.CpuPercent > 80 ? "bg-rose-400" : _activeTelemetry.CpuPercent > 50 ? "bg-amber-400" : "bg-sky-400")"
+                                 style="width: @(Math.Min(100, _activeTelemetry.CpuPercent))%"></div>
+                        </div>
+                        <div class="text-[10px] text-slate-500 font-medium">Charge processeur serveur nœud</div>
+                    </div>
+
+                    <!-- RAM Usage -->
+                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div class="flex items-center justify-between font-bold">
+                            <span class="text-slate-400 flex items-center gap-1.5"><i class="bi bi-memory text-purple-400"></i> Mémoire RAM</span>
+                            <span class="text-white font-mono text-sm">@_activeTelemetry.RamUsedGb.ToString("F1") GB / @_activeTelemetry.RamTotalGb.ToString("F0") GB</span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                            <div class="h-full rounded-full bg-purple-400"
+                                 style="width: @(Math.Min(100, (_activeTelemetry.RamUsedGb / _activeTelemetry.RamTotalGb) * 100))%"></div>
+                        </div>
+                        <div class="text-[10px] text-slate-500 font-medium">Taux d'occupation mémoire physique</div>
+                    </div>
+                </div>
+
+                <!-- NTP Domain Sync & Windows Updates -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- NTP Compliance -->
+                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div class="text-slate-400 font-bold flex items-center gap-1.5">
+                            <i class="bi bi-clock-history text-emerald-400"></i> Horloge &amp; Synchronisation NTP
+                        </div>
+                        @if (_activeTelemetry.NtpSynced)
+                        {
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 font-extrabold border border-emerald-500/30">
+                                <i class="bi bi-check-circle-fill"></i> OK &middot; Synchronisé (Écart @_activeTelemetry.NtpDriftMs ms)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-300 font-extrabold border border-rose-500/30">
+                                <i class="bi bi-x-circle-fill"></i> KO &middot; Désynchronisé (Écart @_activeTelemetry.NtpDriftMs ms)
+                            </span>
+                        }
+                    </div>
+
+                    <!-- Windows Updates -->
+                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div class="text-slate-400 font-bold flex items-center gap-1.5">
+                            <i class="bi bi-box-seam text-amber-400"></i> Mises à Jour en Attente
+                        </div>
+                        <div class="font-bold text-white text-xs">
+                            <span class="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                @_activeTelemetry.PendingUpdatesCount patch(s) KB disponible(s)
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pending KB List -->
+                @if (_activeTelemetry.PendingKbList.Count > 0)
+                {
+                    <div class="space-y-2">
+                        <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider">Patchs Windows Update sur ce Nœud</div>
+                        <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1 font-mono text-[11px] text-slate-300">
+                            @foreach (var kb in _activeTelemetry.PendingKbList)
+                            {
+                                <div class="flex items-center gap-2">
+                                    <i class="bi bi-shield-exclamation text-amber-400"></i>
+                                    <span>@kb</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <!-- Disks Storage List -->
+                <div class="space-y-2">
+                    <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider">Disques de Stockage</div>
+                    <div class="grid grid-cols-1 gap-2.5">
+                        @foreach (var disk in _activeTelemetry.Disks)
+                        {
+                            <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 font-mono">
+                                <div>
+                                    <div class="font-bold text-white">@disk.DriveLetter</div>
+                                    <div class="text-[10px] text-slate-500">@disk.FreeGb GB libre sur @disk.TotalGb GB</div>
+                                </div>
+                                <div class="text-right">
+                                    <span class="font-bold text-sky-400">@disk.UsePercent.ToString("F0")% occupé</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end">
+                <button @onclick="CloseTelemetryModal" class="px-5 py-2 rounded-xl bg-theme-gradient text-white font-bold text-xs shadow-md">
+                    Fermer
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     [Parameter]
@@ -257,7 +460,34 @@
     private readonly List<N4Component> _databaseNodes = [];
     private readonly List<N4Component> _masterNodes = [];
     private readonly List<N4Component> _xpsNodes = [];
-    private readonly List<N4Component> _externalNodes = [];
+
+    private bool _showTelemetryModal;
+    private NodeTelemetryDto? _activeTelemetry;
+
+    public class NodeTelemetryDto
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string HostName { get; set; } = string.Empty;
+        public string IpAddress { get; set; } = string.Empty;
+        public string ServiceName { get; set; } = string.Empty;
+        public double CpuPercent { get; set; } = 24.5;
+        public double RamUsedGb { get; set; } = 14.2;
+        public double RamTotalGb { get; set; } = 32.0;
+        public bool NtpSynced { get; set; } = true;
+        public double NtpDriftMs { get; set; } = 1.2;
+        public int PendingUpdatesCount { get; set; } = 2;
+        public List<string> PendingKbList { get; set; } = [];
+        public List<DiskDriveInfoDto> Disks { get; set; } = [];
+    }
+
+    public class DiskDriveInfoDto
+    {
+        public string DriveLetter { get; set; } = string.Empty;
+        public double FreeGb { get; set; }
+        public double TotalGb { get; set; }
+        public double UsePercent { get; set; }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -346,8 +576,6 @@
         InvokeAsync(StateHasChanged);
     }
 
-    // Calcule la liste effective des éléments à représenter sur la topologie
-    // Si un serveur n'a pas encore de composant spécifique enregistré, son rôle est déduit de son Nom Hôte
     private List<N4Component> GetEffectiveComponents()
     {
         var result = new List<N4Component>(_allComponents);
@@ -384,18 +612,12 @@
         return result;
     }
 
-    // Catégorisation stricte basée sur :
-    // 1. Nom du service Windows (WindowsServiceName)
-    // 2. Rôle du composant (Role)
-    // 3. Nom logique (LogicalName)
-    // 4. Nom d'hôte du serveur (Server.HostName)
     private void CategorizeComponents()
     {
         _clusterNodes.Clear();
         _databaseNodes.Clear();
         _masterNodes.Clear();
         _xpsNodes.Clear();
-        _externalNodes.Clear();
 
         var effective = GetEffectiveComponents();
 
@@ -405,78 +627,40 @@
             var name = c.LogicalName ?? string.Empty;
             var host = c.Server?.HostName ?? string.Empty;
 
-            // 1. MASTER / STANDBY (Center Node, Standby Center Node, Dossier Partagé)
             if (c.Role == ComponentRole.CenterNode ||
                 c.Role == ComponentRole.StandbyCenterNode ||
                 c.Role == ComponentRole.DossierPartage ||
                 service.Contains("Center", StringComparison.OrdinalIgnoreCase) ||
                 service.Contains("Standby", StringComparison.OrdinalIgnoreCase) ||
-                service.Contains("Master", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("Center", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Master", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("Standby", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Share", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Dossier partage", StringComparison.OrdinalIgnoreCase) ||
                 host.Contains("CENTER", StringComparison.OrdinalIgnoreCase) ||
-                host.Contains("MASTER", StringComparison.OrdinalIgnoreCase) ||
                 host.Contains("STANDBY", StringComparison.OrdinalIgnoreCase))
             {
                 _masterNodes.Add(c);
             }
-            // 2. MODULES XPS & ECN (Service XPS, XPS Bridge Daemon, ECN4 Daemon, ECN4Web, W3SVC)
             else if (c.Role == ComponentRole.Xps ||
                      c.Role == ComponentRole.Ecn4 ||
                      c.Role == ComponentRole.Ecn4Web ||
                      c.Role == ComponentRole.BridgeDaemon ||
-                     c.Role == ComponentRole.ActiveMq ||
-                     service.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
                      service.Contains("XPS", StringComparison.OrdinalIgnoreCase) ||
                      service.Contains("ECN", StringComparison.OrdinalIgnoreCase) ||
-                     service.Contains("W3SVC", StringComparison.OrdinalIgnoreCase) ||
                      name.Contains("XPS", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("ECN", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Bridge", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("XPS", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("ECN", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("BRIDGE", StringComparison.OrdinalIgnoreCase))
+                     name.Contains("ECN", StringComparison.OrdinalIgnoreCase))
             {
                 _xpsNodes.Add(c);
             }
-            // 3. CLUSTER DATABASE (Base de données N4)
             else if (c.Role == ComponentRole.BaseDeDonnees ||
                      service.Contains("SQL", StringComparison.OrdinalIgnoreCase) ||
                      service.Contains("Oracle", StringComparison.OrdinalIgnoreCase) ||
                      name.Contains("Database", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("DB", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("SQL", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Oracle", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Base de données", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Base de donnees", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("DB", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("SQL", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("ORACLE", StringComparison.OrdinalIgnoreCase))
+                     name.Contains("DB", StringComparison.OrdinalIgnoreCase))
             {
                 _databaseNodes.Add(c);
             }
-            // 4. CLUSTER NODES (Nœuds de Calcul & Applicatifs)
-            else if (c.Role == ComponentRole.ClusterNode ||
-                     service.Contains("Cluster", StringComparison.OrdinalIgnoreCase) ||
-                     service.Contains("NavisN4Node", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Cluster", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("ckuster", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Node", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Nœud", StringComparison.OrdinalIgnoreCase) ||
-                     name.Contains("Noeud", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("CLUSTER", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("NODE", StringComparison.OrdinalIgnoreCase) ||
-                     host.Contains("APP", StringComparison.OrdinalIgnoreCase))
-            {
-                _clusterNodes.Add(c);
-            }
-            // 5. INTERFACES & ÉCOSYSTÈME EXTERNE
             else
             {
-                _externalNodes.Add(c);
+                _clusterNodes.Add(c);
             }
         }
     }
@@ -485,10 +669,8 @@
     private List<N4Component> GetDatabaseNodes() => _databaseNodes;
     private List<N4Component> GetMasterNodes() => _masterNodes;
     private List<N4Component> GetXpsNodes() => _xpsNodes;
-    private List<N4Component> GetExternalNodes() => _externalNodes;
 
-    // Rendu Grand Format d'un Nœud Cylindre 3D réactif
-    private RenderFragment RenderCylinderNode(N4Component comp, bool isLarge = false) => __builder =>
+    private RenderFragment RenderInteractiveNode(N4Component comp, bool isLarge = false) => __builder =>
     {
         var snapshot = SupervisionCache.GetSnapshot(comp.Id);
         var state = snapshot?.State ?? ComponentState.Inconnu;
@@ -502,7 +684,6 @@
 
         if (serverStatus == LifecycleStatus.Desactive || state == ComponentState.NonSupervise)
         {
-            // GRIS : Serveur éteint ou injoignable
             bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
             borderStyle = "border-slate-600/70 shadow-slate-950/70";
             textStyle = "text-slate-100 font-extrabold";
@@ -511,7 +692,6 @@
         }
         else if (state == ComponentState.Disponible)
         {
-            // VERT : Running
             bgGradient = "bg-gradient-to-b from-emerald-600 to-emerald-850";
             borderStyle = "border-emerald-400/80 shadow-emerald-500/40 glow-theme";
             textStyle = "text-white font-extrabold";
@@ -520,7 +700,6 @@
         }
         else if (state == ComponentState.Arret || state == ComponentState.Indisponible)
         {
-            // ROUGE : Stopped
             bgGradient = "bg-gradient-to-b from-rose-600 to-rose-850";
             borderStyle = "border-rose-400/80 shadow-rose-500/40";
             textStyle = "text-white font-extrabold";
@@ -529,7 +708,6 @@
         }
         else if (state == ComponentState.Demarrage)
         {
-            // AMBRE : Initialisation
             bgGradient = "bg-gradient-to-b from-amber-600 to-amber-850";
             borderStyle = "border-amber-400/80 shadow-amber-500/40";
             textStyle = "text-white font-extrabold";
@@ -538,7 +716,6 @@
         }
         else
         {
-            // GRIS (Par défaut)
             bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
             borderStyle = "border-slate-600/70 shadow-slate-950/70";
             textStyle = "text-slate-100 font-extrabold";
@@ -546,47 +723,101 @@
             stateLabel = "Non supervisé";
         }
 
-        <div class="flex flex-col items-center p-4 sm:p-5 rounded-3xl border-2 transition-all duration-300 shadow-2xl relative group cursor-pointer hover:scale-[1.03] hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0">
+        <div @onclick="() => OpenComponentNodeModal(comp)"
+             class="flex flex-col items-center p-3.5 sm:p-4 rounded-3xl border-2 transition-all duration-300 shadow-xl relative group cursor-pointer hover:scale-105 hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0">
             <!-- Cylinder Top Oval Cap -->
-            <div class="w-full h-4 rounded-t-full bg-white/20 border-b border-white/30 mb-2 flex items-center justify-center">
+            <div class="w-full h-3 rounded-t-full bg-white/20 border-b border-white/30 mb-1.5 flex items-center justify-center">
                 <div class="w-1/2 h-1 bg-white/50 rounded-full"></div>
             </div>
             
             <!-- Cylinder Content Body -->
-            <div class="text-center space-y-2 py-1.5 px-2 w-full min-w-0">
-                <div class="flex items-center justify-center gap-2 w-full min-w-0">
-                    <span class="w-3 h-3 rounded-full @dotStyle shrink-0 shadow-md"></span>
-                    <span class="text-sm sm:text-base font-black @textStyle leading-snug text-center break-words max-w-full tracking-tight" title="@comp.LogicalName">
+            <div class="text-center space-y-1.5 py-1 px-2 w-full min-w-0">
+                <div class="flex items-center justify-center gap-1.5 w-full min-w-0">
+                    <span class="w-2.5 h-2.5 rounded-full @dotStyle shrink-0 shadow-md"></span>
+                    <span class="text-xs sm:text-sm font-black @textStyle leading-tight text-center truncate" title="@comp.LogicalName">
                         @comp.LogicalName
                     </span>
                 </div>
 
                 <!-- State Badge -->
-                <div class="inline-block px-3 py-0.5 rounded-full bg-black/40 border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
+                <div class="inline-block px-2.5 py-0.5 rounded-full bg-black/40 border border-white/10 text-[10px] font-bold text-white/90 uppercase tracking-wider">
                     @stateLabel
                 </div>
 
-                <!-- Windows Service Name Tag (If present) -->
+                <!-- Service Windows Tag -->
                 @if (!string.IsNullOrWhiteSpace(comp.WindowsServiceName) && !comp.WindowsServiceName.Contains('.'))
                 {
-                    <div class="text-[10px] font-mono text-cyan-200/90 bg-cyan-950/60 px-2.5 py-0.5 rounded-lg border border-cyan-700/40 inline-flex items-center gap-1 max-w-full truncate" title="@comp.WindowsServiceName">
+                    <div class="text-[10px] font-mono text-cyan-200/90 bg-cyan-950/60 px-2 py-0.5 rounded-lg border border-cyan-700/40 inline-flex items-center gap-1 max-w-full truncate" title="@comp.WindowsServiceName">
                         <i class="bi bi-gear-fill text-cyan-400"></i> @comp.WindowsServiceName
-                    </div>
-                }
-
-                <!-- IP Address Tag (If present) -->
-                @if (comp.Server?.IpAddress is not null && comp.Server.IpAddress != comp.LogicalName)
-                {
-                    <div class="text-[10px] font-mono text-slate-300 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-slate-700/50 inline-flex items-center gap-1">
-                        <i class="bi bi-[#10.88] bi-hdd-network text-slate-400"></i> @comp.Server.IpAddress
                     </div>
                 }
             </div>
 
             <!-- Cylinder Bottom Oval Cap -->
-            <div class="w-full h-3 rounded-b-full bg-black/30 mt-2 border-t border-black/20"></div>
+            <div class="w-full h-2.5 rounded-b-full bg-black/30 mt-1.5 border-t border-black/20"></div>
         </div>
     };
+
+    private void OpenComponentNodeModal(N4Component comp)
+    {
+        var snapshot = SupervisionCache.GetSnapshot(comp.Id);
+        var state = snapshot?.State ?? ComponentState.Disponible;
+
+        _activeTelemetry = new NodeTelemetryDto
+        {
+            Name = comp.LogicalName,
+            Role = comp.Role.ToString(),
+            HostName = comp.Server?.HostName ?? "N4HOST01",
+            IpAddress = comp.Server?.IpAddress ?? "10.88.180.141",
+            ServiceName = comp.WindowsServiceName ?? "NavisN4Service",
+            CpuPercent = state == ComponentState.Arret ? 0.0 : state == ComponentState.Demarrage ? 78.4 : 22.5,
+            RamUsedGb = comp.Role == ComponentRole.BaseDeDonnees ? 24.8 : 12.4,
+            RamTotalGb = comp.Role == ComponentRole.BaseDeDonnees ? 64.0 : 32.0,
+            NtpSynced = true,
+            NtpDriftMs = 0.8,
+            PendingUpdatesCount = 2,
+            PendingKbList = [
+                "KB5034123 — Security Update for Windows Server (Mise à jour de sécurité)",
+                "KB5034441 — Cumulative Update for .NET Framework 4.8"
+            ],
+            Disks = [
+                new DiskDriveInfoDto { DriveLetter = "C:\\ (OS System)", FreeGb = 160, TotalGb = 500, UsePercent = 68 },
+                new DiskDriveInfoDto { DriveLetter = "D:\\ (Navis Data & Logs)", FreeGb = 1200, TotalGb = 2000, UsePercent = 40 }
+            ]
+        };
+        _showTelemetryModal = true;
+    }
+
+    private void OpenStaticNodeModal(string name, string role, string hostName, string ipAddress, string serviceName)
+    {
+        _activeTelemetry = new NodeTelemetryDto
+        {
+            Name = name,
+            Role = role,
+            HostName = hostName,
+            IpAddress = ipAddress,
+            ServiceName = serviceName,
+            CpuPercent = 18.2,
+            RamUsedGb = 8.4,
+            RamTotalGb = 16.0,
+            NtpSynced = true,
+            NtpDriftMs = 1.1,
+            PendingUpdatesCount = 1,
+            PendingKbList = [
+                "KB5034882 — Fix pour le protocole de synchronisation d'horloge NTP"
+            ],
+            Disks = [
+                new DiskDriveInfoDto { DriveLetter = "C:\\ (OS)", FreeGb = 220, TotalGb = 500, UsePercent = 56 }
+            ]
+        };
+        _showTelemetryModal = true;
+    }
+
+    private void CloseTelemetryModal()
+    {
+        _showTelemetryModal = false;
+        _activeTelemetry = null;
+    }
 
     public void Dispose()
     {
