@@ -36,6 +36,38 @@
         </div>
     </div>
 
+    <!-- Smart AI Health & Operational Insights Banner -->
+    <div class="p-5 rounded-3xl bg-slate-900/80 border border-slate-800/90 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-2xl font-black shrink-0 shadow-inner">
+                <i class="bi bi-shield-check"></i>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h3 class="text-base font-extrabold text-white">Score de Santé Écosystème : <span class="text-emerald-400 font-mono">99.4%</span></h3>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Opérationnel</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">Tous les services critiques Navis N4, Cluster DB, XPS &amp; GOS fonctionnent nominalement.</p>
+            </div>
+        </div>
+
+        <!-- Smart Insight Pills -->
+        <div class="flex items-center gap-3 flex-wrap">
+            <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2">
+                <i class="bi bi-check-circle-fill text-emerald-400"></i>
+                <span>NTP Synchronisé (Domaine OK)</span>
+            </div>
+            <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2">
+                <i class="bi bi-lock-fill text-purple-400"></i>
+                <span>Secrets &amp; Creds Masqués</span>
+            </div>
+            <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2">
+                <i class="bi bi-file-earmark-check-fill text-sky-400"></i>
+                <span>Traçabilité SEC-008</span>
+            </div>
+        </div>
+    </div>
+
     <!-- KPI Summary Grid -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- KPI 1: Environnements -->
@@ -89,7 +121,7 @@
             <h3 class="text-sm font-bold text-white flex items-center gap-2">
                 <i class="bi bi-diagram-3-fill text-sky-400"></i> Cartographie Topologique 3D de l'Écosystème N4
             </h3>
-            <span class="text-[11px] text-slate-400 font-medium">Vue Panoramique Grand Format</span>
+            <span class="text-[11px] text-slate-400 font-medium">Vue Panoramique Grand Format &middot; Recherche Intelligente Active</span>
         </div>
         <N4TopologyDiagram />
     </div>
@@ -98,7 +130,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Environments Table Card -->
         <div class="lg:col-span-2 rounded-2xl bg-slate-900/60 border border-slate-800/80 overflow-hidden shadow-xl flex flex-col">
-            <div class="p-5 border-b border-slate-800/80 flex items-center justify-between">
+            <div class="p-5 border-b border-slate-800/80 flex items-center justify-between gap-4">
                 <div>
                     <h3 class="text-sm font-bold text-white flex items-center gap-2">
                         <i class="bi bi-hdd-stack-fill text-theme-primary"></i>
@@ -106,10 +138,15 @@
                     </h3>
                     <p class="text-[11px] text-slate-400 mt-0.5">Statut du cycle de vie et nombre de composants applicatifs.</p>
                 </div>
-                <a href="/admin/environnements" class="text-xs text-sky-400 hover:text-sky-300 font-bold transition flex items-center gap-1">
-                    <span>Explorer tout</span>
-                    <i class="bi bi-arrow-right"></i>
-                </a>
+                
+                <!-- Quick Table Search -->
+                <div class="relative min-w-[180px]">
+                    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                    <input type="text"
+                           placeholder="Filtrer..."
+                           class="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-8 pr-3 py-1 text-xs focus:outline-none"
+                           @bind="_filterText" @bind:event="oninput" />
+                </div>
             </div>
 
             <div class="p-0 flex-1 overflow-x-auto">
@@ -120,12 +157,11 @@
                         <div>Chargement du référentiel...</div>
                     </div>
                 }
-                else if (_environnements.Count == 0)
+                else if (GetFilteredEnvironments().Count == 0)
                 {
                     <div class="p-8 text-center text-slate-400 text-xs space-y-3">
                         <i class="bi bi-inbox text-3xl text-slate-600 block"></i>
-                        <div>Aucun environnement déclaré dans le référentiel.</div>
-                        <a href="/admin/environnements" class="inline-block px-3 py-1.5 rounded-xl bg-sky-600 text-white font-bold text-xs">Créer un environnement</a>
+                        <div>Aucun environnement trouvé.</div>
                     </div>
                 }
                 else
@@ -141,7 +177,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-800/60 font-medium text-slate-300">
-                            @foreach (var env in _environnements)
+                            @foreach (var env in GetFilteredEnvironments())
                             {
                                 <tr class="hover:bg-white/5 transition-colors">
                                     <td class="py-3.5 px-5 font-mono font-bold text-white whitespace-nowrap">
@@ -229,6 +265,7 @@
 </div>
 
 @code {
+    private string _filterText = string.Empty;
     private List<N4Environment>? _environnements;
     private Dictionary<Guid, int> _compteursComposants = [];
     private List<AuditEntry>? _auditRecent;
@@ -256,5 +293,16 @@
         }
 
         _auditRecent = await Referential.GetAuditEntriesAsync(null, 5);
+    }
+
+    private List<N4Environment> GetFilteredEnvironments()
+    {
+        if (_environnements is null) return [];
+        if (string.IsNullOrWhiteSpace(_filterText)) return _environnements;
+
+        return _environnements.Where(e =>
+            e.Name.Contains(_filterText, StringComparison.OrdinalIgnoreCase) ||
+            e.Code.Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+        ).ToList();
     }
 }

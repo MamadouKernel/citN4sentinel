@@ -10,7 +10,7 @@
 
 <div class="w-full max-w-full overflow-hidden space-y-6">
 
-    <!-- Top Filter Header -->
+    <!-- Top Filter & Smart Search Header -->
     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/80 border border-slate-800 backdrop-blur-xl shadow-xl">
         <div class="flex items-center gap-4">
             <div class="w-11 h-11 rounded-2xl bg-theme-gradient text-white flex items-center justify-center text-xl font-black shadow-lg glow-theme">
@@ -22,36 +22,44 @@
             </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-4 text-xs font-semibold">
+        <div class="flex flex-wrap items-center gap-3 text-xs font-semibold">
+            <!-- Smart Search Input Bar -->
+            <div class="relative min-w-[220px]">
+                <i class="bi bi-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                <input type="text"
+                       placeholder="Rechercher nœud, IP, service..."
+                       class="w-full bg-slate-950 border border-slate-700 focus:border-sky-400 text-white rounded-xl pl-9 pr-3 py-1.5 text-xs font-medium focus:ring-2 focus:ring-sky-500/20 focus:outline-none placeholder-slate-500 transition"
+                       @bind="_searchQuery" @bind:event="oninput" />
+            </div>
+
             <!-- Environment Selector Dropdown -->
             @if (_environments.Count > 0)
             {
-                <div class="flex items-center gap-2.5 bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
-                    <i class="bi bi-hdd-network text-theme-primary text-sm"></i>
-                    <label class="text-xs font-bold text-slate-300 whitespace-nowrap">Environnement :</label>
-                    <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-theme-primary focus:outline-none"
+                <div class="flex items-center gap-2.5 bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800 shadow-md">
+                    <i class="bi bi-hdd-network text-theme-primary text-xs"></i>
+                    <select class="bg-transparent text-white font-bold text-xs focus:outline-none cursor-pointer"
                             value="@_selectedEnvironmentId" @onchange="OnEnvironmentSelected">
                         @foreach (var env in _environments)
                         {
-                            <option value="@env.Id">@env.Code — @env.Name @(env.IsProduction ? "(PROD)" : "")</option>
+                            <option value="@env.Id" class="bg-slate-900 text-white">@env.Code — @env.Name @(env.IsProduction ? "(PROD)" : "")</option>
                         }
                     </select>
                 </div>
             }
 
             <!-- Legend Indicators -->
-            <div class="flex items-center gap-3 flex-wrap bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 shadow-md">
+            <div class="flex items-center gap-3 flex-wrap bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800 shadow-md">
                 <span class="flex items-center gap-1.5 text-emerald-400 font-bold">
-                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-sm"></span> Running (Vert)
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-sm"></span> Running
                 </span>
                 <span class="flex items-center gap-1.5 text-amber-400 font-bold">
-                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm"></span> Démarrage (Ambre)
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm"></span> Démarrage
                 </span>
                 <span class="flex items-center gap-1.5 text-rose-400 font-bold">
-                    <span class="w-2.5 h-2.5 rounded-full bg-rose-400 shadow-sm"></span> À l'arrêt (Rouge)
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-400 shadow-sm"></span> À l'arrêt
                 </span>
                 <span class="flex items-center gap-1.5 text-slate-400 font-bold">
-                    <span class="w-2.5 h-2.5 rounded-full bg-slate-500 shadow-sm"></span> Non supervisé (Gris)
+                    <span class="w-2.5 h-2.5 rounded-full bg-slate-500 shadow-sm"></span> Non supervisé
                 </span>
             </div>
         </div>
@@ -77,7 +85,7 @@
 
                 <!-- Gate Operating System (GOS) -->
                 <div @onclick='() => OpenStaticNodeModal("Gate Operating System (GOS)", "Interface Portuaire GOS", "SRV-GOS-01", "10.88.190.10", "GOSGateService")'
-                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("GOS") ? "ring-2 ring-sky-400 shadow-sky-500/50" : "")">
                     <div class="w-8 h-8 rounded-xl bg-slate-800 text-sky-400 flex items-center justify-center mx-auto text-base">
                         <i class="bi bi-door-open-fill"></i>
                     </div>
@@ -87,7 +95,7 @@
 
                 <!-- Server SFTP (EDI) -->
                 <div @onclick='() => OpenStaticNodeModal("Server SFTP EDI", "Serveur Envoi/Réception EDI", "SRV-EDI-SFTP01", "10.88.190.12", "SftpEDIDaemon")'
-                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-indigo-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-indigo-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("SFTP") || IsMatchQuery("EDI") ? "ring-2 ring-indigo-400 shadow-indigo-500/50" : "")">
                     <div class="w-8 h-8 rounded-xl bg-slate-800 text-indigo-400 flex items-center justify-center mx-auto text-base">
                         <i class="bi bi-folder-symlink-fill"></i>
                     </div>
@@ -97,7 +105,7 @@
 
                 <!-- Billing System (IPAK) -->
                 <div @onclick='() => OpenStaticNodeModal("Billing System (IPAK)", "Système de Facturation Portuaire", "SRV-IPAK-BILL01", "10.88.190.14", "IpakBillingService")'
-                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                     class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition-all duration-200 cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("IPAK") || IsMatchQuery("Billing") ? "ring-2 ring-emerald-400 shadow-emerald-500/50" : "")">
                     <div class="w-8 h-8 rounded-xl bg-slate-800 text-emerald-400 flex items-center justify-center mx-auto text-base">
                         <i class="bi bi-receipt-cutoff"></i>
                     </div>
@@ -114,12 +122,12 @@
                     <!-- N4 Mobile & Clients -->
                     <div class="flex items-center justify-center gap-3">
                         <div @onclick='() => OpenStaticNodeModal("N4 Mobile", "Client Mobile Terminal", "MOB-N4-01", "10.88.195.50", "N4MobileApp")'
-                             class="px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition cursor-pointer text-center space-y-0.5">
+                             class="px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition cursor-pointer text-center space-y-0.5 @(IsMatchQuery("Mobile") ? "ring-2 ring-sky-400" : "")">
                             <i class="bi bi-phone-fill text-sky-400 text-base"></i>
                             <div class="text-[11px] font-bold text-white">N4 Mobile</div>
                         </div>
                         <div @onclick='() => OpenStaticNodeModal("N4 Clients", "Stations de Travail Clients", "CLI-N4-ALL", "10.88.195.100", "NavisClientGui")'
-                             class="px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition cursor-pointer text-center space-y-0.5">
+                             class="px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-sky-400 transition cursor-pointer text-center space-y-0.5 @(IsMatchQuery("Clients") ? "ring-2 ring-sky-400" : "")">
                             <i class="bi bi-display-fill text-sky-400 text-base"></i>
                             <div class="text-[11px] font-bold text-white">N4 Clients</div>
                         </div>
@@ -127,7 +135,7 @@
 
                     <!-- Load Balancer -->
                     <div @onclick='() => OpenStaticNodeModal("Load Balancer", "Répartiteur de Charge N4", "N4-LB-VIP01", "10.88.180.100", "N4LoadBalancerService")'
-                         class="p-3.5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 hover:border-amber-400 transition cursor-pointer text-center shadow-lg space-y-1">
+                         class="p-3.5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 hover:border-amber-400 transition cursor-pointer text-center shadow-lg space-y-1 @(IsMatchQuery("Balancer") || IsMatchQuery("LB") ? "ring-2 ring-amber-400" : "")">
                         <div class="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center justify-center gap-1.5">
                             <i class="bi bi-arrow-down-up"></i> Load Balancer
                         </div>
@@ -137,7 +145,7 @@
                     <!-- XPS Clients -->
                     <div class="flex items-center justify-center">
                         <div @onclick='() => OpenStaticNodeModal("XPS Clients", "Postes Clients XPS Decking/Dispatcher", "CLI-XPS-ALL", "10.88.195.200", "XpsClientApp")'
-                             class="px-4 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5">
+                             class="px-4 py-2 rounded-2xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5 @(IsMatchQuery("XPS") ? "ring-2 ring-purple-400" : "")">
                             <i class="bi bi-pc-display text-purple-400 text-base"></i>
                             <div class="text-[11px] font-bold text-white">XPS Clients</div>
                         </div>
@@ -199,7 +207,7 @@
 
                         <!-- Share Folder -->
                         <div @onclick='() => OpenStaticNodeModal("Share Folder", "Dossier Partagé N4", "N4CLUSTER01", "\\\\N4CLUSTER01\\NavisShared", "NavisShareService")'
-                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition cursor-pointer text-center space-y-0.5 mt-2">
+                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition cursor-pointer text-center space-y-0.5 mt-2 @(IsMatchQuery("Share") ? "ring-2 ring-emerald-400" : "")">
                             <i class="bi bi-folder-fill text-emerald-400 text-base"></i>
                             <div class="text-xs font-bold text-white">Share Folder</div>
                             <div class="text-[10px] font-mono text-slate-400">\\\\N4CLUSTER01\\NavisShared</div>
@@ -232,7 +240,7 @@
 
                         <!-- VMT Terminal -->
                         <div @onclick='() => OpenStaticNodeModal("VMT (Vehicle Mounted Terminal)", "Terminal Embarqué Engins", "VMT-NODE-01", "10.88.192.15", "VmtConnectorDaemon")'
-                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5 mt-2">
+                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5 mt-2 @(IsMatchQuery("VMT") ? "ring-2 ring-purple-400" : "")">
                             <i class="bi bi-tablet-landscape-fill text-purple-400 text-base"></i>
                             <div class="text-xs font-bold text-white">VMT Terminal</div>
                             <div class="text-[10px] font-mono text-slate-400">Engins &amp; Reefers</div>
@@ -272,7 +280,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800">
             <!-- Vehicle Booking System -->
             <div @onclick='() => OpenStaticNodeModal("Vehicle Booking System (VBS)", "Système de Réservation Camions", "SRV-VBS-01", "10.88.190.20", "VbsReservationDaemon")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("VBS") ? "ring-2 ring-amber-400" : "")">
                 <div class="w-8 h-8 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center mx-auto text-base">
                     <i class="bi bi-truck-front-fill"></i>
                 </div>
@@ -282,7 +290,7 @@
 
             <!-- Hyperion -->
             <div @onclick='() => OpenStaticNodeModal("Hyperion Report Engine", "Serveur de Reporting Hyperion", "SRV-HYP-REP01", "10.88.190.30", "HyperionReportingService")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-teal-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-teal-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("Hyperion") ? "ring-2 ring-teal-400" : "")">
                 <div class="w-8 h-8 rounded-xl bg-slate-800 text-teal-400 flex items-center justify-center mx-auto text-base">
                     <i class="bi bi-pie-chart-fill"></i>
                 </div>
@@ -292,7 +300,7 @@
 
             <!-- Reefer Runner -->
             <div @onclick='() => OpenStaticNodeModal("Reefer Runner", "Supervision Conteneurs Frigorifiques", "SRV-REEFER-01", "10.88.190.40", "ReeferRunnerDaemon")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-cyan-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-cyan-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("Reefer") ? "ring-2 ring-cyan-400" : "")">
                 <div class="w-8 h-8 rounded-xl bg-slate-800 text-cyan-400 flex items-center justify-center mx-auto text-base">
                     <i class="bi bi-snow2"></i>
                 </div>
@@ -302,7 +310,7 @@
 
             <!-- DGPS -->
             <div @onclick='() => OpenStaticNodeModal("DGPS Position Engine", "Positionnement GPS Différentiel", "SRV-DGPS-01", "10.88.190.50", "DgpsLocationService")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-rose-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1">
+                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-rose-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("DGPS") ? "ring-2 ring-rose-400" : "")">
                 <div class="w-8 h-8 rounded-xl bg-slate-800 text-rose-400 flex items-center justify-center mx-auto text-base">
                     <i class="bi bi-geo-alt-fill"></i>
                 </div>
@@ -451,6 +459,7 @@
     [Parameter]
     public Guid? EnvironmentId { get; set; }
 
+    private string _searchQuery = string.Empty;
     private List<N4Environment> _environments = [];
     private Guid? _selectedEnvironmentId;
     private List<N4Component> _allComponents = [];
@@ -528,7 +537,7 @@
         }
         else if (EnvState.Current is not null)
         {
-            _selectedEnvironmentId = EnvState.Current.Id;
+            _selectedEnvironmentId = EnvironmentId.Value;
         }
         else if (_environments.Count > 0)
         {
@@ -574,6 +583,12 @@
     private void OnCacheStateChanged()
     {
         InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsMatchQuery(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(_searchQuery) || string.IsNullOrWhiteSpace(text)) return false;
+        return text.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     private List<N4Component> GetEffectiveComponents()
@@ -675,6 +690,7 @@
         var snapshot = SupervisionCache.GetSnapshot(comp.Id);
         var state = snapshot?.State ?? ComponentState.Inconnu;
         var serverStatus = comp.Server?.Status ?? LifecycleStatus.Actif;
+        var isMatch = IsMatchQuery(comp.LogicalName) || IsMatchQuery(comp.WindowsServiceName) || IsMatchQuery(comp.Server?.IpAddress ?? "");
 
         string bgGradient;
         string borderStyle;
@@ -724,7 +740,7 @@
         }
 
         <div @onclick="() => OpenComponentNodeModal(comp)"
-             class="flex flex-col items-center p-3.5 sm:p-4 rounded-3xl border-2 transition-all duration-300 shadow-xl relative group cursor-pointer hover:scale-105 hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0">
+             class="flex flex-col items-center p-3.5 sm:p-4 rounded-3xl border-2 transition-all duration-300 shadow-xl relative group cursor-pointer hover:scale-105 hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0 @(isMatch ? "ring-4 ring-sky-400 shadow-sky-500/80 animate-pulse" : "")">
             <!-- Cylinder Top Oval Cap -->
             <div class="w-full h-3 rounded-t-full bg-white/20 border-b border-white/30 mb-1.5 flex items-center justify-center">
                 <div class="w-1/2 h-1 bg-white/50 rounded-full"></div>

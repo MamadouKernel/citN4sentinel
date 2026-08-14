@@ -284,6 +284,36 @@ public sealed class OrchestrationEngine(
         IDbContextFactory<N4SentinelDbContext> dbFactory, Guid executionId, Guid stepId,
         StepOutcome issue, CancellationToken ct)
     {
+        // NOUVELLE TENTATIVE SUR CONFLIT DE CONCURRENCE. Un message
+        // d'avancement encore en vol peut avoir modifie la ligne entre notre
+        // lecture et notre ecriture. Laisser remonter l'erreur tuerait le
+        // pilote et laisserait l'execution bloquee en « en cours » jusqu'au
+        // redemarrage de l'application - sans que rien ne l'explique.
+        //
+        // L'issue de l'etape, elle, doit etre enregistree : c'est la seule
+        // trace de ce qui vient de se passer sur l'ecosysteme.
+        for (var tentative = 1; ; tentative++)
+        {
+            try
+            {
+                await AppliquerUneFoisAsync(dbFactory, executionId, stepId, issue, ct);
+                return;
+            }
+            catch (DbUpdateConcurrencyException) when (tentative < 4)
+            {
+                logger.LogDebug(
+                    "Conflit de concurrence en enregistrant l'issue de l'étape {Etape} "
+                    + "(tentative {Tentative}). Relecture et nouvelle tentative.", stepId, tentative);
+
+                await Task.Delay(50 * tentative, ct);
+            }
+        }
+    }
+
+    private async Task AppliquerUneFoisAsync(
+        IDbContextFactory<N4SentinelDbContext> dbFactory, Guid executionId, Guid stepId,
+        StepOutcome issue, CancellationToken ct)
+    {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         var execution = await db.Executions.Include(x => x.Steps)
@@ -424,22 +454,37 @@ public sealed class OrchestrationEngine(
         await locks.ReleaseAsync(execution.Id, ct);
     }
 
+    /// <summary>
+    /// Écrit le message d'avancement.
+    ///
+    /// MISE À JOUR DIRECTE, SANS SUIVI D'ENTITÉ. Charger l'étape puis
+    /// l'enregistrer ferait entrer ce message dans la course du jeton de
+    /// concurrence : la progression et l'issue de l'étape modifient la même
+    /// ligne, et l'écriture de l'issue échouerait avec une erreur de
+    /// concurrence — ce qui tuait le pilote en silence et laissait l'exécution
+    /// bloquée en « en cours » jusqu'au redémarrage.
+    ///
+    /// La progression est un confort d'affichage : elle n'a aucune raison de
+    /// pouvoir faire échouer quoi que ce soit.
+    /// </summary>
     private static async Task EnregistrerProgressionAsync(
         IDbContextFactory<N4SentinelDbContext> dbFactory, Guid stepId, string message)
     {
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync();
-            var etape = await db.ExecutionSteps.FirstOrDefaultAsync(s => s.Id == stepId);
-            if (etape is null || etape.IsTerminal) return;
 
-            etape.ProgressMessage = Tronquer(message, 1000);
-            await db.SaveChangesAsync();
+            // Restreint aux etapes qui tournent : un message en retard ne doit
+            // pas venir ecraser l'etat d'une etape deja conclue.
+            await db.ExecutionSteps
+                .Where(s => s.Id == stepId
+                            && (s.State == ExecutionStepState.EnCours
+                                || s.State == ExecutionStepState.Verification))
+                .ExecuteUpdateAsync(m => m.SetProperty(s => s.ProgressMessage, Tronquer(message, 1000)));
         }
         catch
         {
-            // La progression est un confort d'affichage. Son echec ne doit
-            // jamais compromettre l'operation elle-meme.
+            // Meme en cas d'echec, rien ne doit remonter : l'operation continue.
         }
     }
 
