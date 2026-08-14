@@ -37,6 +37,8 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<LogSource> Sources => Set<LogSource>();
     public DbSet<LogFinding> Findings => Set<LogFinding>();
     public DbSet<DiagnosticHypothesis> Hypotheses => Set<DiagnosticHypothesis>();
+    public DbSet<KnowledgeDocument> Documents => Set<KnowledgeDocument>();
+    public DbSet<DocumentSection> DocumentSections => Set<DocumentSection>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -464,6 +466,46 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Session).WithMany(x => x.Hypotheses)
              .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -------------------------------------------------------------------
+        // Base documentaire (sprint 7)
+        // -------------------------------------------------------------------
+        builder.Entity<KnowledgeDocument>(e =>
+        {
+            e.ToTable("KnowledgeDocuments");
+            e.HasIndex(x => x.Reference).IsUnique();
+
+            e.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Reference).HasMaxLength(120).IsRequired();
+            e.Property(x => x.DocumentVersion).HasMaxLength(60);
+            e.Property(x => x.AppliesToVersion).HasMaxLength(60);
+            e.Property(x => x.ValidatedBy).HasMaxLength(256);
+            e.Property(x => x.SourceFileName).HasMaxLength(400);
+            e.Property(x => x.Notes).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsCitable);
+        });
+
+        builder.Entity<DocumentSection>(e =>
+        {
+            e.ToTable("DocumentSections");
+            e.HasIndex(x => new { x.DocumentId, x.Ordinal });
+
+            e.Property(x => x.Heading).HasMaxLength(300);
+            e.Property(x => x.Content).HasMaxLength(8000).IsRequired();
+
+            // Le texte normalise est aussi long que le contenu : chaque
+            // caractere y est remplace, jamais supprime - c'est ce qui permet
+            // de reutiliser une position trouvee dedans pour extraire le
+            // passage du texte d'origine, accents compris.
+            e.Property(x => x.SearchText).HasMaxLength(8000);
+
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.Citation);
+
+            e.HasOne(x => x.Document).WithMany(x => x.Sections)
+             .HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<ApplicationUser>(e =>

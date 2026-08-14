@@ -134,6 +134,12 @@ public static class DependencyInjection
         services.AddScoped<Diagnostic.LogAnalysisService>();
         services.AddScoped<Diagnostic.DiagnosticSessionService>();
 
+        // Base documentaire et historique (sprint 7). La base documentaire
+        // conseille et cite ; elle ne déclenche rien. Aucun de ces services
+        // n'a de dépendance vers l'orchestrateur, et c'est volontaire.
+        services.AddScoped<Knowledge.KnowledgeService>();
+        services.AddScoped<Reporting.HistoryService>();
+
         return services;
     }
 }
