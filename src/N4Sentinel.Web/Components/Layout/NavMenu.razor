@@ -230,6 +230,18 @@
                                 <div class="text-[10px] text-slate-400 font-normal">Traçabilité SEC-008 &amp; Preuves</div>
                             </div>
                         </NavLink>
+
+                        <AuthorizeView Policy="@N4Policies.PeutAdministrerConnecteurs" Context="sauvCtx">
+                            <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/sauvegarde">
+                                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+                                    <i class="bi bi-hdd-fill"></i>
+                                </div>
+                                <div>
+                                    <div class="font-bold text-white text-xs">Sauvegarde</div>
+                                    <div class="text-[10px] text-slate-400 font-normal">Base et trousseau de clés, vérifiés</div>
+                                </div>
+                            </NavLink>
+                        </AuthorizeView>
                     </div>
                 </div>
             </div>
@@ -373,6 +385,12 @@
                     <i class="bi bi-journal-text text-theme-primary text-base"></i>
                     <span>Journal d'audit</span>
                 </NavLink>
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerConnecteurs" Context="mobileSauvCtx">
+                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/sauvegarde" @onclick="CloseMobileMenu">
+                        <i class="bi bi-hdd-fill text-emerald-400 text-base"></i>
+                        <span>Sauvegarde</span>
+                    </NavLink>
+                </AuthorizeView>
             </div>
         </AuthorizeView>
 

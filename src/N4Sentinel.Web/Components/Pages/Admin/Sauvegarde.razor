@@ -1,0 +1,268 @@
+@page "/admin/sauvegarde"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Operations
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerConnecteurs)]
+@rendermode InteractiveServer
+@inject BackupService Sauvegardes
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Sauvegarde — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Sauvegarde et restauration</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Une sauvegarde de la base <strong class="text-white">ne suffit pas</strong>. Les mots de passe
+            des comptes techniques sont chiffrés par un trousseau de clés qui vit hors de la base :
+            restaurer l'une sans l'autre redonne des comptes dont les secrets sont illisibles.
+        </p>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <!-- État -->
+    @if (_etat is not null)
+    {
+        @if (_etat.KeyRingMissing)
+        {
+            <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs leading-relaxed">
+                <strong class="flex items-center gap-2 mb-1">
+                    <i class="bi bi-exclamation-octagon-fill"></i> Trousseau de clés introuvable
+                </strong>
+                @_etat.CredentialsWithSecretCount compte(s) technique(s) portent un secret chiffré, mais aucun
+                fichier de clé n'existe à <span class="font-mono">@_etat.KeyPath</span>.
+                Ces secrets sont déjà irrécupérables, ou le seront au prochain redémarrage.
+                Cet état ne se signale nulle part ailleurs au quotidien : il ne se découvre qu'au moment
+                d'une reprise.
+            </div>
+        }
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="glass-card p-4 rounded-xl border border-slate-700">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Base</div>
+                <div class="text-sm font-extrabold text-white truncate" title="@_etat.DatabaseName">@_etat.DatabaseName</div>
+                <div class="text-[10px] text-slate-500 truncate" title="@_etat.DataSource">@_etat.DataSource</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl border border-slate-700">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Référentiel</div>
+                <div class="text-sm font-extrabold text-white">@_etat.EnvironmentCount env. / @_etat.ComponentCount comp.</div>
+                <div class="text-[10px] text-slate-500">@_etat.ExecutionCount opération(s) historisée(s)</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl border @(_etat.CredentialsWithSecretCount > 0 ? "border-amber-500/30 bg-amber-500/5" : "border-slate-700")">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Comptes techniques</div>
+                <div class="text-sm font-extrabold @(_etat.CredentialsWithSecretCount > 0 ? "text-amber-400" : "text-white")">
+                    @_etat.CredentialCount, dont @_etat.CredentialsWithSecretCount avec secret
+                </div>
+                <div class="text-[10px] text-slate-500">dépendent du trousseau</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl border @(_etat.KeyFileCount == 0 ? "border-rose-500/30 bg-rose-500/5" : "border-slate-700")">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Trousseau</div>
+                <div class="text-sm font-extrabold @(_etat.KeyFileCount == 0 ? "text-rose-400" : "text-emerald-400")">
+                    @_etat.KeyFileCount fichier(s)
+                </div>
+                <div class="text-[10px] text-slate-500 truncate" title="@_etat.KeyPath">@_etat.KeyPath</div>
+            </div>
+        </div>
+    }
+
+    <!-- Produire -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="bi bi-hdd-fill text-sky-400"></i> Produire une sauvegarde
+        </h3>
+
+        <div>
+            <label class="block text-slate-400 font-semibold mb-1">Dossier de destination</label>
+            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                   placeholder="D:\Sauvegardes\N4Sentinel" @bind="_destination" />
+            <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                <strong class="text-slate-400">Ce chemin est celui du serveur SQL Server, pas de celui-ci.</strong>
+                Le fichier de base est écrit par le moteur SQL, sous son propre compte de service.
+                Si SQL Server est sur une autre machine, indiquez un chemin qui y existe, ou un partage
+                réseau auquel son compte a accès en écriture.
+            </p>
+        </div>
+
+        <button class="px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold transition disabled:opacity-40 inline-flex items-center gap-2"
+                disabled="@(_enCours || string.IsNullOrWhiteSpace(_destination))" @onclick="Produire">
+            <i class="bi bi-download"></i> @(_enCours ? "Sauvegarde en cours…" : "Produire la sauvegarde")
+        </button>
+    </div>
+
+    <!-- Vérifier -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+        <div>
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-clipboard2-check text-sky-400"></i> Vérifier une sauvegarde
+            </h3>
+            <p class="text-slate-500 mt-1">
+                Une sauvegarde non vérifiée n'est pas une sauvegarde. Le seul moment où l'on découvre
+                qu'un fichier est illisible ne doit pas être celui où l'on en a besoin.
+            </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3">
+            <input class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                   placeholder="D:\Sauvegardes\N4Sentinel\n4sentinel-20260814-103700" @bind="_aVerifier" />
+            <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40 whitespace-nowrap"
+                    disabled="@(_verification || string.IsNullOrWhiteSpace(_aVerifier))" @onclick="Verifier">
+                <i class="bi bi-search"></i> @(_verification ? "Vérification…" : "Vérifier")
+            </button>
+        </div>
+
+        @if (_resultat is not null)
+        {
+            @if (_resultat.Error is { Length: > 0 } erreur)
+            {
+                <div class="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">@erreur</div>
+            }
+            else
+            {
+                <div class="rounded-xl border @(_resultat.IsRestorable ? "border-emerald-500/25" : "border-rose-500/30") overflow-hidden">
+                    <div class="px-4 py-2.5 border-b border-slate-800 flex items-center gap-2 @(_resultat.IsRestorable ? "bg-emerald-500/5" : "bg-rose-500/5")">
+                        <i class="bi @(_resultat.IsRestorable ? "bi-check-circle-fill text-emerald-400" : "bi-x-octagon-fill text-rose-400")"></i>
+                        <span class="font-bold text-white">
+                            @if (_resultat.IsRestorable)
+                            {
+                                <text>Sauvegarde restaurable</text>
+                                @if (_resultat.Warnings > 0)
+                                {
+                                    <text>, avec @_resultat.Warnings réserve(s)</text>
+                                }
+                            }
+                            else
+                            {
+                                <text>Sauvegarde inexploitable — @_resultat.Failures échec(s)</text>
+                            }
+                        </span>
+                    </div>
+
+                    <div class="divide-y divide-slate-800">
+                        @foreach (var c in _resultat.Checks)
+                        {
+                            <div class="p-3.5 flex items-start gap-3">
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 mt-0.5 @Pastille(c.Outcome)">
+                                    @Libelle(c.Outcome)
+                                </span>
+                                <div class="min-w-0">
+                                    <div class="font-bold text-white">@c.Name</div>
+                                    <p class="text-slate-300 leading-relaxed">@c.Detail</p>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Ce qu'il faut savoir -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3 text-xs">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="bi bi-info-circle text-amber-400"></i> À savoir avant de compter sur une sauvegarde
+        </h3>
+
+        <div class="space-y-2 text-slate-300 leading-relaxed">
+            <p>
+                <strong class="text-white">Le trousseau est lié à cette machine.</strong>
+                Il est chiffré par DPAPI à l'échelle de @Environment.MachineName. Sur un autre serveur,
+                il ne sera pas déchiffrable : la base se restaurera normalement, mais les mots de passe
+                des comptes techniques devront être ressaisis depuis l'interface.
+            </p>
+            <p class="text-slate-400">
+                Ce n'est pas un défaut de la sauvegarde, c'est la contrepartie du choix de ne stocker
+                aucune clé en clair. <strong class="text-slate-300">Prévoyez cette ressaisie dans votre
+                procédure de reprise</strong> plutôt que de la découvrir le jour où vous l'exécutez.
+            </p>
+            <p>
+                <strong class="text-white">L'indisponibilité de N4 Sentinel n'empêche aucune opération.</strong>
+                Les procédures manuelles restent applicables : l'outil accélère et trace, il n'est pas
+                un point de passage obligé pour exploiter N4.
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private BackupStatus? _etat;
+    private VerifyResult? _resultat;
+    private string _destination = string.Empty;
+    private string _aVerifier = string.Empty;
+    private bool _enCours;
+    private bool _verification;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync() => _etat = await Sauvegardes.GetStatusAsync();
+
+    private async Task Produire()
+    {
+        _enCours = true;
+        _message = null;
+        _resultat = null;
+        StateHasChanged();
+
+        try
+        {
+            var etat = await AuthProvider.GetAuthenticationStateAsync();
+            var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+            var r = await Sauvegardes.CreateAsync(_destination.Trim(), acteur);
+
+            if (!r.Succeeded)
+            {
+                Signaler(r.Error!, false);
+                return;
+            }
+
+            _aVerifier = r.Folder!;
+            Signaler($"Sauvegarde produite dans « {r.Folder} » : base, trousseau "
+                   + $"({r.Manifest!.KeyFileCount} fichier(s)) et notice de restauration. "
+                   + "Vérifiez-la maintenant — le champ de vérification est déjà rempli.", true);
+
+            _etat = await Sauvegardes.GetStatusAsync();
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    private async Task Verifier()
+    {
+        _verification = true;
+        _message = null;
+        StateHasChanged();
+
+        try { _resultat = await Sauvegardes.VerifyAsync(_aVerifier.Trim()); }
+        finally { _verification = false; }
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    private static string Pastille(BackupOutcome o) => o switch
+    {
+        BackupOutcome.Reussi => "bg-emerald-500/15 text-emerald-400",
+        BackupOutcome.Avertissement => "bg-amber-500/15 text-amber-400",
+        _ => "bg-rose-500/15 text-rose-300"
+    };
+
+    private static string Libelle(BackupOutcome o) => o switch
+    {
+        BackupOutcome.Reussi => "OK",
+        BackupOutcome.Avertissement => "RÉSERVE",
+        _ => "ÉCHEC"
+    };
+}

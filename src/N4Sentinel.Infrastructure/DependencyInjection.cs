@@ -140,6 +140,11 @@ public static class DependencyInjection
         services.AddScoped<Knowledge.KnowledgeService>();
         services.AddScoped<Reporting.HistoryService>();
 
+        // Exploitation (sprint 8). La sauvegarde couvre la base ET le trousseau
+        // de clés : la base seule redonnerait des comptes techniques dont les
+        // secrets sont illisibles.
+        services.AddScoped<Operations.BackupService>();
+
         return services;
     }
 }
