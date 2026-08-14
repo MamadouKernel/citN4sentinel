@@ -209,6 +209,20 @@ public sealed class ExecutionService(
         if (execution.Status != ExecutionStatus.EnPreparation)
             return $"Cette exécution est en état {execution.Status} : elle ne peut pas être lancée.";
 
+        // LE PRE-CHECK EST INFRANCHISSABLE. Il n'y a pas de parametre pour le
+        // sauter, pas de profil qui en dispense. Decouvrir un serveur
+        // injoignable a la septieme etape d'un arret complet laisse
+        // l'ecosysteme a moitie eteint, et le composant qu'on ne peut pas
+        // joindre est justement celui qu'il faudrait arreter.
+        if (execution.PreflightAt is null)
+            return "Les contrôles préalables n'ont pas été passés. "
+                 + "Lancez le pré-check depuis l'écran de l'opération.";
+
+        if (execution.PreflightBlocked)
+            return "Les contrôles préalables ont relevé au moins un échec bloquant. "
+                 + "L'opération ne peut pas être lancée tant qu'il n'est pas corrigé — "
+                 + "un contrôle bloquant ne se contourne pas.";
+
         // Une simulation n'emet aucune commande : elle ne prend donc pas le
         // verrou, et n'empeche personne de travailler.
         if (!execution.IsSimulation)

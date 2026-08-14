@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Orchestration;
 using N4Sentinel.Infrastructure.Persistence;
+using N4Sentinel.Infrastructure.Security;
 
 namespace N4Sentinel.Tests;
 
@@ -24,11 +27,15 @@ public sealed class OrchestrationTests : IAsyncLifetime
         "Server=localhost;Database=master;Trusted_Connection=True;TrustServerCertificate=True";
 
     private readonly string _databaseName = $"n4sentinel_test_{Guid.NewGuid():N}";
+    private string _keyPath = string.Empty;
     private TestDbContextFactory _factory = null!;
     private WorkflowService _workflows = null!;
     private ExecutionService _executions = null!;
     private EnvironmentLockService _locks = null!;
     private SequenceValidator _validator = null!;
+    private PreflightService _preflight = null!;
+    private AdHocOperationService _adhoc = null!;
+    private ExecutionReportService _report = null!;
 
     private Guid _envId;
     private Guid _bridgeId;
@@ -48,6 +55,22 @@ public sealed class OrchestrationTests : IAsyncLifetime
         _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance);
         _executions = new ExecutionService(_factory, _locks, NullLogger<ExecutionService>.Instance);
         _validator = new SequenceValidator(_factory);
+        _adhoc = new AdHocOperationService(_factory, NullLogger<AdHocOperationService>.Instance);
+        _report = new ExecutionReportService(_factory);
+
+        _keyPath = Path.Combine(Path.GetTempPath(), $"n4-cles-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_keyPath);
+
+        var store = new CredentialStore(_factory,
+            DataProtectionProvider.Create(new DirectoryInfo(_keyPath)),
+            NullLogger<CredentialStore>.Instance);
+
+        _preflight = new PreflightService(
+            _factory,
+            new ConnectorTargetFactory(_factory, store, NullLogger<ConnectorTargetFactory>.Instance),
+            new ConnecteurMuet(),
+            _locks,
+            NullLogger<PreflightService>.Instance);
 
         await using var db = _factory.CreateDbContext();
         await db.Database.EnsureCreatedAsync();
@@ -93,6 +116,8 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        if (Directory.Exists(_keyPath)) try { Directory.Delete(_keyPath, true); } catch { }
+
         Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
         await using var master = new Microsoft.Data.SqlClient.SqlConnection(MasterConnection);
         await master.OpenAsync();
@@ -301,9 +326,8 @@ public sealed class OrchestrationTests : IAsyncLifetime
         await ValiderAsync(id);
 
         var prep = await _executions.PrepareAsync(id, "op1", "Répétition avant intervention", null, isSimulation: true);
-        var erreur = await _executions.StartAsync(prep.ExecutionId, "op1");
+        await LancerAsync(prep.ExecutionId);
 
-        Assert.Null(erreur);
         Assert.Null(await _locks.GetAsync(_envId));
     }
 
@@ -528,7 +552,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     public async Task Une_Etape_En_Vol_Au_Moment_De_L_Arret_Impose_Une_Reconciliation()
     {
         var executionId = await PreparerExecutionAsync();
-        await _executions.StartAsync(executionId, "op1");
+        await LancerAsync(executionId);
 
         // On simule un arret brutal PENDANT une etape.
         await using (var db = _factory.CreateDbContext())
@@ -553,7 +577,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     public async Task Une_Interruption_Entre_Deux_Etapes_Reprend_Sans_Reconciliation()
     {
         var executionId = await PreparerExecutionAsync();
-        await _executions.StartAsync(executionId, "op1");
+        await LancerAsync(executionId);
 
         // Rien n'etait en vol : l'etape precedente etait terminee, la suivante
         // pas encore commencee. La reprise est sure.
@@ -578,7 +602,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     public async Task La_Reprise_Apres_Reconciliation_Repart_De_L_Etape_Suspendue()
     {
         var executionId = await PreparerExecutionAsync();
-        await _executions.StartAsync(executionId, "op1");
+        await LancerAsync(executionId);
 
         Guid etapeId;
         await using (var db = _factory.CreateDbContext())
@@ -600,6 +624,266 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         Assert.Equal(ExecutionStepState.AVenir, reprise.State);
         Assert.Contains("après constat de l'état réel", reprise.Evidence!);
+    }
+
+    // =======================================================================
+    // ORC-07 — Pré-check (FR-012)
+    // =======================================================================
+    [Fact]
+    public async Task Une_Execution_Sans_Pre_Check_Ne_Se_Lance_Pas()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        var erreur = await _executions.StartAsync(executionId, "op1");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("contrôles préalables n'ont pas été passés", erreur!);
+    }
+
+    [Fact]
+    public async Task Un_Echec_Bloquant_Interdit_Le_Lancement_Sans_Contournement_Possible()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        // Le pre-check a tourne, et il a bloque.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var execution = await db.Executions.FirstAsync(x => x.Id == executionId);
+            execution.PreflightAt = DateTimeOffset.UtcNow;
+            execution.PreflightBlocked = true;
+            await db.SaveChangesAsync();
+        }
+
+        var erreur = await _executions.StartAsync(executionId, "op1");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("ne se contourne pas", erreur!);
+    }
+
+    [Fact]
+    public async Task Un_Pre_Check_Sans_Echec_Bloquant_Autorise_Le_Lancement()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var execution = await db.Executions.FirstAsync(x => x.Id == executionId);
+            execution.PreflightAt = DateTimeOffset.UtcNow;
+            execution.PreflightBlocked = false;
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _executions.StartAsync(executionId, "op1"));
+    }
+
+    [Fact]
+    public async Task Un_Composant_Non_Pilotable_Fait_Echouer_Le_Pre_Check()
+    {
+        // Le Bridge repasse en brouillon : le referentiel n'autorise plus
+        // aucune commande, quelle que soit l'urgence.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var bridge = await db.Components.FirstAsync(c => c.Id == _bridgeId);
+            bridge.Status = LifecycleStatus.Brouillon;
+            await db.SaveChangesAsync();
+        }
+
+        var executionId = await PreparerExecutionAsync();
+        var rapport = await _preflight.RunAsync(executionId);
+
+        Assert.True(rapport.HasBlockingFailure);
+        Assert.False(rapport.Cleared);
+
+        var controle = rapport.Checks.First(c => c.Name == "Composants pilotables");
+        Assert.Equal(PreflightOutcome.Echec, controle.Outcome);
+        Assert.True(controle.IsBlocking);
+        Assert.Contains("Bridge", controle.Detail);
+    }
+
+    [Fact]
+    public async Task Un_Composant_Sans_Marqueur_Produit_Une_Reserve_Et_Non_Un_Blocage()
+    {
+        var executionId = await PreparerExecutionAsync();
+        var rapport = await _preflight.RunAsync(executionId);
+
+        // Interdire l'operation faute de marqueur rendrait l'outil inutilisable
+        // sur un site qui n'a pas encore fait son releve. La reserve est dite,
+        // elle ne bloque pas.
+        var controle = rapport.Checks.First(c => c.Name == "Preuve de démarrage");
+        Assert.Equal(PreflightOutcome.Avertissement, controle.Outcome);
+        Assert.False(controle.IsBlocking);
+    }
+
+    [Fact]
+    public async Task Le_Rapport_De_Pre_Check_Est_Conserve_Avec_L_Execution()
+    {
+        var executionId = await PreparerExecutionAsync();
+        await _preflight.RunAsync(executionId);
+
+        await using var db = _factory.CreateDbContext();
+        var execution = await db.Executions.AsNoTracking().FirstAsync(x => x.Id == executionId);
+
+        Assert.NotNull(execution.PreflightAt);
+        Assert.NotNull(execution.PreflightJson);
+
+        var relu = PreflightService.Relire(execution.PreflightJson);
+        Assert.NotEmpty(relu);
+    }
+
+    [Fact]
+    public async Task Une_Simulation_Ne_Bute_Pas_Sur_Le_Verrou()
+    {
+        // Verrou pose par une autre operation.
+        await _locks.AcquireAsync(_envId, Guid.NewGuid(), "op-autre", "Arrêt complet");
+
+        var id = await CreerWorkflowAsync("SIM", WorkflowKind.DemarrageComplet);
+        await ValiderAsync(id);
+        var prep = await _executions.PrepareAsync(id, "op1", "Répétition", null, isSimulation: true);
+
+        var rapport = await _preflight.RunAsync(prep.ExecutionId);
+
+        var controle = rapport.Checks.First(c => c.Name == "Verrou d'environnement");
+        Assert.Equal(PreflightOutcome.NonApplicable, controle.Outcome);
+    }
+
+    // =======================================================================
+    // ORC-10 — Opérations ponctuelles (FR-040 à FR-045)
+    // =======================================================================
+    [Fact]
+    public async Task L_Analyse_D_Impact_Nomme_Ce_Qui_Tombe_Avec_Le_Composant_Arrete()
+    {
+        // XPS depend du Bridge : arreter le Bridge rend XPS inoperant.
+        var impact = await _adhoc.AnalyseImpactAsync(_envId, [_bridgeId], StepAction.Arreter);
+
+        Assert.Single(impact.Targeted);
+        Assert.True(impact.HasCollateral);
+        Assert.Contains(impact.Collateral, c => c.Id == _xpsId);
+    }
+
+    [Fact]
+    public async Task L_Analyse_D_Impact_Signale_Un_Prerequis_Absent_De_La_Selection()
+    {
+        var impact = await _adhoc.AnalyseImpactAsync(_envId, [_xpsId], StepAction.Demarrer);
+
+        Assert.Contains(impact.MissingPrerequisites, c => c.Id == _bridgeId);
+    }
+
+    [Fact]
+    public async Task Une_Operation_Ponctuelle_Sur_Un_Composant_Non_Pilotable_Est_Refusee()
+    {
+        await using (var db = _factory.CreateDbContext())
+        {
+            var bridge = await db.Components.FirstAsync(c => c.Id == _bridgeId);
+            bridge.ControlMode = ControlMode.SuperviseSeulement;
+            await db.SaveChangesAsync();
+        }
+
+        var r = await _adhoc.BuildAsync(_envId, [_bridgeId], StepAction.Arreter, AdHocShape.Unitaire, "op1");
+
+        Assert.False(r.Succeeded);
+        Assert.Contains("pas pilotables", r.Error!);
+    }
+
+    [Fact]
+    public async Task Un_Redemarrage_Tournant_Traite_Les_Noeuds_Un_Par_Un()
+    {
+        var r = await _adhoc.BuildAsync(
+            _envId, [_cluster1Id, _cluster2Id], StepAction.Redemarrer, AdHocShape.RollingRestart, "op1");
+
+        Assert.True(r.Succeeded, r.Error);
+
+        var workflow = await _workflows.GetAsync(r.WorkflowId);
+        var etapes = workflow!.Steps.OrderBy(s => s.Order).ToList();
+
+        // Arret, demarrage, confirmation pour chacun : le second noeud n'est
+        // pas touche avant que le premier soit confirme reparti.
+        Assert.Equal(6, etapes.Count);
+        Assert.Equal(_cluster1Id, etapes[0].ComponentId);
+        Assert.Equal(StepAction.Arreter, etapes[0].Action);
+        Assert.Equal(StepAction.Demarrer, etapes[1].Action);
+        Assert.Equal(StepAction.Verifier, etapes[2].Action);
+        Assert.Equal(_cluster2Id, etapes[3].ComponentId);
+
+        Assert.All(etapes, e => Assert.False(e.CanRunInParallel));
+    }
+
+    [Fact]
+    public async Task Une_Operation_Ponctuelle_Passe_Par_Le_Moteur_Comme_Les_Autres()
+    {
+        var r = await _adhoc.BuildAsync(_envId, [_bridgeId], StepAction.Arreter, AdHocShape.Unitaire, "op1");
+        Assert.True(r.Succeeded, r.Error);
+
+        // Elle est lancable, donc soumise au verrou, au pre-check et au moteur.
+        var prep = await _executions.PrepareAsync(r.WorkflowId, "op1", "Maintenance ciblée", "INC-7", false);
+        Assert.True(prep.Succeeded, prep.Error);
+
+        // Et le pre-check reste infranchissable.
+        Assert.NotNull(await _executions.StartAsync(prep.ExecutionId, "op1"));
+    }
+
+    // =======================================================================
+    // ORC-11 — Rapport d'exécution (FR-028, AC-14)
+    // =======================================================================
+    [Fact]
+    public async Task Le_Rapport_Nomme_Qui_A_Contourne_Une_Etape_Et_Pourquoi()
+    {
+        var executionId = await PreparerExecutionAsync(contournable: true);
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+            etapeId = (await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId)).Id;
+
+        await _executions.SkipStepAsync(etapeId, "m.konate", "Composant déjà arrêté manuellement.");
+
+        var rapport = await _report.BuildMarkdownAsync(executionId);
+
+        Assert.NotNull(rapport);
+        Assert.Contains("Contournée par m.konate", rapport!);
+        Assert.Contains("déjà arrêté manuellement", rapport);
+        Assert.Contains("1 contournée(s)", rapport);
+    }
+
+    [Fact]
+    public async Task Le_Rapport_Distingue_Une_Etape_Prouvee_D_Une_Etape_A_Confirmer()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.State = ExecutionStepState.Avertissement;
+            etape.Evidence = "Service Running, aucun marqueur configuré : à confirmer.";
+            await db.SaveChangesAsync();
+        }
+
+        var rapport = await _report.BuildMarkdownAsync(executionId);
+
+        Assert.Contains("À confirmer", rapport!);
+        Assert.Contains("sans que le résultat ait pu être prouvé", rapport);
+    }
+
+    [Fact]
+    public async Task Le_Rapport_Dit_Qu_Une_Sequence_Interrompue_N_Est_Pas_Defaite()
+    {
+        var executionId = await PreparerExecutionAsync();
+        await _executions.RequestCancelAsync(executionId, "op1");
+
+        var rapport = await _report.BuildMarkdownAsync(executionId);
+
+        Assert.Contains("Séquence incomplète", rapport!);
+        Assert.Contains("ne sont PAS défaites", rapport);
+    }
+
+    [Fact]
+    public async Task Le_Rapport_Reprend_Les_Controles_Prealables()
+    {
+        var executionId = await PreparerExecutionAsync();
+        await _preflight.RunAsync(executionId);
+
+        var rapport = await _report.BuildMarkdownAsync(executionId);
+
+        Assert.Contains("Contrôles préalables", rapport!);
+        Assert.Contains("Composants pilotables", rapport);
     }
 
     // =======================================================================
@@ -641,6 +925,22 @@ public sealed class OrchestrationTests : IAsyncLifetime
         return id;
     }
 
+    /// <summary>
+    /// Passe le pré-check puis lance. Depuis le sprint 5, aucune exécution ne
+    /// démarre sans contrôles préalables — les tests doivent suivre le même
+    /// chemin que l'application, sinon ils ne prouvent plus rien d'elle.
+    /// </summary>
+    private async Task LancerAsync(Guid executionId, string acteur = "op1")
+    {
+        var rapport = await _preflight.RunAsync(executionId);
+        Assert.False(rapport.HasBlockingFailure, rapport.Checks
+            .Where(c => c.Outcome == PreflightOutcome.Echec)
+            .Select(c => c.Detail)
+            .FirstOrDefault());
+
+        Assert.Null(await _executions.StartAsync(executionId, acteur));
+    }
+
     private async Task ValiderAsync(Guid workflowId)
     {
         var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide);
@@ -670,6 +970,41 @@ public sealed class OrchestrationTests : IAsyncLifetime
         : IDbContextFactory<N4SentinelDbContext>
     {
         public N4SentinelDbContext CreateDbContext() => new(options);
+    }
+
+    /// <summary>
+    /// Connecteur qui ne joint rien. Les composants de ces tests n'ont pas de
+    /// serveur rattaché : le pré-check n'a donc aucune machine à contacter, et
+    /// cette doublure ne sert qu'à satisfaire le constructeur.
+    /// </summary>
+    private sealed class ConnecteurMuet : IN4Connector
+    {
+        private static ConnectorResult<T> Injoignable<T>() =>
+            ConnectorResult<T>.Fail(ConnectorFailure.Injoignable, "Aucun serveur dans ce test.", TimeSpan.Zero);
+
+        public Task<ConnectorResult<string>> PingAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<string>());
+
+        public Task<ConnectorResult<ServiceSnapshot>> GetServiceAsync(ConnectorTarget t, string n, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<ServiceSnapshot>());
+
+        public Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> GetServicesAsync(ConnectorTarget t, IReadOnlyCollection<string> n, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<IReadOnlyList<ServiceSnapshot>>());
+
+        public Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> ListServicesAsync(ConnectorTarget t, IReadOnlyCollection<string> m, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<IReadOnlyList<ServiceSnapshot>>());
+
+        public Task<ConnectorResult<SystemSnapshot>> GetSystemAsync(ConnectorTarget t, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<SystemSnapshot>());
+
+        public Task<ConnectorResult<LogDelta>> ReadLogDeltaAsync(ConnectorTarget t, string p, long o, int m = 262144, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<LogDelta>());
+
+        public Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<LogFileInfo>());
+
+        public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(ConnectorTarget t, string n, ServiceControlAction a, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<ServiceSnapshot>());
     }
 
     /// <summary>

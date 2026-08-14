@@ -312,6 +312,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Ignore(x => x.IsActive);
             e.Ignore(x => x.IsFinished);
             e.Ignore(x => x.Duration);
+            e.Ignore(x => x.PreflightCleared);
 
             // Le workflow ne se supprime pas en cascade : l'historique des
             // executions doit survivre a la suppression du modele.

@@ -26,14 +26,23 @@
             </p>
         </div>
 
-        <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
-                @bind="_envId" @bind:after="Recharger">
-            <option value="@Guid.Empty">Choisir un environnement…</option>
-            @foreach (var e in _environnements)
-            {
-                <option value="@e.Id">@e.Code — @e.Name</option>
-            }
-        </select>
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Recharger">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <AuthorizeView Policy="@N4Policies.PeutExecuter">
+                <a href="/operations/ponctuelle"
+                   class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition whitespace-nowrap">
+                    <i class="bi bi-lightning-charge"></i> Opération ponctuelle
+                </a>
+            </AuthorizeView>
+        </div>
     </div>
 
     @if (_message is not null)

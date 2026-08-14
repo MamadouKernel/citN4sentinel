@@ -114,6 +114,9 @@ public static class DependencyInjection
         services.AddScoped<EnvironmentLockService>();
         services.AddScoped<SequenceValidator>();
         services.AddScoped<StepExecutor>();
+        services.AddScoped<PreflightService>();
+        services.AddScoped<AdHocOperationService>();
+        services.AddScoped<ExecutionReportService>();
         services.AddSingleton<OrchestrationEngine>();
         services.AddHostedService<OrchestrationBackgroundService>();
 

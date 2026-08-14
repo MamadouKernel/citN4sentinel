@@ -97,6 +97,25 @@ public class WorkflowExecution : AuditableEntity
     /// <summary>Identifiant de corrélation, repris dans les journaux applicatifs.</summary>
     public string CorrelationId { get; set; } = Guid.NewGuid().ToString("N")[..12];
 
+    // --- Pré-check (FR-012) ---------------------------------------------
+    /// <summary>
+    /// Rapport des contrôles préalables, conservé avec l'exécution. Trois mois
+    /// plus tard, on doit pouvoir dire ce qui avait été vérifié AVANT de
+    /// lancer, pas seulement ce qui s'est passé pendant.
+    /// </summary>
+    public string? PreflightJson { get; set; }
+    public DateTimeOffset? PreflightAt { get; set; }
+
+    /// <summary>Vrai si au moins un contrôle bloquant a échoué au dernier passage.</summary>
+    public bool PreflightBlocked { get; set; }
+
+    /// <summary>
+    /// Le pré-check a été passé et n'a rien bloqué. Une opération mutative ne
+    /// se lance pas sans cela : découvrir un serveur injoignable à la septième
+    /// étape d'un arrêt complet est le pire moment possible.
+    /// </summary>
+    public bool PreflightCleared => PreflightAt is not null && !PreflightBlocked;
+
     public ICollection<ExecutionStep> Steps { get; set; } = [];
 
     public bool IsActive => Status is ExecutionStatus.EnCours

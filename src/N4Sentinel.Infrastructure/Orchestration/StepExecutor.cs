@@ -121,18 +121,36 @@ public sealed class StepExecutor(
                 $"Aucun nom de service Windows n'est renseigné pour « {composant.LogicalName} ». "
                 + "Le pilotage est impossible tant que le référentiel est incomplet.");
 
+        // GARDE-FOU DE SEQUENCE (FR-044). Verifie au dernier moment que ce dont
+        // ce composant depend est REELLEMENT operationnel. Le pre-check l'a
+        // deja regarde, mais l'ecosysteme a pu changer depuis - un prerequis a
+        // pu tomber pendant les six etapes precedentes.
+        var barrage = await VerifierPrerequisAsync(composant, progress, ct);
+
+        // EN SIMULATION, LE BARRAGE INFORME MAIS N'ARRETE PAS. Une simulation
+        // sert justement a derouler une sequence sur un ecosysteme froid, ou
+        // aucun prerequis n'est encore demarre : la faire echouer a la
+        // deuxieme etape la rendrait inutile. Le constat reste dit.
+        if (barrage is not null && !isSimulation) return barrage;
+
         // POINT DE REPERE, pose AVANT d'emettre la commande. Sans lui, le
         // marqueur du demarrage precedent - toujours present dans le fichier -
         // serait pris pour la preuve du demarrage en cours.
         var repere = await PoserRepereAsync(cible, readiness, ct);
 
         if (isSimulation)
-            return StepOutcome.Succeeded(
+        {
+            var texte =
                 $"[Simulation] Aucune commande émise. Le service « {composant.WindowsServiceName} » "
                 + $"aurait été démarré sur {cible.HostName}, "
                 + (readiness.IsProvable
                     ? $"puis la preuve aurait été cherchée dans « {repere.Path ?? readiness.LogPath} »."
-                    : "sans preuve applicative disponible."));
+                    : "sans preuve applicative disponible.");
+
+            return barrage is null
+                ? StepOutcome.Succeeded(texte)
+                : StepOutcome.Warned($"{texte} EN EXÉCUTION RÉELLE, CETTE ÉTAPE SERAIT REFUSÉE : {barrage.Message}");
+        }
 
         progress.Report($"Envoi de la commande de démarrage à {cible.HostName}.");
 
@@ -237,6 +255,75 @@ public sealed class StepExecutor(
         var demarrage = await DemarrerAsync(step, isSimulation, progress, ct);
 
         return demarrage with { Message = $"Arrêt : {arret.Message} — Démarrage : {demarrage.Message}" };
+    }
+
+    // -----------------------------------------------------------------------
+    // Garde-fou de séquence
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Refuse de démarrer un composant dont un prérequis n'est pas prouvé
+    /// opérationnel (FR-044).
+    ///
+    /// C'est la règle N4 que le cahier des charges cite explicitement : XPS ne
+    /// démarre pas tant que le Bridge n'est pas confirmé. Un XPS lancé sur un
+    /// Bridge absent démarre en apparence, échoue silencieusement à traiter les
+    /// messages, et le problème se manifeste des heures plus tard sous une
+    /// forme méconnaissable.
+    ///
+    /// « Prouvé » veut dire marqueur reconnu dans le journal. Un composant dont
+    /// l'état est seulement « à confirmer » ne suffit pas à autoriser la suite —
+    /// mais le dire ainsi, plutôt que d'échouer sèchement, permet à l'opérateur
+    /// de trancher.
+    /// </summary>
+    private async Task<StepOutcome?> VerifierPrerequisAsync(
+        N4Component composant, IProgress<string> progress, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var prerequis = await db.ComponentDependencies
+            .AsNoTracking()
+            .Include(d => d.DependsOnComponent)
+            .Where(d => d.ComponentId == composant.Id && d.Kind == DependencyKind.RequisAuDemarrage)
+            .ToListAsync(ct);
+
+        if (prerequis.Count == 0) return null;
+
+        progress.Report($"Contrôle des {prerequis.Count} prérequis de « {composant.LogicalName} ».");
+
+        foreach (var dependance in prerequis)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var cible = dependance.DependsOnComponent;
+            if (cible is null) continue;
+
+            // Un composant declare non supervise ne peut pas etre prouve : on
+            // ne va pas bloquer la sequence sur une information qu'on a
+            // volontairement choisi de ne pas collecter.
+            if (cible.ControlMode == ControlMode.NonSupervise) continue;
+
+            var sante = await supervision.EvaluateComponentAsync(dependance.DependsOnComponentId, ct);
+
+            if (sante.State == ComponentState.Disponible && sante.LogProofStatus == LogProofState.Proved)
+                continue;
+
+            if (sante.State == ComponentState.Disponible)
+                return StepOutcome.Failed(
+                    $"« {composant.LogicalName} » dépend de « {cible.LogicalName} », dont le service tourne "
+                    + "mais dont le démarrage applicatif n'est PAS prouvé — aucun marqueur de journal "
+                    + "n'est configuré pour lui. "
+                    + $"Démarrer {composant.LogicalName} maintenant, c'est parier. "
+                    + $"Relevez le marqueur de « {cible.LogicalName} », ou contournez cette étape "
+                    + "explicitement si vous avez vérifié son état par un autre moyen.");
+
+            return StepOutcome.Failed(
+                $"« {composant.LogicalName} » dépend de « {cible.LogicalName} », qui n'est pas opérationnel "
+                + $"(état constaté : {sante.State}). {sante.Verdict} "
+                + "La séquence s'arrête ici : un composant démarré sur un prérequis absent démarre en "
+                + "apparence, puis échoue plus tard sous une forme méconnaissable.");
+        }
+
+        return null;
     }
 
     // -----------------------------------------------------------------------

@@ -1,0 +1,300 @@
+@page "/operations/ponctuelle"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Orchestration
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutExecuter)]
+@rendermode InteractiveServer
+@inject AdHocOperationService AdHoc
+@inject ExecutionService Executions
+@inject ReferentialService Referential
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+
+<PageTitle>Opération ponctuelle — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div>
+        <a href="/operations" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+            <i class="bi bi-arrow-left"></i> Retour aux opérations
+        </a>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Opération ponctuelle</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Agir sur un composant, un groupe, ou redémarrer des nœuds un par un.
+            <strong class="text-white">Ces opérations ne court-circuitent pas l'orchestrateur</strong> :
+            elles fabriquent un workflow réel et passent par le même verrou, le même pré-check et le même
+            moteur qu'une séquence complète.
+        </p>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <!-- Choix de l'environnement -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Environnement</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        @bind="_envId" @bind:after="ChangerEnvironnement">
+                    <option value="@Guid.Empty">Choisir…</option>
+                    @foreach (var e in _environnements)
+                    {
+                        <option value="@e.Id">@e.Code — @e.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Action</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        @bind="_action" @bind:after="Recalculer">
+                    <option value="@StepAction.Verifier">Contrôler (lecture seule)</option>
+                    <option value="@StepAction.Demarrer">Démarrer</option>
+                    <option value="@StepAction.Arreter">Arrêter</option>
+                    <option value="@StepAction.Redemarrer">Redémarrer</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Forme</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_forme">
+                    <option value="@AdHocShape.Unitaire">Unitaire</option>
+                    <option value="@AdHocShape.Groupe">Groupe</option>
+                    <option value="@AdHocShape.RollingRestart">Redémarrage tournant</option>
+                </select>
+                @if (_forme == AdHocShape.RollingRestart)
+                {
+                    <p class="text-[10px] text-slate-500 mt-1">
+                        Un composant à la fois : arrêt, démarrage prouvé, confirmation, puis le suivant.
+                    </p>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_envId != Guid.Empty)
+    {
+        <!-- Sélection des composants -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-check2-square text-sky-400"></i>
+                    Composants visés (@_selection.Count sélectionné(s))
+                </h3>
+            </div>
+
+            @if (_composants.Count == 0)
+            {
+                <div class="p-6 text-xs text-slate-400">Aucun composant déclaré dans cet environnement.</div>
+            }
+            else
+            {
+                <div class="divide-y divide-slate-800">
+                    @foreach (var c in _composants)
+                    {
+                        var pilotable = c.CanBeControlled;
+                        <label class="flex items-center gap-3 p-3.5 text-xs cursor-pointer hover:bg-white/[0.02] transition @(pilotable ? "" : "opacity-50")">
+                            <input type="checkbox" class="rounded bg-slate-900 border-slate-700 shrink-0"
+                                   checked="@_selection.Contains(c.Id)"
+                                   disabled="@(!pilotable && _action != StepAction.Verifier)"
+                                   @onchange="e => Basculer(c.Id, (bool)e.Value!)" />
+                            <span class="w-7 h-7 rounded-lg bg-slate-800 text-slate-400 flex items-center justify-center font-mono text-[10px] shrink-0">
+                                @c.StartOrder
+                            </span>
+                            <span class="flex-1 min-w-0">
+                                <span class="font-bold text-white">@c.LogicalName</span>
+                                <span class="text-slate-500 ml-2">@c.Role</span>
+                                @if (!pilotable)
+                                {
+                                    <span class="text-amber-400 ml-2">
+                                        non pilotable (@c.ControlMode, @c.Status)
+                                    </span>
+                                }
+                            </span>
+                            @if (c.Criticality >= CriticalityLevel.Elevee)
+                            {
+                                <span class="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 text-[10px] font-bold shrink-0">
+                                    criticité @c.Criticality
+                                </span>
+                            }
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Analyse d'impact (FR-042) -->
+        @if (_impact is not null && _selection.Count > 0)
+        {
+            <div class="glass-card rounded-2xl border @(_impact.HasCollateral ? "border-amber-500/30" : "border-slate-800") p-5 space-y-3 text-xs">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-diagram-3 text-amber-400"></i> Analyse d'impact
+                </h3>
+
+                @if (_impact.HasCollateral)
+                {
+                    <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-2">
+                        <p class="text-amber-200 leading-relaxed">
+                            <strong>@_impact.Collateral.Count composant(s) deviendront inopérants</strong>
+                            sans avoir été sélectionnés :
+                            @string.Join(", ", _impact.Collateral.Select(c => c.LogicalName)).
+                        </p>
+                        <p class="text-amber-300/80">
+                            Ils dépendent de ce que vous arrêtez. Ils ne seront pas arrêtés proprement par
+                            cette opération — ils cesseront simplement de fonctionner.
+                        </p>
+                        <button class="px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs transition"
+                                @onclick="AjouterLesEntraines">
+                            <i class="bi bi-plus-lg"></i> Les inclure dans l'opération
+                        </button>
+                    </div>
+                }
+
+                @if (_impact.MissingPrerequisites.Count > 0)
+                {
+                    <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-700 text-slate-300 leading-relaxed">
+                        <strong class="text-white">@_impact.MissingPrerequisites.Count prérequis</strong>
+                        ne sont pas dans la sélection :
+                        @string.Join(", ", _impact.MissingPrerequisites.Select(c => c.LogicalName)).
+                        Ils devront déjà être opérationnels — sinon la séquence sera refusée à l'exécution.
+                    </div>
+                }
+
+                @if (!_impact.HasCollateral && _impact.MissingPrerequisites.Count == 0)
+                {
+                    <p class="text-emerald-300 flex items-center gap-2">
+                        <i class="bi bi-check2-circle"></i>
+                        Aucun composant hors sélection n'est concerné.
+                    </p>
+                }
+            </div>
+        }
+
+        <!-- Motif et lancement -->
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="md:col-span-2">
+                    <label class="block text-slate-400 font-semibold mb-1">
+                        Motif <span class="text-rose-400">obligatoire</span>
+                    </label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Pourquoi cette opération, maintenant." @bind="_motif" />
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Référence de ticket</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="INC-1234 (facultatif)" @bind="_ticket" />
+                </div>
+            </div>
+
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_simulation" />
+                <span><strong>Simulation</strong> — aucune commande n'est émise.</span>
+            </label>
+
+            <button class="px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40 inline-flex items-center gap-2"
+                    disabled="@(_selection.Count == 0 || string.IsNullOrWhiteSpace(_motif) || _enCours)"
+                    @onclick="Construire">
+                <i class="bi bi-arrow-right-circle"></i>
+                @(_enCours ? "Construction…" : "Préparer l'opération")
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<N4Component> _composants = [];
+    private readonly HashSet<Guid> _selection = [];
+    private ImpactAnalysis? _impact;
+
+    private Guid _envId;
+    private StepAction _action = StepAction.Verifier;
+    private AdHocShape _forme = AdHocShape.Unitaire;
+    private string _motif = string.Empty;
+    private string _ticket = string.Empty;
+    private bool _simulation;
+    private bool _enCours;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1) { _envId = _environnements[0].Id; await ChangerEnvironnement(); }
+    }
+
+    private async Task ChangerEnvironnement()
+    {
+        _selection.Clear();
+        _impact = null;
+        _composants = _envId == Guid.Empty ? [] : await Referential.GetComponentsAsync(_envId);
+    }
+
+    private async Task Basculer(Guid componentId, bool coche)
+    {
+        if (coche) _selection.Add(componentId); else _selection.Remove(componentId);
+        await Recalculer();
+    }
+
+    private async Task Recalculer()
+    {
+        _impact = _selection.Count == 0
+            ? null
+            : await AdHoc.AnalyseImpactAsync(_envId, _selection, _action);
+
+        // La forme suit la selection tant que l'operateur ne l'a pas forcee :
+        // un seul composant, c'est unitaire ; plusieurs, c'est un groupe.
+        if (_forme != AdHocShape.RollingRestart)
+            _forme = _selection.Count > 1 ? AdHocShape.Groupe : AdHocShape.Unitaire;
+    }
+
+    private async Task AjouterLesEntraines()
+    {
+        if (_impact is null) return;
+        foreach (var c in _impact.Collateral) _selection.Add(c.Id);
+        await Recalculer();
+    }
+
+    private async Task Construire()
+    {
+        _enCours = true;
+        _message = null;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var construction = await AdHoc.BuildAsync(
+            _envId, _selection.ToList(), _action, _forme, acteur);
+
+        if (!construction.Succeeded)
+        {
+            _enCours = false;
+            Signaler(construction.Error!, false);
+            return;
+        }
+
+        var prep = await Executions.PrepareAsync(
+            construction.WorkflowId, acteur, _motif,
+            string.IsNullOrWhiteSpace(_ticket) ? null : _ticket.Trim(), _simulation);
+
+        _enCours = false;
+
+        if (!prep.Succeeded) { Signaler(prep.Error!, false); return; }
+
+        Nav.NavigateTo($"/operations/{prep.ExecutionId}");
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+}

@@ -7,7 +7,10 @@
 @rendermode InteractiveServer
 @inject ExecutionService Executions
 @inject OrchestrationEngine Moteur
+@inject PreflightService Preflight
+@inject ExecutionReportService Rapport
 @inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
 
 <PageTitle>@(_x?.WorkflowName ?? "Opération") — N4 Sentinel</PageTitle>
 
@@ -108,6 +111,71 @@ else
             </div>
         }
 
+        <!-- Contrôles préalables (FR-012) -->
+        @if (!_x.IsFinished || _controles.Count > 0)
+        {
+            <div class="glass-card rounded-2xl border @(_x.PreflightBlocked ? "border-rose-500/40" : "border-slate-800") overflow-hidden">
+                <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="bi bi-clipboard2-check text-sky-400"></i> Contrôles préalables
+                        </h3>
+                        <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed">
+                            Découvrir un serveur injoignable à la septième étape d'un arrêt complet est le pire
+                            moment possible. <strong class="text-slate-400">Un contrôle bloquant en échec interdit
+                            le lancement, et ne se contourne pas.</strong>
+                        </p>
+                    </div>
+
+                    <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="verificateur">
+                        @if (!_x.IsFinished)
+                        {
+                            <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40 whitespace-nowrap"
+                                    disabled="@_preflightEnCours" @onclick="LancerPreCheck">
+                                <i class="bi bi-clipboard2-check"></i>
+                                @(_preflightEnCours ? "Contrôles en cours…" : _controles.Count == 0 ? "Passer les contrôles" : "Repasser les contrôles")
+                            </button>
+                        }
+                    </AuthorizeView>
+                </div>
+
+                @if (_controles.Count == 0)
+                {
+                    <div class="p-6 text-xs text-slate-400">
+                        Les contrôles n'ont pas encore été passés. L'opération ne peut pas être lancée avant.
+                    </div>
+                }
+                else
+                {
+                    <div class="divide-y divide-slate-800">
+                        @foreach (var c in _controles)
+                        {
+                            <div class="p-4 flex items-start gap-3 text-xs">
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 mt-0.5 @PastilleControle(c.Outcome)">
+                                    @LibelleControle(c)
+                                </span>
+                                <div class="space-y-1 min-w-0">
+                                    <div class="font-bold text-white">@c.Name</div>
+                                    <p class="text-slate-300 leading-relaxed">@c.Detail</p>
+                                    @if (c.Remedy is not null)
+                                    {
+                                        <p class="text-slate-500"><i class="bi bi-arrow-return-right"></i> @c.Remedy</p>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (_x.PreflightAt is { } passeA)
+                    {
+                        <div class="px-4 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
+                            Passés le @passeA.ToLocalTime().ToString("dd/MM à HH:mm:ss").
+                        </div>
+                    }
+                }
+            </div>
+        }
+
         <!-- Commandes -->
         <AuthorizeView Policy="@N4Policies.PeutExecuter">
             <div class="flex flex-wrap items-center gap-2">
@@ -123,9 +191,18 @@ else
 
                 @if (_x.Status == ExecutionStatus.EnPreparation)
                 {
-                    <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition"
-                            @onclick="Lancer">
+                    <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@(!_x.PreflightCleared)" @onclick="Lancer"
+                            title="@(_x.PreflightCleared ? null : "Les contrôles préalables doivent être passés sans échec bloquant.")">
                         <i class="bi bi-play-fill"></i> Lancer maintenant
+                    </button>
+                }
+
+                @if (_x.IsFinished)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                            @onclick="TelechargerRapport">
+                        <i class="bi bi-file-earmark-text"></i> Rapport d'exécution
                     </button>
                 }
 
@@ -317,6 +394,9 @@ else
     private string _note = string.Empty;
     private string _justification = string.Empty;
 
+    private List<PreflightCheck> _controles = [];
+    private bool _preflightEnCours;
+
     private string? _message;
     private string _messageClass = string.Empty;
 
@@ -349,6 +429,54 @@ else
     {
         _x = await Executions.GetAsync(Id);
         _termines = _x?.Steps.Count(s => s.IsTerminal) ?? 0;
+        _controles = PreflightService.Relire(_x?.PreflightJson);
+    }
+
+    private async Task LancerPreCheck()
+    {
+        _preflightEnCours = true;
+        _message = null;
+        StateHasChanged();
+
+        var rapport = await Preflight.RunAsync(Id);
+        _preflightEnCours = false;
+
+        await Charger();
+
+        if (rapport.Error is not null)
+        {
+            _message = rapport.Error;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        if (rapport.HasBlockingFailure)
+        {
+            _message = $"{rapport.BlockingFailures} contrôle(s) bloquant(s) en échec. "
+                     + "L'opération ne peut pas être lancée tant qu'ils ne sont pas corrigés.";
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        _message = rapport.Warnings > 0
+            ? $"Contrôles passés, avec {rapport.Warnings} réserve(s). L'opération peut être lancée — "
+              + "les réserves apparaîtront dans le rapport."
+            : "Contrôles passés sans réserve. L'opération peut être lancée.";
+
+        _messageClass = rapport.Warnings > 0
+            ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
+            : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300";
+    }
+
+    private async Task TelechargerRapport()
+    {
+        var markdown = await Rapport.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var nom = $"N4Sentinel-{_x!.EnvironmentCode}-{_x.CorrelationId}.md";
+        var octets = System.Text.Encoding.UTF8.GetBytes(markdown);
+
+        await JS.InvokeVoidAsync("n4TelechargerTexte", nom, Convert.ToBase64String(octets));
     }
 
     private async Task<string> ActeurAsync()
@@ -396,6 +524,22 @@ else
         ExecutionStatus.Echec => "bg-rose-500/10 border-rose-500/20 text-rose-200",
         ExecutionStatus.ReconciliationRequise => "bg-amber-500/10 border-amber-500/30 text-amber-100",
         _ => "bg-amber-500/10 border-amber-500/20 text-amber-200"
+    };
+
+    private static string PastilleControle(PreflightOutcome o) => o switch
+    {
+        PreflightOutcome.Reussi => "bg-emerald-500/15 text-emerald-400",
+        PreflightOutcome.Avertissement => "bg-amber-500/15 text-amber-400",
+        PreflightOutcome.Echec => "bg-rose-500/15 text-rose-300",
+        _ => "bg-slate-800 text-slate-500"
+    };
+
+    private static string LibelleControle(PreflightCheck c) => c.Outcome switch
+    {
+        PreflightOutcome.Reussi => "OK",
+        PreflightOutcome.Avertissement => "RÉSERVE",
+        PreflightOutcome.Echec => c.IsBlocking ? "BLOQUANT" : "ÉCHEC",
+        _ => "SANS OBJET"
     };
 
     private static string LibelleAction(StepAction a) => a switch
