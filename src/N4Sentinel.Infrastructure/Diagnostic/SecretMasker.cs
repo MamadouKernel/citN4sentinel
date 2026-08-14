@@ -46,6 +46,17 @@ public static class SecretMasker
         // <password>...</password> dans du XML de configuration N4
         new(@"<(?<balise>password|passwd|pwd|secret|token|credential)\b[^>]*>(?<secret>[^<]*)</\k<balise>>", Options, Delai),
 
+        // ATTRIBUT XML : password="..." — la forme que prend la configuration
+        // Mule/ESB deversee dans navis-apex.log. Le guide 3.8.25 documente
+        // explicitement que passer com.navis.control ou com.navis.control.esb
+        // en DEBUG sur le Center Node fait ecrire LE MOT DE PASSE DE LA BASE
+        // ECI EN CLAIR dans le journal. Sans ce motif, ce mot de passe de
+        // production entrerait tel quel dans la base de N4 Sentinel.
+        new(@"\b(?:password|passwd|pwd|secret|token|apikey|api[_-]?key|credential)\s*=\s*""(?<secret>[^""]*)""", Options, Delai),
+
+        // Meme forme, guillemets simples.
+        new(@"\b(?:password|passwd|pwd|secret|token|apikey|api[_-]?key|credential)\s*=\s*'(?<secret>[^']*)'", Options, Delai),
+
         // Chaine de connexion JDBC : jdbc:sqlserver://hote;user=x;password=y
         new(@"(?<=jdbc:[^\s]{0,200}?)(?:password|pwd)\s*=\s*(?<secret>[^;\s""']+)", Options, Delai),
 

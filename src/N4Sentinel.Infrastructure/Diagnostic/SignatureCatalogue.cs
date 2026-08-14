@@ -422,6 +422,113 @@ public sealed class SignatureCatalogue(
             Remediation = "Chercher la première erreur AVANT cette ligne : c'est elle qui porte la cause, "
                         + "celle-ci n'en est que la conclusion."
         },
+        // --- Statuts Cluster Services documentés par l'éditeur ---------------
+        // Guide « N4 IT Administrator — Day 1 », module 1.5 : les huit statuts
+        // et leur signification exacte. Les confondre fait chercher une panne
+        // là où il n'y en a pas — ou l'inverse.
+        new()
+        {
+            Code = "N4-STATUS-DISCONNECTED",
+            Name = "Nœud DISCONNECTED",
+            Pattern = @"\bDISCONNECTED\b",
+            Domain = DiagnosticDomain.Cluster,
+            Severity = SignatureSeverity.Avertissement,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 50,
+            Meaning = "Le battement de cœur du nœud existe, mais il n'atteint pas le Center Node. "
+                    + "Pendant un démarrage, c'est NORMAL : un nœud Cluster reste DISCONNECTED tant que "
+                    + "le Center Node n'est pas monté. En dehors d'un démarrage, cela signale un problème "
+                    + "de communication vers le Center — souvent un écart d'horloge, parfois le réseau.",
+            Remediation = "Rapprocher de l'heure : si un démarrage était en cours, ignorer. Sinon, vérifier "
+                        + "d'abord la synchronisation NTP, puis la joignabilité du Center Node.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.5 — Statuses"
+        },
+        new()
+        {
+            Code = "N4-STATUS-INACTIVE",
+            Name = "Nœud INACTIVE — battement de cœur perdu",
+            Pattern = @"\bINACTIVE\b",
+            Domain = DiagnosticDomain.Cluster,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 70,
+            Meaning = "Aucun battement de cœur reçu depuis plus de deux minutes. À la différence de "
+                    + "DISCONNECTED, où le battement existe sans atteindre le Center, ici le nœud ne "
+                    + "produit plus rien : il est tombé, figé, ou sa JVM est bloquée.",
+            Remediation = "Vérifier que le processus tourne encore et relever une éventuelle pause longue "
+                        + "du ramasse-miettes à la même heure.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.5 — Statuses"
+        },
+        new()
+        {
+            Code = "N4-STATUS-RECOVERING",
+            Name = "Service en RECOVERING après incident",
+            Pattern = @"\bRECOVERING\b",
+            Domain = DiagnosticDomain.Applicatif,
+            Severity = SignatureSeverity.Avertissement,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 60,
+            Meaning = "Le service se rétablit après une erreur, typiquement un arrêt brutal. "
+                    + "Ce statut dit qu'il y a EU un incident : la cause est à chercher AVANT cette ligne.",
+            Remediation = "Remonter dans le journal jusqu'à la première erreur qui précède : c'est elle "
+                        + "qui porte la cause, RECOVERING n'en est que la conséquence.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.5 — Statuses"
+        },
+
+        // --- Séquence de démarrage du Bridge ---------------------------------
+        new()
+        {
+            Code = "BRIDGE-NOT-ACTIVE",
+            Name = "Bridge bloqué avant l'état ACTIVE",
+            Pattern = @"[Bb]ridge.{0,80}(?:WAITING|LOADING)|WAITING.{0,40}[Cc]enter\s*[Nn]ode",
+            Domain = DiagnosticDomain.Cluster,
+            Severity = SignatureSeverity.Avertissement,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 55,
+            Meaning = "Le XPS Bridge Daemon passe par WAITING puis LOADING avant ACTIVE. En WAITING il "
+                    + "réclame les données conteneurs au Center Node ; en LOADING il les reçoit. "
+                    + "Tant qu'il n'est pas ACTIVE, XPS NE DOIT PAS ÊTRE DÉMARRÉ.",
+            Remediation = "Attendre l'état ACTIVE. Un blocage prolongé en LOADING vient souvent d'un excès "
+                        + "de visites navire laissées en Inbound ou Departed, qui ralentit le transfert.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.6 — Monitor XPS Bridge Daemon startup"
+        },
+
+        // --- Arrêt incorrect, première cause de P1 ---------------------------
+        new()
+        {
+            Code = "SHUTDOWN-IMPROPER",
+            Name = "Arrêt incorrect détecté au démarrage",
+            Pattern = @"(?:unclean shutdown|improper shutdown|was not shut down cleanly|"
+                    + @"recovering from (?:an )?unclean|dirty shutdown|previous run did not exit)",
+            Domain = DiagnosticDomain.Applicatif,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 75,
+            Meaning = "Le composant a été arrêté sans que la séquence prévue ait pu aboutir. Un arrêt propre "
+                    + "sauve les données, ferme les connexions à la base et prévient les autres services ; "
+                    + "un arrêt brutal interrompt ces trois actions. L'éditeur classe l'arrêt incorrect "
+                    + "parmi les dix premières causes d'incident critique.",
+            Remediation = "Vérifier l'intégrité des files ActiveMQ et du magasin KahaDB avant de poursuivre. "
+                        + "Revoir la procédure d'arrêt : ECN4 Web, ECN4, XPS, Bridge, Standby, Cluster, Center.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.8 — N4 Shutdown Process"
+        },
+        new()
+        {
+            Code = "AMQ-CORRUPT",
+            Name = "Corruption des files ActiveMQ",
+            Pattern = @"(?:ActiveMQ|activemq).{0,120}(?:corrupt|recover|failed to (?:load|start)|IOException)",
+            Domain = DiagnosticDomain.Stockage,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 80,
+            Meaning = "Les fichiers ActiveMQ du dossier partagé sont endommagés. L'éditeur classe la "
+                    + "corruption AMQ parmi les dix premières causes d'incident critique, et elle fait "
+                    + "presque toujours suite à un arrêt incorrect.",
+            Remediation = "Ne rien supprimer avant d'avoir mesuré ce que les files contiennent : des messages "
+                        + "métier non traités peuvent y être en attente.",
+            DocumentReference = "N4 IT Administrator Day 1 — Top 10 P1 Causes"
+        },
+
         new()
         {
             Code = "APP-UNCAUGHT",

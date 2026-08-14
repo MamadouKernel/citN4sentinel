@@ -260,6 +260,65 @@ public sealed class OrchestrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task L_Ordre_D_Arret_Suit_La_Prescription_De_L_Editeur()
+    {
+        // Guide Kaleris « N4 IT Administrator - Day 1 », module 1.8 :
+        //   ECN4 Web -> ECN4 -> XPS -> Bridge -> Standby -> Cluster -> Center
+        //
+        // LE CENTER NODE PART EN DERNIER, APRES LES CLUSTER NODES. Il porte la
+        // file de travail et la connexion a la base : le couper d'abord
+        // priverait les noeuds de ce dont ils ont besoin pour se fermer
+        // proprement. L'editeur classe l'arret incorrect parmi les dix
+        // premieres causes d'incident critique.
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Components.AddRange(
+                Composant(db, "Center Node", ComponentRole.CenterNode, 30),
+                Composant(db, "Standby Center Node", ComponentRole.StandbyCenterNode, 31),
+                Composant(db, "ECN4 Daemon", ComponentRole.Ecn4, 32),
+                Composant(db, "ECN4 Web", ComponentRole.Ecn4Web, 33));
+
+            await db.SaveChangesAsync();
+        }
+
+        await _workflows.GenerateDefaultsAsync(_envId);
+
+        var arret = (await _workflows.GetForEnvironmentAsync(_envId))
+            .First(w => w.Code == "ARRET-COMPLET");
+
+        var rangs = arret.Steps
+            .Where(s => s.ComponentId is not null)
+            .ToDictionary(s => NomDuComposant(s.ComponentId!.Value), s => s.Order);
+
+        Assert.True(rangs["ECN4 Web"] < rangs["ECN4 Daemon"], "ECN4 Web doit tomber avant ECN4.");
+        Assert.True(rangs["ECN4 Daemon"] < rangs["XPS"], "ECN4 doit tomber avant XPS.");
+        Assert.True(rangs["XPS"] < rangs["Bridge Daemon"], "XPS doit tomber avant le Bridge.");
+        Assert.True(rangs["Bridge Daemon"] < rangs["Standby Center Node"],
+            "Le Bridge doit tomber avant le Standby.");
+        Assert.True(rangs["Standby Center Node"] < rangs["Cluster Node 1"],
+            "Le Standby doit tomber avant les nœuds Cluster.");
+        Assert.True(rangs["Cluster Node 1"] < rangs["Center Node"],
+            "LES NŒUDS CLUSTER DOIVENT TOMBER AVANT LE CENTER NODE.");
+    }
+
+    private string NomDuComposant(Guid id)
+    {
+        using var db = _factory.CreateDbContext();
+        return db.Components.AsNoTracking().First(c => c.Id == id).LogicalName;
+    }
+
+    private N4Component Composant(N4SentinelDbContext db, string nom, ComponentRole role, int ordre) => new()
+    {
+        EnvironmentId = _envId,
+        LogicalName = nom,
+        Role = role,
+        StartOrder = ordre,
+        WindowsServiceName = $"Navis {nom}",
+        ControlMode = ControlMode.Pilotable,
+        Status = LifecycleStatus.Valide
+    };
+
+    [Fact]
     public async Task Une_Sequence_Generee_Respecte_Le_Graphe_De_Dependances()
     {
         await _workflows.GenerateDefaultsAsync(_envId);

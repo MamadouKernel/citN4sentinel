@@ -66,11 +66,21 @@ public class N4Environment : AuditableEntity
     public string? ExpectedTimeSource { get; set; }
 
     /// <summary>
-    /// Ecart d'horloge tolere, en secondes. Au-dela, le serveur est declare non
-    /// conforme. Cinq secondes par defaut : c'est le seuil au-dela duquel N4
-    /// commence a produire des statuts DISCONNECTED trompeurs.
+    /// Ecart d'horloge tolere, en secondes.
+    ///
+    /// UNE SECONDE PAR DEFAUT, ET C'EST L'EXIGENCE DE L'EDITEUR : le guide
+    /// Kaleris « N4 IT Administrator - Day 1 » prescrit que TOUTES les horloges
+    /// des hotes N4, XPS, ECN4 et des clients de dispatch soient a moins d'une
+    /// seconde les unes des autres, faute de quoi « N4 ne fonctionnera pas
+    /// correctement et un P1 peut en resulter ».
+    ///
+    /// L'ecart d'horloge figure parmi les dix premieres causes d'incident
+    /// critique relevees par l'editeur. Relever ce seuil revient a se rendre
+    /// aveugle a une cause connue, difficile a diagnostiquer autrement parce
+    /// qu'elle ne ressemble a rien : elle se manifeste par des statuts
+    /// DISCONNECTED sans panne visible.
     /// </summary>
-    public int ClockToleranceSeconds { get; set; } = 5;
+    public int ClockToleranceSeconds { get; set; } = 1;
 
     /// <summary>
     /// Vrai pour l'environnement de Production. Declenche l'affichage

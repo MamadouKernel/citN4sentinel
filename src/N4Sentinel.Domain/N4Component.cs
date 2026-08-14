@@ -87,6 +87,22 @@ public class ReadinessProfile
     /// jamais UNC). Accepte un caractere generique : plusieurs composants N4
     /// horodatent le nom de leur fichier, et le journal XPS repart a zero a
     /// chaque demarrage.
+    ///
+    /// EMPLACEMENTS DE REFERENCE, d'apres le guide Kaleris 3.8.25
+    /// « Setup, Maintenance and System Diagnostics », section 1.11.28 :
+    ///
+    ///   Noeuds N4        C:\ProgramData\Navis\node{n}\logs\navis-apex.log
+    ///                    (Linux : /opt/navis/configuration/node{n}/logs/)
+    ///   Bridge daemon    C:\ProgramData\Navis\bridged\logs\
+    ///   XPS              C:\ProgramData\Navis\xps\log\
+    ///
+    /// Le dossier du Bridge s'ecrit « bridged », avec un d final : c'est le nom
+    /// du daemon, pas celui du composant. La faute de frappe est frequente et
+    /// se traduit par un composant qui reste indefiniment « a confirmer ».
+    ///
+    /// Cas particulier : si XPS echoue AVANT d'avoir charge sa configuration de
+    /// journalisation, il ecrit dans C:\Program Files\xps\. Un XPS qui ne
+    /// produit rien a l'emplacement habituel doit donc etre cherche la.
     /// </summary>
     public string? LogPath { get; set; }
 

@@ -161,7 +161,8 @@ public sealed class NodeVitalsService(
     public static ClockConformity EvaluerHorloge(
         TimeSyncSnapshot? horloge, double? ecart, N4Environment? environnement, string? erreur)
     {
-        var tolerance = environnement?.ClockToleranceSeconds ?? 5;
+        // Une seconde : l'exigence de l'editeur pour l'ensemble des hotes N4.
+        var tolerance = environnement?.ClockToleranceSeconds ?? 1;
         var attendue = environnement?.ExpectedTimeSource;
 
         if (horloge is null)

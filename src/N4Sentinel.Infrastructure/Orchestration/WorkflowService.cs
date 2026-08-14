@@ -302,7 +302,16 @@ public sealed class WorkflowService(
             nom, environmentId, composants.Count);
     }
 
-    /// <summary>Ordre de démarrage N4 : Cluster → Center → Standby → Bridge → XPS → ECN4 → ECN4Web.</summary>
+    /// <summary>
+    /// Ordre de démarrage N4, conforme au guide Kaleris
+    /// « N4 IT Administrator — Day 1: Installation, Startup » (2024).
+    ///
+    /// Cluster → Center → Standby → Bridge → XPS → ECN4 → ECN4Web.
+    ///
+    /// Les nœuds Cluster se démarrent AVANT le Center et affichent DISCONNECTED
+    /// tant que celui-ci n'est pas monté : c'est le comportement normal décrit
+    /// par l'éditeur, pas une anomalie.
+    /// </summary>
     private static int RangDemarrage(ComponentRole role) => role switch
     {
         ComponentRole.BaseDeDonnees => 0,
@@ -320,9 +329,25 @@ public sealed class WorkflowService(
     };
 
     /// <summary>
-    /// Ordre d'arrêt N4 : périphérie d'abord, cœur en dernier. Ce n'est PAS
-    /// l'inverse du rang de démarrage — le Standby s'arrête avant le Center,
-    /// alors qu'il démarre après lui.
+    /// Ordre d'arrêt N4, conforme au guide Kaleris « N4 IT Administrator —
+    /// Day 1 », module 1.8 « N4 Shutdown Process » :
+    ///
+    ///   ECN4 Web → ECN4 Daemon → XPS → XPS Bridge Daemon
+    ///   → Standby Center Node → Cluster Nodes → Center Node
+    ///
+    /// CE N'EST PAS L'INVERSE DE L'ORDRE DE DÉMARRAGE, et deux inversions
+    /// comptent :
+    ///
+    ///   — le Standby s'arrête AVANT le Center, alors qu'il démarre après lui ;
+    ///   — les Cluster Nodes s'arrêtent AVANT le Center Node, qui part en
+    ///     dernier. Le Center porte la file de travail et la connexion à la
+    ///     base : le couper d'abord priverait les nœuds de ce dont ils ont
+    ///     besoin pour se fermer proprement — sauver leurs données, fermer
+    ///     leurs connexions, prévenir les autres services.
+    ///
+    /// L'éditeur classe « improper shutdown and restart process » parmi les dix
+    /// premières causes d'incident critique. Cet ordre n'est donc pas une
+    /// préférence de style.
     /// </summary>
     private static int RangArret(ComponentRole role) => role switch
     {
@@ -332,8 +357,8 @@ public sealed class WorkflowService(
         ComponentRole.Xps => 3,
         ComponentRole.BridgeDaemon => 4,
         ComponentRole.StandbyCenterNode => 5,
-        ComponentRole.CenterNode => 6,
-        ComponentRole.ClusterNode => 7,
+        ComponentRole.ClusterNode => 6,
+        ComponentRole.CenterNode => 7,
         ComponentRole.ActiveMq => 8,
         ComponentRole.DossierPartage => 9,
         ComponentRole.BaseDeDonnees => 10,

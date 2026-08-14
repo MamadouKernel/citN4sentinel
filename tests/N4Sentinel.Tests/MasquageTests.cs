@@ -38,6 +38,10 @@ public sealed class MasquageTests
     [InlineData("access_token: ya29.a0AfH6", "ya29.a0AfH6")]
     // Identifiants dans une URL
     [InlineData("https://navis:Secret123@ecn4.cit.ci/api", "Secret123")]
+    // Attribut XML : la forme que prend la configuration Mule/ESB deversee
+    // dans navis-apex.log quand com.navis.control passe en DEBUG.
+    [InlineData("<db:connection user=\"eci\" password=\"EciProd2026\" />", "EciProd2026")]
+    [InlineData("<spring:property name='password' value='x'/> password='EciProd2026'", "EciProd2026")]
     public void Un_Secret_Est_Masque(string ligne, string secret)
     {
         var (masque, compte) = SecretMasker.Masquer(ligne);
@@ -157,6 +161,36 @@ public sealed class MasquageTests
 
         // La ligne utile, elle, doit avoir survecu intacte.
         Assert.Contains("Web tier servlet 'action' initialized", masque);
+    }
+
+    [Fact]
+    public void Le_Cas_Documente_Du_Mot_De_Passe_ECI_Est_Couvert()
+    {
+        // Le guide 3.8.25 documente noir sur blanc que passer
+        // com.navis.control.esb en DEBUG sur le Center Node fait ecrire le mot
+        // de passe de la base ECI EN CLAIR dans navis-apex.log. C'est le seul
+        // cas connu ou un journal N4 contient un secret de production : il doit
+        // etre masque avant d'entrer dans la base de N4 Sentinel.
+        const string journal = """
+            2026-08-14 09:12:01,118 DEBUG [main] c.n.c.e.m.ControlDynamicMuleConfigurer - Building config
+            <spring:bean class="org.mule.jdbc.JdbcConnector">
+              <spring:property name="url" value="jdbc:sqlserver://SRV-ECI:1433;databaseName=eci"/>
+              <spring:property name="username" value="eci_app"/>
+            </spring:bean>
+            <jdbc:connector name="eciConnector" user="eci_app" password="EciProduction!2026" />
+            """;
+
+        Assert.True(SecretMasker.ContientUnSecretApparent(journal));
+
+        var (masque, compte) = SecretMasker.Masquer(journal);
+
+        Assert.DoesNotContain("EciProduction!2026", masque);
+        Assert.False(SecretMasker.ContientUnSecretApparent(masque));
+        Assert.True(compte >= 1);
+
+        // Le contexte utile survit : on voit encore de quel connecteur il s'agit.
+        Assert.Contains("eciConnector", masque);
+        Assert.Contains("user=\"eci_app\"", masque);
     }
 
     [Fact]
