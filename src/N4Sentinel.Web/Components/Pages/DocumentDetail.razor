@@ -1,0 +1,189 @@
+@page "/documentation/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Knowledge
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject KnowledgeService Base
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+
+<PageTitle>@(_d?.Reference ?? "Document") — N4 Sentinel</PageTitle>
+
+@if (_d is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement…</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+                <a href="/documentation" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour à la documentation
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_d.Title</h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    <span class="font-mono">@_d.Reference</span>
+                    &middot; @Documentation.LibelleNature(_d.Kind)
+                    &middot; @_d.SectionCount section(s)
+                    @if (_d.PageCount > 0)
+                    {
+                        <text> &middot; @_d.PageCount page(s)</text>
+                    }
+                    @if (_d.AppliesToVersion is { Length: > 0 } v)
+                    {
+                        <span class="text-amber-400"> &middot; applicable à N4 @v</span>
+                    }
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="px-3 py-1.5 rounded-full text-xs font-bold @Documentation.Pastille(_d.Status)">
+                    @(_d.IsCitable ? "interrogeable" : _d.Status.ToString().ToLowerInvariant())
+                </span>
+
+                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                    @if (_d.Status != LifecycleStatus.Valide && _d.Status != LifecycleStatus.Actif)
+                    {
+                        <button class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                                @onclick="Valider">
+                            <i class="bi bi-check2-circle"></i> Valider
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                                @onclick="Revoquer">
+                            <i class="bi bi-slash-circle"></i> Retirer des réponses
+                        </button>
+                    }
+                </AuthorizeView>
+            </div>
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        @if (!_d.IsCitable)
+        {
+            <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-xs leading-relaxed">
+                <strong>Ce document ne répond à aucune question.</strong>
+                Il est versé et consultable ici, mais exclu des réponses tant qu'il n'est pas validé.
+                Citer un brouillon avec l'assurance d'une procédure approuvée, c'est ainsi qu'une consigne
+                périmée se retrouve appliquée un dimanche matin.
+            </div>
+        }
+        else if (_d.ValidatedBy is { Length: > 0 })
+        {
+            <div class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs">
+                Validé par <strong>@_d.ValidatedBy</strong>
+                le @_d.ValidatedAt!.Value.ToLocalTime().ToString("dd/MM/yyyy à HH:mm").
+            </div>
+        }
+
+        @if (_d.SourceFileName is { Length: > 0 } fichier)
+        {
+            <div class="text-[11px] text-slate-500 font-mono">Fichier d'origine : @fichier</div>
+        }
+
+        <!-- Sections -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-list-nested text-sky-400"></i> Sections indexées
+                </h3>
+                <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 w-56"
+                       placeholder="Filtrer dans ce document" @bind="_filtre" @bind:event="oninput" />
+            </div>
+
+            <div class="divide-y divide-slate-800">
+                @foreach (var s in Filtrees())
+                {
+                    <div class="p-5 space-y-2 text-xs">
+                        <div class="flex items-baseline justify-between gap-3 flex-wrap">
+                            <span class="font-bold text-white">
+                                @(s.Heading ?? $"Section {s.Ordinal}")
+                            </span>
+                            <span class="text-[10px] text-slate-500 font-mono whitespace-nowrap">
+                                @if (s.PageNumber > 0)
+                                {
+                                    <text>page @s.PageNumber &middot; </text>
+                                }
+                                section @s.Ordinal
+                            </span>
+                        </div>
+                        <div class="text-slate-300 leading-relaxed whitespace-pre-wrap">@s.Content</div>
+                    </div>
+                }
+            </div>
+
+            @if (!Filtrees().Any())
+            {
+                <div class="p-8 text-center text-slate-400 text-xs">
+                    Aucune section ne contient « @_filtre ».
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private KnowledgeDocument? _d;
+    private string _filtre = string.Empty;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnParametersSetAsync() => _d = await Base.GetDocumentAsync(Id);
+
+    private IEnumerable<DocumentSection> Filtrees()
+    {
+        if (_d is null) return [];
+        if (string.IsNullOrWhiteSpace(_filtre)) return _d.Sections.OrderBy(s => s.Ordinal);
+
+        // Le filtre utilise la meme normalisation que la recherche : taper
+        // "demarrage" doit trouver "démarrage".
+        var terme = KnowledgeService.Normaliser(_filtre);
+
+        return _d.Sections
+            .Where(s => s.SearchText.Contains(terme, StringComparison.Ordinal)
+                        || (s.Heading is not null
+                            && KnowledgeService.Normaliser(s.Heading).Contains(terme, StringComparison.Ordinal)))
+            .OrderBy(s => s.Ordinal);
+    }
+
+    private async Task Valider()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await Base.ValidateAsync(Id, acteur);
+        _d = await Base.GetDocumentAsync(Id);
+
+        _message = erreur ?? "Document validé : il alimente désormais les réponses.";
+        _messageClass = erreur is null
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    private async Task Revoquer()
+    {
+        var erreur = await Base.RevokeAsync(Id);
+        _d = await Base.GetDocumentAsync(Id);
+
+        _message = erreur ?? "Document retiré des réponses. Il reste consultable, et les rapports "
+                           + "qui le citent restent vérifiables.";
+        _messageClass = erreur is null
+            ? "bg-slate-800/60 border-slate-700 text-slate-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+}

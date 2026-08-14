@@ -1,0 +1,199 @@
+@page "/documentation"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Knowledge
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject KnowledgeService Base
+
+<PageTitle>Documentation — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Documentation</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Recherche dans la documentation versée et validée.
+            <strong class="text-white">Chaque réponse cite son document, sa section et sa page.</strong>
+            S'il n'y a rien, l'application le dit — elle n'invente pas.
+        </p>
+    </div>
+
+    <!-- Question -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3">
+        <div class="flex flex-col sm:flex-row gap-3">
+            <input class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                   placeholder="Quel est le marqueur de démarrage du Center Node ?"
+                   @bind="_question" @bind:event="oninput" @onkeydown="SurTouche" />
+            <button class="px-5 py-3 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40 whitespace-nowrap"
+                    disabled="@(_enCours || string.IsNullOrWhiteSpace(_question))" @onclick="Chercher">
+                <i class="bi bi-search"></i> @(_enCours ? "Recherche…" : "Chercher")
+            </button>
+        </div>
+
+        @if (_corpus.Count > 0)
+        {
+            var citables = _corpus.Count(d => d.IsCitable);
+            <p class="text-[11px] text-slate-500">
+                @citables document(s) validé(s) interrogeable(s) sur @_corpus.Count versé(s).
+                @if (citables < _corpus.Count)
+                {
+                    <span class="text-amber-400">
+                        Les @(_corpus.Count - citables) autres sont en brouillon : ils ne répondent pas.
+                    </span>
+                }
+            </p>
+        }
+    </div>
+
+    <!-- Réponse -->
+    @if (_reponse is not null)
+    {
+        @if (!_reponse.Answered)
+        {
+            <div class="glass-card rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-question-circle-fill text-amber-400"></i>
+                    Aucun passage ne répond à cette question
+                </h3>
+                <p class="text-xs text-slate-200 leading-relaxed">@_reponse.Explanation</p>
+            </div>
+        }
+        else
+        {
+            <div class="space-y-4">
+                <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-700 text-[11px] text-slate-400 leading-relaxed flex items-start gap-2">
+                    <i class="bi bi-info-circle mt-0.5 shrink-0"></i>
+                    <span>@KnowledgeAnswer.AvertissementConseil</span>
+                </div>
+
+                <div class="text-xs text-slate-400">
+                    @_reponse.Passages.Count passage(s) trouvé(s) pour
+                    « <span class="text-white">@_reponse.Question</span> ».
+                </div>
+
+                @foreach (var p in _reponse.Passages)
+                {
+                    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                        <div class="px-5 py-3 border-b border-slate-800 flex items-start justify-between gap-3 flex-wrap">
+                            <div class="min-w-0">
+                                <div class="font-bold text-white text-sm">@p.Citation</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5">
+                                    @p.DocumentTitle &middot; @LibelleNature(p.DocumentKind)
+                                    @if (p.AppliesToVersion is { Length: > 0 } version)
+                                    {
+                                        <span class="text-amber-400"> &middot; applicable à N4 @version</span>
+                                    }
+                                </div>
+                            </div>
+                            <a href="@($"/documentation/{p.DocumentId}")"
+                               class="text-[11px] text-theme-primary hover:underline whitespace-nowrap shrink-0">
+                                Ouvrir le document
+                            </a>
+                        </div>
+
+                        <div class="p-5 text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">@p.Excerpt</div>
+
+                        @if (p.FullContent.Length > p.Excerpt.Length)
+                        {
+                            <details class="px-5 pb-4">
+                                <summary class="cursor-pointer text-theme-primary hover:underline select-none text-[11px]">
+                                    Voir la section entière
+                                </summary>
+                                <div class="mt-2 p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">@p.FullContent</div>
+                            </details>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    <!-- Corpus -->
+    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+        <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-journals text-sky-400"></i> Corpus (@_corpus.Count)
+            </h3>
+            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                <a href="/admin/documentation"
+                   class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition">
+                    <i class="bi bi-upload"></i> Verser un document
+                </a>
+            </AuthorizeView>
+        </div>
+
+        @if (_corpus.Count == 0)
+        {
+            <div class="p-8 text-center text-slate-400 text-xs space-y-2">
+                <i class="bi bi-journals text-2xl text-slate-600"></i>
+                <p>Aucun document versé.</p>
+                <p class="text-slate-500">
+                    Tant que le corpus est vide, la base ne peut rien citer — et elle ne répondra donc rien.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="divide-y divide-slate-800">
+                @foreach (var d in _corpus)
+                {
+                    <a href="@($"/documentation/{d.Id}")"
+                       class="flex items-center justify-between gap-3 p-4 hover:bg-white/[0.02] transition text-xs">
+                        <div class="min-w-0">
+                            <div class="font-bold text-white">@d.Title</div>
+                            <div class="text-[10px] text-slate-500 font-mono">
+                                @d.Reference &middot; @LibelleNature(d.Kind)
+                                &middot; @d.SectionCount section(s)
+                                @if (d.PageCount > 0)
+                                {
+                                    <text> &middot; @d.PageCount page(s)</text>
+                                }
+                            </div>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 @Pastille(d.Status)">
+                            @(d.IsCitable ? "interrogeable" : d.Status.ToString().ToLowerInvariant())
+                        </span>
+                    </a>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<KnowledgeDocument> _corpus = [];
+    private KnowledgeAnswer? _reponse;
+    private string _question = string.Empty;
+    private bool _enCours;
+
+    protected override async Task OnInitializedAsync() => _corpus = await Base.GetDocumentsAsync();
+
+    private async Task SurTouche(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_question)) await Chercher();
+    }
+
+    private async Task Chercher()
+    {
+        _enCours = true;
+        try { _reponse = await Base.AskAsync(_question); }
+        finally { _enCours = false; }
+    }
+
+    public static string LibelleNature(DocumentKind k) => k switch
+    {
+        DocumentKind.GuideEditeur => "guide éditeur",
+        DocumentKind.ProcedureInterne => "procédure interne",
+        DocumentKind.ModeOperatoire => "mode opératoire",
+        DocumentKind.RetourExperience => "retour d'expérience",
+        _ => "autre"
+    };
+
+    public static string Pastille(LifecycleStatus s) => s switch
+    {
+        LifecycleStatus.Valide or LifecycleStatus.Actif => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+        LifecycleStatus.Desactive => "bg-slate-700/40 text-slate-400 border border-slate-600",
+        _ => "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+    };
+}

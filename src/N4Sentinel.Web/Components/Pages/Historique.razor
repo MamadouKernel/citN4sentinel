@@ -1,0 +1,286 @@
+@page "/historique"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Reporting
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject HistoryService History
+@inject ReferentialService Referential
+@inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
+
+<PageTitle>Historique — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Historique</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Opérations, alertes, diagnostics et actions d'administration sur une même chronologie.
+            Séparés, ils répondent chacun à une question ; ensemble, ils répondent à la seule qui compte
+            un jour d'escalade — <strong class="text-white">que s'est-il passé, et dans quel ordre</strong>.
+        </p>
+    </div>
+
+    <!-- Filtres -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Environnement</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        @bind="_envId" @bind:after="Recharger">
+                    <option value="@Guid.Empty">Tous</option>
+                    @foreach (var e in _environnements)
+                    {
+                        <option value="@e.Id">@e.Code — @e.Name</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Du</label>
+                <input type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       @bind="_debut" @bind:after="Recharger" />
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Au</label>
+                <input type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       @bind="_fin" @bind:after="Recharger" />
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Nature</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        @bind="_filtre" @bind:after="Recharger">
+                    <option value="@HistoryFilter.Tout">Tout</option>
+                    <option value="@HistoryFilter.Operations">Opérations</option>
+                    <option value="@HistoryFilter.Incidents">Alertes</option>
+                    <option value="@HistoryFilter.Diagnostics">Diagnostics</option>
+                    <option value="@HistoryFilter.Administration">Administration</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 pt-1">
+            @foreach (var (libelle, jours) in Raccourcis)
+            {
+                <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition"
+                        @onclick="() => Periode(jours)">
+                    @libelle
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- Dossier d'escalade -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3 text-xs">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="bi bi-send text-sky-400"></i> Dossier d'escalade
+        </h3>
+        <p class="text-slate-400 leading-relaxed">
+            Rassemble la période en un document transmissible — à l'éditeur, à une direction, à un auditeur.
+            Il énonce sa portée avant son contenu, et notamment ce qu'il ne couvre pas :
+            <strong class="text-slate-300">les actions menées hors de l'application n'y figurent pas</strong>.
+        </p>
+
+        <div class="flex flex-col sm:flex-row gap-3">
+            <input class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                   placeholder="Contexte de l'escalade (facultatif) : ce que vous demandez, et à qui." @bind="_contexte" />
+            <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold transition disabled:opacity-40 whitespace-nowrap"
+                    disabled="@_export" @onclick="Exporter">
+                <i class="bi bi-download"></i> @(_export ? "Constitution…" : "Constituer le dossier")
+            </button>
+        </div>
+    </div>
+
+    <!-- Synthèse -->
+    @if (_page is not null)
+    {
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="glass-card p-4 rounded-xl border border-slate-700">
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Événements</div>
+                <div class="text-xl font-extrabold text-white">@_page.Events.Count</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl border border-purple-500/30 bg-purple-500/5">
+                <div class="text-[10px] font-bold text-purple-300 uppercase tracking-wider mb-1">Opérations</div>
+                <div class="text-xl font-extrabold text-purple-300">@_page.Events.Count(e => e.Kind == HistoryKind.Operation)</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl border border-rose-500/30 bg-rose-500/5">
+                <div class="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-1">Graves</div>
+                <div class="text-xl font-extrabold text-rose-400">@_page.Events.Count(e => e.Severity == HistorySeverity.Grave)</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl border border-sky-500/30 bg-sky-500/5">
+                <div class="text-[10px] font-bold text-sky-400 uppercase tracking-wider mb-1">Diagnostics</div>
+                <div class="text-xl font-extrabold text-sky-400">@_page.Events.Count(e => e.Kind == HistoryKind.Diagnostic)</div>
+            </div>
+        </div>
+    }
+
+    <!-- Chronologie -->
+    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+        <div class="p-5 border-b border-slate-800">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-clock-history text-sky-400"></i> Chronologie
+            </h3>
+        </div>
+
+        @if (_page is null)
+        {
+            <div class="p-8 text-center text-slate-400 text-xs">
+                <div class="inline-block w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        }
+        else if (_page.Events.Count == 0)
+        {
+            <div class="p-8 text-center text-slate-400 text-xs space-y-2">
+                <i class="bi bi-calendar-x text-2xl text-slate-600"></i>
+                <p>Aucun événement enregistré sur cette période.</p>
+                <p class="text-slate-500 max-w-lg mx-auto">
+                    Cela ne signifie pas qu'il ne s'est rien passé : les actions menées hors de
+                    l'application — arrêt manuel d'un service, intervention directe sur un serveur —
+                    n'y figurent pas.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="divide-y divide-slate-800">
+                @foreach (var e in _page.Events)
+                {
+                    <div class="flex items-start gap-3 p-4 hover:bg-white/[0.02] transition text-xs">
+                        <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 @PastilleNature(e.Kind)">
+                            <i class="bi @IconeNature(e.Kind)"></i>
+                        </div>
+
+                        <div class="flex-1 min-w-0 space-y-1">
+                            <div class="flex items-baseline gap-2 flex-wrap">
+                                <span class="font-mono text-slate-500 whitespace-nowrap">
+                                    @e.At.ToLocalTime().ToString("dd/MM HH:mm:ss")
+                                </span>
+                                <span class="font-bold text-white">@e.Title</span>
+                                @if (e.Outcome is { Length: > 0 })
+                                {
+                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold @PastilleGravite(e.Severity)">
+                                        @e.Outcome
+                                    </span>
+                                }
+                            </div>
+
+                            @if (e.Detail is { Length: > 0 })
+                            {
+                                <p class="text-slate-400 leading-relaxed">@Court(e.Detail)</p>
+                            }
+
+                            <div class="text-[10px] text-slate-600 flex flex-wrap gap-x-3">
+                                @if (e.Actor is { Length: > 0 })
+                                {
+                                    <span>@e.Actor</span>
+                                }
+                                @if (e.Reference is { Length: > 0 })
+                                {
+                                    <span class="font-mono">@e.Reference</span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (e.Link is { Length: > 0 })
+                        {
+                            <a href="@e.Link" class="text-theme-primary hover:underline shrink-0 whitespace-nowrap">
+                                Ouvrir
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly (string, int)[] Raccourcis =
+        [("24 heures", 1), ("7 jours", 7), ("30 jours", 30), ("90 jours", 90)];
+
+    private List<N4Environment> _environnements = [];
+    private HistoryPage? _page;
+    private Guid _envId;
+    private HistoryFilter _filtre = HistoryFilter.Tout;
+    private string _contexte = string.Empty;
+    private bool _export;
+
+    private DateTime _debut = DateTime.Now.AddDays(-7);
+    private DateTime _fin = DateTime.Now;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        await Recharger();
+    }
+
+    private async Task Periode(int jours)
+    {
+        _fin = DateTime.Now;
+        _debut = _fin.AddDays(-jours);
+        await Recharger();
+    }
+
+    private async Task Recharger() =>
+        _page = await History.GetAsync(
+            _envId == Guid.Empty ? null : _envId,
+            new DateTimeOffset(_debut, TimeZoneInfo.Local.GetUtcOffset(_debut)),
+            new DateTimeOffset(_fin, TimeZoneInfo.Local.GetUtcOffset(_fin)),
+            _filtre);
+
+    private async Task Exporter()
+    {
+        _export = true;
+        StateHasChanged();
+
+        try
+        {
+            var etat = await AuthProvider.GetAuthenticationStateAsync();
+            var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+            var markdown = await History.BuildEscalationPackAsync(
+                _envId == Guid.Empty ? null : _envId,
+                new DateTimeOffset(_debut, TimeZoneInfo.Local.GetUtcOffset(_debut)),
+                new DateTimeOffset(_fin, TimeZoneInfo.Local.GetUtcOffset(_fin)),
+                acteur,
+                string.IsNullOrWhiteSpace(_contexte) ? null : _contexte);
+
+            var code = _environnements.FirstOrDefault(e => e.Id == _envId)?.Code ?? "TOUS";
+            var nom = $"N4Sentinel-escalade-{code}-{DateTime.Now:yyyyMMdd-HHmm}.md";
+
+            await JS.InvokeVoidAsync("n4TelechargerTexte", nom,
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(markdown)));
+        }
+        finally
+        {
+            _export = false;
+        }
+    }
+
+    private static string Court(string texte) =>
+        texte.Length <= 240 ? texte : texte[..239] + "…";
+
+    private static string PastilleNature(HistoryKind k) => k switch
+    {
+        HistoryKind.Operation => "bg-purple-500/15 text-purple-300",
+        HistoryKind.Incident => "bg-rose-500/15 text-rose-300",
+        HistoryKind.Diagnostic => "bg-sky-500/15 text-sky-300",
+        _ => "bg-slate-800 text-slate-400"
+    };
+
+    private static string IconeNature(HistoryKind k) => k switch
+    {
+        HistoryKind.Operation => "bi-play-circle-fill",
+        HistoryKind.Incident => "bi-bell-fill",
+        HistoryKind.Diagnostic => "bi-search",
+        _ => "bi-journal-text"
+    };
+
+    private static string PastilleGravite(HistorySeverity s) => s switch
+    {
+        HistorySeverity.Grave => "bg-rose-500/15 text-rose-300",
+        HistorySeverity.Attention => "bg-amber-500/15 text-amber-300",
+        _ => "bg-slate-800 text-slate-400"
+    };
+}

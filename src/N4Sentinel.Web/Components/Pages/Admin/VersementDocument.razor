@@ -1,0 +1,206 @@
+@page "/admin/documentation"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Knowledge
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject KnowledgeService Base
+@inject NavigationManager Nav
+
+<PageTitle>Verser un document — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div>
+        <a href="/documentation" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+            <i class="bi bi-arrow-left"></i> Retour à la documentation
+        </a>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Verser un document</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Un PDF est indexé <strong class="text-white">page par page</strong>, un Markdown section par
+            section : c'est ce qui permet à chaque réponse de citer une page précise plutôt qu'un document
+            entier. Le document est versé en brouillon et ne répondra qu'une fois validé.
+        </p>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">
+                    Référence <span class="text-rose-400">obligatoire</span>
+                </label>
+                <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                       placeholder="GUIDE-3.8.25" @bind="_reference" />
+                <p class="text-[10px] text-slate-500 mt-1">
+                    C'est ce qui sera cité dans les réponses. Sans elle, une citation ne désigne rien.
+                </p>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-slate-400 font-semibold mb-1">
+                    Titre <span class="text-rose-400">obligatoire</span>
+                </label>
+                <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       placeholder="Guide d'exploitation Navis N4" @bind="_titre" />
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Nature</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_nature">
+                    @foreach (var k in Enum.GetValues<DocumentKind>())
+                    {
+                        <option value="@k">@Documentation.LibelleNature(k)</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Version du document</label>
+                <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       placeholder="Rev. C" @bind="_versionDocument" />
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Version de N4 applicable</label>
+                <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       placeholder="3.8.25" @bind="_versionN4" />
+                <p class="text-[10px] text-slate-500 mt-1">
+                    Un conseil tiré d'une documentation 3.7 peut être faux en 3.9.
+                </p>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-slate-400 font-semibold mb-1">Remarques</label>
+            <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                      placeholder="Origine, périmètre, réserves connues." @bind="_notes"></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800 space-y-2">
+            <label class="block text-slate-400 font-semibold">Fichier</label>
+            <InputFile OnChange="Verser" accept=".pdf,.md,.markdown,.txt"
+                       class="text-slate-300 text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200 file:font-bold file:cursor-pointer" />
+            <p class="text-[10px] text-slate-500">
+                PDF, Markdown ou texte. 40 Mo au maximum.
+                Un PDF constitué d'images numérisées ne donnera rien : son texte n'est pas extractible
+                sans reconnaissance de caractères.
+            </p>
+        </div>
+
+        @if (_enCours)
+        {
+            <div class="flex items-center gap-2 text-sky-300">
+                <span class="inline-block w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></span>
+                <span>Extraction et indexation en cours. Un PDF volumineux peut prendre une minute.</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _reference = string.Empty;
+    private string _titre = string.Empty;
+    private string _versionDocument = string.Empty;
+    private string _versionN4 = string.Empty;
+    private string _notes = string.Empty;
+    private DocumentKind _nature = DocumentKind.GuideEditeur;
+    private bool _enCours;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    /// <summary>40 Mo : les guides éditeur N4 pèsent quelques mégaoctets.</summary>
+    private const long TailleMaximale = 40L * 1024 * 1024;
+
+    private async Task Verser(InputFileChangeEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_reference) || string.IsNullOrWhiteSpace(_titre))
+        {
+            Signaler("Renseignez la référence et le titre avant de choisir le fichier.", false);
+            return;
+        }
+
+        var fichier = e.File;
+
+        if (!DocumentExtractor.EstSupporte(fichier.Name))
+        {
+            Signaler($"Format non pris en charge. Formats acceptés : "
+                   + string.Join(", ", DocumentExtractor.ExtensionsSupportees) + ".", false);
+            return;
+        }
+
+        _enCours = true;
+        _message = null;
+        StateHasChanged();
+
+        try
+        {
+            // Le flux du navigateur ne supporte pas la lecture non sequentielle
+            // dont PdfPig a besoin : on le recopie en memoire d'abord.
+            using var tampon = new MemoryStream();
+            await using (var source = fichier.OpenReadStream(TailleMaximale))
+                await source.CopyToAsync(tampon);
+
+            tampon.Position = 0;
+
+            var fragments = DocumentExtractor.Extraire(fichier.Name, tampon);
+
+            var vides = fragments.Count(f => string.IsNullOrWhiteSpace(f.Content));
+
+            var resultat = await Base.IndexAsync(new KnowledgeDocument
+            {
+                Title = _titre.Trim(),
+                Reference = _reference.Trim().ToUpperInvariant(),
+                Kind = _nature,
+                DocumentVersion = Vide(_versionDocument),
+                AppliesToVersion = Vide(_versionN4),
+                Notes = Vide(_notes),
+                SourceFileName = fichier.Name
+            }, fragments);
+
+            if (!resultat.Succeeded)
+            {
+                Signaler(resultat.Error!, false);
+                return;
+            }
+
+            var complement = vides > 0
+                ? $" {vides} page(s) n'ont donné aucun texte — probablement numérisées."
+                : string.Empty;
+
+            Signaler($"Document indexé : {resultat.SectionCount} section(s)"
+                   + (resultat.PageCount > 0 ? $", {resultat.PageCount} page(s)" : string.Empty)
+                   + $".{complement} Il est en brouillon : validez-le pour qu'il alimente les réponses.", true);
+
+            Nav.NavigateTo($"/documentation/{resultat.DocumentId}");
+        }
+        catch (IOException)
+        {
+            Signaler($"Fichier trop volumineux : {TailleMaximale / 1024 / 1024} Mo au maximum.", false);
+        }
+        catch (Exception ex)
+        {
+            Signaler($"Le fichier n'a pas pu être lu : {ex.Message}", false);
+        }
+        finally
+        {
+            _enCours = false;
+        }
+    }
+
+    private static string? Vide(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+}

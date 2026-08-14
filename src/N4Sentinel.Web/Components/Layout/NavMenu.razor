@@ -184,6 +184,16 @@
                                 </div>
                             </NavLink>
                         </AuthorizeView>
+
+                        <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="documentation">
+                            <div class="w-8 h-8 rounded-lg bg-violet-500/10 text-violet-300 flex items-center justify-center shrink-0">
+                                <i class="bi bi-journals"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">Documentation</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Réponses citant document, section et page</div>
+                            </div>
+                        </NavLink>
                     </div>
                 </div>
             </div>
@@ -201,6 +211,16 @@
                 <!-- Dropdown Menu Box -->
                 <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block z-50 min-w-[270px] animate-fadeIn">
                     <div class="p-2.5 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1.5">
+                        <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="historique">
+                            <div class="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-300 flex items-center justify-center shrink-0">
+                                <i class="bi bi-clock-history"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">Historique &amp; escalade</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Chronologie unifiée, dossier transmissible</div>
+                            </div>
+                        </NavLink>
+
                         <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/audit">
                             <div class="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center shrink-0">
                                 <i class="bi bi-journal-text"></i>
@@ -328,6 +348,10 @@
                         <span>Diagnostics</span>
                     </NavLink>
                 </AuthorizeView>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="documentation" @onclick="CloseMobileMenu">
+                    <i class="bi bi-journals text-violet-300 text-base"></i>
+                    <span>Documentation</span>
+                </NavLink>
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="mobileSigCtx">
                     <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/signatures" @onclick="CloseMobileMenu">
                         <i class="bi bi-fingerprint text-theme-primary text-base"></i>
@@ -341,6 +365,10 @@
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
             <div class="space-y-1 pt-2 border-t border-slate-900">
                 <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Audit &amp; Sécurité</div>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="historique" @onclick="CloseMobileMenu">
+                    <i class="bi bi-clock-history text-orange-300 text-base"></i>
+                    <span>Historique &amp; escalade</span>
+                </NavLink>
                 <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/audit" @onclick="CloseMobileMenu">
                     <i class="bi bi-journal-text text-theme-primary text-base"></i>
                     <span>Journal d'audit</span>
