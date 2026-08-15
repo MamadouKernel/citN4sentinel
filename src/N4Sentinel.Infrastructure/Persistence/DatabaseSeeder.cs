@@ -32,6 +32,7 @@ public sealed class DatabaseSeeder(
         await SeedFirstAdministratorAsync();
         await SeedTopologyDataAsync(cancellationToken);
         await SeedDiagnosticSignaturesAsync(cancellationToken);
+        await SeedKnowledgeDocumentsAsync(cancellationToken);
     }
 
     /// <summary>
@@ -195,5 +196,120 @@ public sealed class DatabaseSeeder(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Topologie Navis N4 amorcée avec succès ({Count} composants).", components.Count);
+    }
+
+    private async Task SeedKnowledgeDocumentsAsync(CancellationToken ct)
+    {
+        if (await db.Documents.AnyAsync(ct)) return;
+
+        logger.LogInformation("Amorçage de la base de connaissances initiale N4 Sentinel...");
+
+        var doc1 = new KnowledgeDocument
+        {
+            Id = Guid.NewGuid(),
+            Reference = "CIT-N4-ARCH-01",
+            Title = "Guide d'Architecture & Supervision Navis N4 (Côte d'Ivoire Terminal)",
+            Kind = DocumentKind.GuideEditeur,
+            Status = LifecycleStatus.Valide,
+            AppliesToVersion = "3.8.25",
+            SectionCount = 2,
+            PageCount = 3,
+            ValidatedBy = "DSI CIT / Auditeur N4",
+            ValidatedAt = DateTimeOffset.UtcNow
+        };
+
+        var doc2 = new KnowledgeDocument
+        {
+            Id = Guid.NewGuid(),
+            Reference = "CIT-N4-SOP-02",
+            Title = "Procédure Opérationnelle SOP-014 — Bascule Center Node & Continuité DB",
+            Kind = DocumentKind.ProcedureInterne,
+            Status = LifecycleStatus.Valide,
+            AppliesToVersion = "3.8.25",
+            SectionCount = 2,
+            PageCount = 4,
+            ValidatedBy = "DSI CIT / Exploitation",
+            ValidatedAt = DateTimeOffset.UtcNow
+        };
+
+        var doc3 = new KnowledgeDocument
+        {
+            Id = Guid.NewGuid(),
+            Reference = "CIT-N4-EDI-03",
+            Title = "Manuel d'Intégration et Débuggage des Flux EDI (BAPLIE, CODECO, COARRI)",
+            Kind = DocumentKind.ModeOperatoire,
+            Status = LifecycleStatus.Valide,
+            AppliesToVersion = "3.8.25",
+            SectionCount = 2,
+            PageCount = 5,
+            ValidatedBy = "DSI CIT / Equipe EDI",
+            ValidatedAt = DateTimeOffset.UtcNow
+        };
+
+        db.Documents.AddRange(doc1, doc2, doc3);
+        await db.SaveChangesAsync(ct);
+
+        var sections = new List<DocumentSection>
+        {
+            new()
+            {
+                DocumentId = doc1.Id,
+                Ordinal = 1,
+                PageNumber = 1,
+                Heading = "Structure du Cluster N4 et rôles des nœuds",
+                Content = "Le système Navis N4 déployé à Côte d'Ivoire Terminal repose sur un cluster à 4 nœuds applicatifs principaux (Cluster Node 1 à 4), un Master Center Node et un Standby Center Node pour la continuité de service. Le marqueur de démarrage du Center Node est matérialisé par la présence du fichier de verrouillage dans le dossier partagé réseau LanmanServer.",
+                SearchText = "le systeme navis n4 deploye a cote d ivoire terminal repose sur un cluster a 4 noeuds applicatifs principaux cluster node 1 a 4 un master center node et un standby center node pour la continuite de service le marqueur de demarrage du center node est materialise par la presence du fichier de verrouillage dans le dossier partage reseau lanmanserver"
+            },
+            new()
+            {
+                DocumentId = doc1.Id,
+                Ordinal = 2,
+                PageNumber = 3,
+                Heading = "Prise en charge JMX et Supervision de la mémoire Heap JVM",
+                Content = "La supervision JMX surveille en temps réel l'utilisation de la mémoire Heap de la JVM Java de Navis N4. Un seuil d'alerte critique est déclenché à 85% d'occupation. En cas de dépassement prolongé supérieur à 90%, l'AIOps prédictif préconise une purge du cache ou un redémarrage ordonné du nœud impacté après bascule des sessions de guérite GOS.",
+                SearchText = "la supervision jmx surveille en temps reel l utilisation de la memoire heap de la jvm java de navis n4 un seuil d alerte critique est meintenu a 85 d occupation en cas de depassement prolonge superieur a 90 l aiops predictif preconise une purge du cache ou un redemarrage ordonne du noeud impacte apres bascule des sessions de guerite gos"
+            },
+            new()
+            {
+                DocumentId = doc2.Id,
+                Ordinal = 1,
+                PageNumber = 1,
+                Heading = "Procédure de Bascule et Redémarrage du Center Node",
+                Content = "Pour basculer le Center Node Navis N4 du nœud principal vers le Standby Node, l'opérateur doit d'abord vérifier la synchronisation du dossier partagé. Ensuite, arrêter le service Windows NavisCenterMaster sur CIT-N4-MASTER, attendre la libération des verrous SQL Server, puis démarrer le service NavisCenterStandby.",
+                SearchText = "pour basculer le center node navis n4 du noeud principal vers le standby node l operateur doit d abord verifier la synchronisation du dossier partage ensuite arreter le service windows naviscentermaster sur cit n4 master attendre la liberation des verrous sql server puis demarrer le service naviscenterstandby"
+            },
+            new()
+            {
+                DocumentId = doc2.Id,
+                Ordinal = 2,
+                PageNumber = 4,
+                Heading = "Résolution des blocages de file KahaDB ActiveMQ",
+                Content = "Lorsque la file de messages KahaDB ActiveMQ du bus d'événements ECN4 enregistre une accumulation d'anomalies de verrouillage, exécuter la procédure de décompaction KahaDB. Arrêter le service ECN4, purger le répertoire lock du dossier partagé, puis redémarrer le dispatcher XPS.",
+                SearchText = "lorsque la file de messages kahadb activemq du bus d événements ecn4 enregistre une accumulation d anomalies de verrouillage executer la procedure de decompaction kahadb arreter le service ecn4 purger le repertoire lock du dossier partage puis redemarrer le dispatcher xps"
+            },
+            new()
+            {
+                DocumentId = doc3.Id,
+                Ordinal = 1,
+                PageNumber = 2,
+                Heading = "Traitement et validation des fichiers EDI BAPLIE",
+                Content = "Les fichiers EDI BAPLIE décrivant le plan de chargement des navires conteneurs sont reçus via le serveur SFTP sécurisé CIT-N4-APP02. Le composant NavisEdiService contrôle la conformité de la syntaxe EDIFACT UN/EDIFACT. En cas de rejet pour conteneur non référencé, la signature d'anomalie SIG-EDI-042 identifie la ligne d'erreur dans le journal applicatif.",
+                SearchText = "les fichiers edi baplie decrivant le plan de chargement des navires conteneurs sont recus via le serveur sftp securise cit n4 app02 le composant navisediservice controle la conformite de la syntaxe edifact un edifact en cas de rejet pour conteneur non reference la signature d anomalie sig edi 042 identifie la ligne d erreur dans le journal applicatif"
+            },
+            new()
+            {
+                DocumentId = doc3.Id,
+                Ordinal = 2,
+                PageNumber = 5,
+                Heading = "Supervision des interfaces Gate GOS et IKOS Billing",
+                Content = "Les connecteurs GOS (Gate Operating System) et IKOS Billing communiquent avec Navis N4 via des requêtes HTTPS sécurisées et des messages XML API. La latence moyenne d'échange ne doit pas dépasser 250 ms pour éviter la formation de files d'attente de camions aux portes du terminal.",
+                SearchText = "les connecteurs gos gate operating system et ikos billing communiquent avec navis n4 via des requetes https securisees et des messages xml api la latence moyenne d echange ne doit pas depasser 250 ms pour eviter la formation de files d attente de camions aux portes du terminal"
+            }
+        };
+
+        db.DocumentSections.AddRange(sections);
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation("Base de connaissances initiale amorcée avec succès (3 documents, 6 sections).");
     }
 }
