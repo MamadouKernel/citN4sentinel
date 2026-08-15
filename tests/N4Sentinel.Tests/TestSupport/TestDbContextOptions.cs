@@ -28,5 +28,6 @@ internal static class TestDbContextOptions
     public static DbContextOptionsBuilder<N4SentinelDbContext> Builder(string connectionString) =>
         new DbContextOptionsBuilder<N4SentinelDbContext>()
             .UseSqlServer(connectionString)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
             .UseApplicationServiceProvider(IdentityServiceProvider);
 }

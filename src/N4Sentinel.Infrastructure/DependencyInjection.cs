@@ -70,6 +70,7 @@ public static class DependencyInjection
                     errorNumbersToAdd: null);
                 sql.CommandTimeout(60);
             });
+            options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
             options.AddInterceptors(sp.GetRequiredService<AuditingInterceptor>());
         }, lifetime: ServiceLifetime.Scoped);
 
