@@ -31,15 +31,15 @@
             </button>
         </div>
 
-        @if (_corpus.Count > 0)
+        @if (_corpus is { Count: > 0 } charge)
         {
-            var citables = _corpus.Count(d => d.IsCitable);
+            var citables = charge.Count(d => d.IsCitable);
             <p class="text-[11px] text-slate-500">
-                @citables document(s) validé(s) interrogeable(s) sur @_corpus.Count versé(s).
-                @if (citables < _corpus.Count)
+                @citables document(s) validé(s) interrogeable(s) sur @charge.Count versé(s).
+                @if (citables < charge.Count)
                 {
                     <span class="text-amber-400">
-                        Les @(_corpus.Count - citables) autres sont en brouillon : ils ne répondent pas.
+                        Les @(charge.Count - citables) autres sont en brouillon : ils ne répondent pas.
                     </span>
                 }
             </p>
@@ -113,7 +113,7 @@
     <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
         <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
             <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                <i class="bi bi-journals text-sky-400"></i> Corpus (@_corpus.Count)
+                <i class="bi bi-journals text-sky-400"></i> Corpus (@(_corpus?.Count ?? 0))
             </h3>
             <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
                 <a href="/admin/documentation"
@@ -123,7 +123,14 @@
             </AuthorizeView>
         </div>
 
-        @if (_corpus.Count == 0)
+        @if (_corpus is null)
+        {
+            <div class="p-8 text-center text-slate-400 text-xs space-y-2">
+                <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                <p>Chargement...</p>
+            </div>
+        }
+        else if (_corpus.Count == 0)
         {
             <div class="p-8 text-center text-slate-400 text-xs space-y-2">
                 <i class="bi bi-journals text-2xl text-slate-600"></i>
@@ -162,7 +169,7 @@
 </div>
 
 @code {
-    private List<KnowledgeDocument> _corpus = [];
+    private List<KnowledgeDocument>? _corpus;
     private KnowledgeAnswer? _reponse;
     private string _question = string.Empty;
     private bool _enCours;

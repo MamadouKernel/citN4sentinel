@@ -140,6 +140,35 @@ else
                         <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-rose-400 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_erreurs"></textarea>
                     </div>
 
+                    @if (_c.Role is ComponentRole.CenterNode or ComponentRole.StandbyCenterNode)
+                    {
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Marqueurs de rôle actif détenu (FR-032/033)</label>
+                            <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-amber-400 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_roleActif"></textarea>
+                            <p class="text-[11px] text-slate-500 mt-1">
+                                Un service Center/Standby démarré ne dit pas qui détient le rôle actif sur le
+                                cluster. Sans marqueur relevé sur site, l'état du rôle reste « à confirmer » —
+                                jamais supposé à partir du seul état du service.
+                            </p>
+                        </div>
+                    }
+
+                    @if (_c.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps)
+                    {
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Marqueurs d'échange N4-XPS normal (FR-056)</label>
+                            <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-amber-400 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_syncNormal"></textarea>
+                            <p class="text-[11px] text-slate-500 mt-1">
+                                Sans marqueur relevé sur site, la synchronisation reste « à confirmer », jamais
+                                supposée à jour.
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Retard toléré avant alerte (minutes)</label>
+                            <input type="number" min="1" class="w-32 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.Readiness.SyncDelayThresholdMinutes" />
+                        </div>
+                    }
+
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label class="block font-semibold text-slate-300 mb-1">Délai Service (s)</label>
@@ -153,6 +182,92 @@ else
                 </div>
             </div>
         </div>
+
+        <!-- Dossier partagé (FR-059A/B/C) -->
+        @if (_c.Role is ComponentRole.DossierPartage or ComponentRole.ActiveMq or ComponentRole.InterfaceEdi)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
+                <div class="border-b border-slate-800 pb-3">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-folder2-open text-teal-400"></i>
+                        Dossier partagé supervisé
+                    </h3>
+                    <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                        Chemin vide = ce composant n'est pas traité comme un dossier partagé par la supervision.
+                        Les sous-dossiers de classification ne sont jamais devinés : rien ne le documente au-delà
+                        du fichier <code class="text-teal-300">db.data</code> pour la catégorie ActiveMQ/KahaDB.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Chemin racine (UNC ou local)</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_c.SharedFolder.RootPath" placeholder="\\N4CLUSTER01\NavisShared\amq" />
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Catégorie</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                @bind="_c.SharedFolder.Category">
+                            @foreach (var cat in Enum.GetValues<SharedFolderCategory>())
+                            {
+                                <option value="@cat">@LibelleCategorie(cat)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Sous-dossier « en attente »</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_c.SharedFolder.PendingSubfolder" placeholder="(facultatif)" />
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Sous-dossier « consommé »</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_c.SharedFolder.ConsumedSubfolder" placeholder="(facultatif)" />
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Sous-dossier « bloqué »</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_c.SharedFolder.BlockedSubfolder" placeholder="(facultatif)" />
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Sous-dossier « erreur »</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_c.SharedFolder.ErrorSubfolder" placeholder="(facultatif)" />
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Ancienneté maximale « en attente » (heures)</label>
+                        <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               @bind="_c.SharedFolder.MaxPendingAgeHours" placeholder="(facultatif)" />
+                    </div>
+
+                    @if (_c.SharedFolder.Category == SharedFolderCategory.EchangeEdi)
+                    {
+                        <div class="md:col-span-2">
+                            <label class="block font-semibold text-slate-300 mb-1">
+                                Motif d'extraction partenaire/type (FR-059H)
+                            </label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                   @bind="_c.SharedFolder.EdiFileNamingPattern"
+                                   placeholder="^(?&lt;partner&gt;[A-Z]+)_(?&lt;type&gt;[A-Z]+)_\d+\.edi$" />
+                            <p class="text-[10px] text-slate-500 mt-1">
+                                Expression régulière avec groupes nommés <code class="text-teal-300">partner</code> et
+                                <code class="text-teal-300">type</code>. Aucune convention de nommage des partenaires
+                                CIT n'étant documentée, sans motif déclaré ces deux informations restent non classifiées.
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">
+                                Alerte si aucune intégration depuis (heures)
+                            </label>
+                            <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                                   @bind="_c.SharedFolder.MaxHoursSinceLastIntegration" placeholder="(facultatif)" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
 
         <!-- Dépendances (FR-002, FR-044) -->
         <div class="glass-card rounded-2xl border border-slate-800 p-6 space-y-4">
@@ -272,6 +387,8 @@ else
     private string _marqueurs = "";
     private string _erreurs = "";
     private string _ignores = "";
+    private string _roleActif = "";
+    private string _syncNormal = "";
     private string? _message;
     private bool _enErreur;
 
@@ -293,6 +410,8 @@ else
         _marqueurs = string.Join(Environment.NewLine, _c.Readiness.ReadyPatterns);
         _erreurs = string.Join(Environment.NewLine, _c.Readiness.ErrorPatterns);
         _ignores = string.Join(Environment.NewLine, _c.Readiness.IgnorePatterns);
+        _roleActif = string.Join(Environment.NewLine, _c.Readiness.ActiveRolePatterns);
+        _syncNormal = string.Join(Environment.NewLine, _c.Readiness.SyncPatterns);
 
         await ChargerDependances();
     }
@@ -329,6 +448,16 @@ else
         await ChargerDependances();
     }
 
+    private static string LibelleCategorie(SharedFolderCategory c) => c switch
+    {
+        SharedFolderCategory.ConfigurationN4 => "Configuration N4",
+        SharedFolderCategory.ActiveMqKahaDb => "ActiveMQ / KahaDB",
+        SharedFolderCategory.EchangeEdi => "Échange EDI",
+        SharedFolderCategory.Archives => "Archives",
+        SharedFolderCategory.DossiersErreur => "Dossier d'erreur",
+        _ => "Autre"
+    };
+
     private static string LibelleDependance(DependencyKind k) => k switch
     {
         DependencyKind.RequisAuDemarrage => "Requis au démarrage",
@@ -345,10 +474,18 @@ else
         _c.Readiness.ReadyPatterns = Decouper(_marqueurs);
         _c.Readiness.ErrorPatterns = Decouper(_erreurs);
         _c.Readiness.IgnorePatterns = Decouper(_ignores);
+        _c.Readiness.ActiveRolePatterns = _c.Role is ComponentRole.CenterNode or ComponentRole.StandbyCenterNode
+            ? Decouper(_roleActif)
+            : [];
+        _c.Readiness.SyncPatterns = _c.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps
+            ? Decouper(_syncNormal)
+            : [];
 
         foreach (var motif in _c.Readiness.ReadyPatterns
                      .Concat(_c.Readiness.ErrorPatterns)
-                     .Concat(_c.Readiness.IgnorePatterns))
+                     .Concat(_c.Readiness.IgnorePatterns)
+                     .Concat(_c.Readiness.ActiveRolePatterns)
+                     .Concat(_c.Readiness.SyncPatterns))
         {
             try { _ = System.Text.RegularExpressions.Regex.Match("", motif); }
             catch (ArgumentException ex)

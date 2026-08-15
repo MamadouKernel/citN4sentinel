@@ -340,6 +340,12 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
             .ToListAsync(ct);
     }
 
+    public async Task<int> CountAuditEntriesAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.AuditEntries.CountAsync(ct);
+    }
+
     public async Task SeedDefaultTopologyForEnvironmentAsync(Guid environmentId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);

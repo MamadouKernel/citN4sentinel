@@ -19,7 +19,8 @@ namespace N4Sentinel.Infrastructure.Orchestration;
 /// </summary>
 public sealed class WorkflowService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
-    ILogger<WorkflowService> logger)
+    ILogger<WorkflowService> logger,
+    IAuditWriter auditWriter)
 {
     // -----------------------------------------------------------------------
     // Lecture
@@ -94,6 +95,7 @@ public sealed class WorkflowService(
     /// </summary>
     public async Task<SaveWorkflowResult> SaveAsync(
         Guid workflowId, string name, string? description, List<WorkflowStep> steps,
+        bool requiresApproval, bool requiresDoubleApproval,
         CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -107,10 +109,15 @@ public sealed class WorkflowService(
         var erreur = Valider(steps);
         if (erreur is not null) return SaveWorkflowResult.Failed(erreur);
 
+        // Une double approbation sans approbation simple n'aurait pas de sens.
+        if (requiresDoubleApproval) requiresApproval = true;
+
         if (!existant.HasBeenExecuted)
         {
             existant.Name = name;
             existant.Description = description;
+            existant.RequiresApproval = requiresApproval;
+            existant.RequiresDoubleApproval = requiresDoubleApproval;
 
             db.WorkflowSteps.RemoveRange(existant.Steps);
             foreach (var (etape, index) in steps.Select((s, i) => (s, i)))
@@ -139,7 +146,8 @@ public sealed class WorkflowService(
             Version = derniereVersion + 1,
             Status = LifecycleStatus.Brouillon,
             Description = description,
-            RequiresApproval = existant.RequiresApproval,
+            RequiresApproval = requiresApproval,
+            RequiresDoubleApproval = requiresDoubleApproval,
             HasBeenExecuted = false
         };
 
@@ -312,7 +320,12 @@ public sealed class WorkflowService(
     /// tant que celui-ci n'est pas monté : c'est le comportement normal décrit
     /// par l'éditeur, pas une anomalie.
     /// </summary>
-    private static int RangDemarrage(ComponentRole role) => role switch
+    /// <summary>
+    /// Interne plutôt que privé : réutilisé par <see cref="PreflightService"/>
+    /// pour proposer l'ordre d'arrêt des composants encore actifs avant un
+    /// démarrage complet (FR-036/AC-16), sans dupliquer cette table.
+    /// </summary>
+    internal static int RangDemarrage(ComponentRole role) => role switch
     {
         ComponentRole.BaseDeDonnees => 0,
         ComponentRole.ActiveMq => 1,
@@ -349,7 +362,8 @@ public sealed class WorkflowService(
     /// premières causes d'incident critique. Cet ordre n'est donc pas une
     /// préférence de style.
     /// </summary>
-    private static int RangArret(ComponentRole role) => role switch
+    /// <summary>Interne : voir <see cref="RangDemarrage"/>.</summary>
+    internal static int RangArret(ComponentRole role) => role switch
     {
         ComponentRole.InterfaceEdi => 0,
         ComponentRole.Ecn4Web => 1,
@@ -374,7 +388,7 @@ public sealed class WorkflowService(
     };
 
     public async Task<string?> ChangeStatusAsync(
-        Guid workflowId, LifecycleStatus cible, CancellationToken ct = default)
+        Guid workflowId, LifecycleStatus cible, string actor, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -387,8 +401,20 @@ public sealed class WorkflowService(
         if (cible is LifecycleStatus.Valide or LifecycleStatus.Actif && workflow.Steps.Count == 0)
             return "Un workflow sans étape ne peut pas être validé.";
 
+        var precedent = workflow.Status;
         workflow.Status = cible;
         await db.SaveChangesAsync(ct);
+
+        // FR-091 : valider un workflow le rend lancable par tout titulaire du
+        // role d'execution — ce changement de statut doit rester dans la
+        // piste d'audit.
+        await auditWriter.WriteAsync(
+            AuditAction.ChangementDeStatut, AuditOutcome.Succes, actor,
+            entityType: nameof(Workflow), entityId: workflow.Id.ToString(),
+            entityLabel: $"{workflow.Name} v{workflow.Version}",
+            environmentId: workflow.EnvironmentId,
+            reason: $"{precedent} → {cible}.", ct: ct);
+
         return null;
     }
 

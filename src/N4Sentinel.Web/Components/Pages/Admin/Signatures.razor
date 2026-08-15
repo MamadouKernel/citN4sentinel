@@ -216,8 +216,13 @@
                                     @s.Severity
                                 </span>
                             </td>
-                            <td class="px-5 py-3 text-center font-mono @(s.EstConcluante ? "text-emerald-400" : "text-slate-400")">
+                            <td class="px-5 py-3 text-center font-mono @(s.EstConcluante ? "text-emerald-400" : "text-slate-400")"
+                                title="@(s.EstConcluante ? "Peut nommer une cause à elle seule (gravité, poids et signification suffisants)." : "Ne suffit pas à elle seule pour nommer une cause.")">
                                 @s.ConfidenceWeight
+                                @if (s.EstConcluante)
+                                {
+                                    <i class="bi bi-check-circle-fill ml-1" aria-hidden="true"></i>
+                                }
                             </td>
                             <td class="px-5 py-3 text-center text-slate-400">
                                 @(s.Origin == SignatureOrigin.Editeur ? "éditeur" : "site")

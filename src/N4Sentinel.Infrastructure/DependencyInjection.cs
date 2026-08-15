@@ -51,6 +51,7 @@ public static class DependencyInjection
         // au HttpContext.
         services.AddScoped<ICurrentUserContext, SystemUserContext>();
         services.AddScoped<AuditingInterceptor>();
+        services.AddScoped<IAuditWriter, AuditWriter>();
 
         // Fabrique plutot que contexte injecte directement : dans Blazor Server,
         // un composant peut declencher plusieurs operations concurrentes sur le
@@ -102,6 +103,9 @@ public static class DependencyInjection
         services.AddScoped<SupervisionService>();
         services.AddScoped<AlertService>();
         services.AddScoped<UndeclaredComponentScanner>();
+        services.AddScoped<DatabaseHealthService>();
+        services.AddScoped<SharedFolderHealthService>();
+        services.AddScoped<Edi.EdiTrackingService>();
 
         // Vitalité des nœuds. Le service est à portée de requête — il dépend du
         // référentiel — mais le cache des mises à jour Windows est un singleton :
@@ -110,6 +114,8 @@ public static class DependencyInjection
         services.AddScoped<NodeVitalsService>();
         services.AddSingleton<UpdateReadingCache>();
         services.AddSingleton<SupervisionStateCache>();
+        services.AddSingleton<JmxMonitoringService>();
+        services.AddSingleton<AzureAdAuthProvider>();
         services.AddHostedService<SupervisionBackgroundService>();
 
         // Orchestration (sprint 4). Le moteur est un SINGLETON : il pilote des
@@ -121,6 +127,7 @@ public static class DependencyInjection
         services.AddScoped<EnvironmentLockService>();
         services.AddScoped<SequenceValidator>();
         services.AddScoped<StepExecutor>();
+        services.AddScoped<CenterContinuityService>();
         services.AddScoped<PreflightService>();
         services.AddScoped<AdHocOperationService>();
         services.AddScoped<ExecutionReportService>();
@@ -139,6 +146,13 @@ public static class DependencyInjection
         // n'a de dépendance vers l'orchestrateur, et c'est volontaire.
         services.AddScoped<Knowledge.KnowledgeService>();
         services.AddScoped<Reporting.HistoryService>();
+
+        // SOP — procédures opérationnelles standard (Phase C, Lot 2a).
+        // Même principe que la base documentaire : ces services documentent et
+        // tracent un geste humain, ils n'automatisent rien et ne dépendent
+        // donc pas de l'orchestrateur.
+        services.AddScoped<Procedures.SopService>();
+        services.AddScoped<Procedures.SopExecutionService>();
 
         // Exploitation (sprint 8). La sauvegarde couvre la base ET le trousseau
         // de clés : la base seule redonnerait des comptes techniques dont les

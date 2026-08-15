@@ -1,0 +1,295 @@
+@page "/edi"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Diagnostic
+@using N4Sentinel.Infrastructure.Edi
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject EdiTrackingService Suivi
+@inject AlertService Alertes
+@inject DiagnosticSessionService Diagnostics
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>EDI — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Intégrations EDI</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Fichiers reçus, intégrés, en attente ou rejetés (FR-059H). Partenaire et type de message
+                n'apparaissent que si un motif d'extraction a été déclaré sur le composant — sinon, ils
+                restent honnêtement <span class="text-slate-500">non classifiés</span>.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Recharger">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition disabled:opacity-50"
+                    disabled="@(_envId == Guid.Empty || _synchronisation)" @onclick="SynchroniserAsync">
+                <i class="bi bi-arrow-clockwise text-sm @(_synchronisation ? "animate-spin" : "")"></i>
+                <span>@(_synchronisation ? "Synchronisation…" : "Synchroniser")</span>
+            </button>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    @if (_envId == Guid.Empty)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            Choisissez un environnement pour voir ses intégrations EDI.
+        </div>
+    }
+    else if (_composants.Count == 0)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs space-y-2">
+            <i class="bi bi-arrow-left-right text-2xl text-slate-600"></i>
+            <p>Aucun composant EDI configuré dans cet environnement.</p>
+            <p class="text-slate-500">
+                Déclarez un chemin de dossier partagé (catégorie « Échange EDI ») sur la fiche d'un composant
+                pour qu'il apparaisse ici.
+            </p>
+        </div>
+    }
+    else
+    {
+        <!-- Résumé par composant -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            @foreach (var (composant, fichiers) in _parComposant)
+            {
+                var enAttente = fichiers.Count(f => f.Status == EdiFileStatus.EnAttente);
+                var integres = fichiers.Count(f => f.Status == EdiFileStatus.Integre);
+                var rejetes = fichiers.Count(f => f.Status == EdiFileStatus.Rejete);
+
+                <div class="glass-card p-4 rounded-xl border border-slate-800">
+                    <div class="font-bold text-white text-xs mb-2">@composant.LogicalName</div>
+                    <div class="flex items-center gap-3 text-[11px]">
+                        <span class="text-sky-400">@enAttente en attente</span>
+                        <span class="text-emerald-400">@integres intégré(s)</span>
+                        <span class="text-rose-400">@rejetes rejeté(s)</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Tableau détaillé -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-list-ul text-sky-400"></i> Fichiers (@_tousLesFichiers.Count)
+                </h3>
+                <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-xs" @bind="_filtreStatut">
+                    <option value="">Tous les statuts</option>
+                    <option value="@EdiFileStatus.EnAttente">En attente</option>
+                    <option value="@EdiFileStatus.Integre">Intégré</option>
+                    <option value="@EdiFileStatus.Rejete">Rejeté</option>
+                </select>
+            </div>
+
+            @if (_tousLesFichiers.Count == 0)
+            {
+                <div class="p-8 text-center text-slate-400 text-xs">
+                    Aucun fichier suivi. Cliquez « Synchroniser » pour relever les dossiers déclarés.
+                </div>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                            <tr>
+                                <th class="py-2 px-4 font-bold">Composant</th>
+                                <th class="py-2 px-4 font-bold">Fichier</th>
+                                <th class="py-2 px-4 font-bold">Partenaire</th>
+                                <th class="py-2 px-4 font-bold">Type</th>
+                                <th class="py-2 px-4 font-bold">Statut</th>
+                                <th class="py-2 px-4 font-bold">Ancienneté</th>
+                                <th class="py-2 px-4 font-bold"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            @foreach (var (composant, fichier) in FichiersFiltres())
+                            {
+                                <tr>
+                                    <td class="py-2.5 px-4 text-slate-400">@composant.LogicalName</td>
+                                    <td class="py-2.5 px-4 font-mono text-white">@fichier.FileName</td>
+                                    <td class="py-2.5 px-4">@(fichier.Partner ?? "—")</td>
+                                    <td class="py-2.5 px-4">@(fichier.MessageType ?? "—")</td>
+                                    <td class="py-2.5 px-4">
+                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold @PastilleStatut(fichier.Status)">
+                                            @LibelleStatut(fichier.Status)
+                                        </span>
+                                        @if (fichier.Status == EdiFileStatus.Rejete && fichier.ConsecutiveRejections > 1)
+                                        {
+                                            <span class="ml-1 text-[10px] text-rose-400">×@fichier.ConsecutiveRejections</span>
+                                        }
+                                    </td>
+                                    <td class="py-2.5 px-4 font-mono text-slate-400">@FormaterDuree(fichier.Age)</td>
+                                    <td class="py-2.5 px-4 text-right">
+                                        @if (fichier.Status != EdiFileStatus.Integre)
+                                        {
+                                            <button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-[10px] transition disabled:opacity-50"
+                                                    disabled="@(_diagnosticEnCours == fichier.Id)"
+                                                    @onclick="() => DiagnostiquerAsync(composant, fichier)">
+                                                <i class="bi bi-search text-[10px]"></i>
+                                                @(_diagnosticEnCours == fichier.Id ? "…" : "Diagnostiquer")
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400">
+            <i class="bi bi-info-circle"></i> Les alertes de retard ou d'absence d'intégration (FR-059I)
+            apparaissent au <a href="/alertes" class="text-sky-400 hover:underline">Centre d'alertes</a>,
+            avec un accès direct au diagnostic du composant concerné.
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<N4Component> _composants = [];
+    private List<(N4Component Composant, List<EdiFile> Fichiers)> _parComposant = [];
+    private Guid _envId;
+    private bool _synchronisation;
+    private string _filtreStatut = string.Empty;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+    private Guid? _diagnosticEnCours;
+
+    private List<(N4Component Composant, EdiFile Fichier)> _tousLesFichiers =>
+        _parComposant.SelectMany(p => p.Fichiers.Select(f => (p.Composant, f))).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1) { _envId = _environnements[0].Id; await Recharger(); }
+    }
+
+    private async Task Recharger()
+    {
+        _message = null;
+        if (_envId == Guid.Empty)
+        {
+            _composants = [];
+            _parComposant = [];
+            return;
+        }
+
+        var tous = await Referential.GetComponentsAsync(_envId);
+        _composants = tous.Where(c => c.SharedFolder.IsConfigured
+                                       && c.SharedFolder.Category == SharedFolderCategory.EchangeEdi).ToList();
+
+        var resultats = new List<(N4Component, List<EdiFile>)>();
+        foreach (var c in _composants)
+            resultats.Add((c, await Suivi.GetForComponentAsync(c.Id)));
+        _parComposant = resultats;
+    }
+
+    private async Task SynchroniserAsync()
+    {
+        _synchronisation = true;
+        _message = null;
+        StateHasChanged();
+
+        try
+        {
+            var resultats = new List<(N4Component, List<EdiFile>)>();
+            foreach (var c in _composants)
+            {
+                var fichiers = await Suivi.SyncAsync(c);
+                await Alertes.EvaluateEdiAsync(c, fichiers);
+                resultats.Add((c, fichiers));
+            }
+            _parComposant = resultats;
+
+            _message = $"{_composants.Count} composant(s) synchronisé(s).";
+            _messageClass = "bg-emerald-500/10 border-emerald-500/20 text-emerald-300";
+        }
+        finally
+        {
+            _synchronisation = false;
+        }
+    }
+
+    private async Task DiagnostiquerAsync(N4Component composant, EdiFile fichier)
+    {
+        _diagnosticEnCours = fichier.Id;
+        StateHasChanged();
+
+        try
+        {
+            var etat = await AuthProvider.GetAuthenticationStateAsync();
+            var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+            var r = await Diagnostics.CreateFromEdiFileAsync(fichier, composant.Id, acteur);
+            if (!r.Succeeded)
+            {
+                _message = r.Error;
+                _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+                return;
+            }
+
+            Nav.NavigateTo($"/diagnostics/{r.SessionId}");
+        }
+        finally
+        {
+            _diagnosticEnCours = null;
+        }
+    }
+
+    private IEnumerable<(N4Component Composant, EdiFile Fichier)> FichiersFiltres()
+    {
+        var tous = _tousLesFichiers.OrderByDescending(f => f.Fichier.LastSeenAt);
+        return string.IsNullOrEmpty(_filtreStatut)
+            ? tous
+            : tous.Where(f => f.Fichier.Status.ToString() == _filtreStatut);
+    }
+
+    private static string LibelleStatut(EdiFileStatus s) => s switch
+    {
+        EdiFileStatus.EnAttente => "En attente",
+        EdiFileStatus.Integre => "Intégré",
+        EdiFileStatus.Rejete => "Rejeté",
+        _ => s.ToString()
+    };
+
+    private static string PastilleStatut(EdiFileStatus s) => s switch
+    {
+        EdiFileStatus.EnAttente => "bg-sky-500/15 text-sky-400",
+        EdiFileStatus.Integre => "bg-emerald-500/15 text-emerald-400",
+        EdiFileStatus.Rejete => "bg-rose-500/15 text-rose-400",
+        _ => "bg-slate-800 text-slate-400"
+    };
+
+    private static string FormaterDuree(TimeSpan d)
+    {
+        if (d.TotalHours < 1) return $"{(int)d.TotalMinutes} min";
+        if (d.TotalDays < 1) return $"{(int)d.TotalHours} h";
+        return $"{(int)d.TotalDays} j";
+    }
+}

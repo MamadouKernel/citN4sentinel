@@ -9,7 +9,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
 using N4Sentinel.Web.Components.Account.Pages;
 using N4Sentinel.Web.Components.Account.Pages.Manage;
+using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Identity;
+using N4Sentinel.Infrastructure.Persistence;
 
 namespace Microsoft.AspNetCore.Routing;
 
@@ -42,11 +44,17 @@ internal static class IdentityComponentsEndpointRouteBuilderExtensions
         });
 
         accountGroup.MapPost("/Logout", async (
+            HttpContext context,
             ClaimsPrincipal user,
             [FromServices] SignInManager<ApplicationUser> signInManager,
+            [FromServices] IAuditWriter auditWriter,
             [FromForm] string returnUrl) =>
         {
+            var actor = user.Identity?.Name ?? "utilisateur inconnu";
             await signInManager.SignOutAsync();
+            await auditWriter.WriteAsync(AuditAction.DeconnexionOuEchecAuthentification, AuditOutcome.Succes,
+                actor, context.Connection.RemoteIpAddress?.ToString(), detail: "Deconnexion.",
+                correlationId: context.TraceIdentifier);
             return TypedResults.LocalRedirect($"~/{returnUrl}");
         });
 

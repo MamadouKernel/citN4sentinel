@@ -9,6 +9,7 @@
 @inject SequenceValidator Validator
 @inject ReferentialService Referential
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>@(_workflow?.Name ?? "Workflow") — N4 Sentinel</PageTitle>
 
@@ -114,6 +115,32 @@ else
             </div>
         }
 
+        <!-- Gouvernance (FR-013) -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-shield-check text-sky-400"></i> Gouvernance
+                </h3>
+                <p class="text-xs text-slate-400 mt-1">
+                    Une opération mutative en Production exige de toute façon une approbation, quel
+                    que soit ce réglage — il sert à l'exiger aussi ailleurs, ou à en exiger deux.
+                </p>
+            </div>
+            <div class="p-5 flex flex-col sm:flex-row gap-4 text-xs">
+                <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                           checked="@_requiresApproval"
+                           @onchange="e => { _requiresApproval = (bool)e.Value!; if (!_requiresApproval) _requiresDoubleApproval = false; }" />
+                    <span>Exige une approbation avant lancement</span>
+                </label>
+                <label class="flex items-center gap-2 text-slate-300 cursor-pointer @(!_requiresApproval ? "opacity-40" : "")">
+                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700" disabled="@(!_requiresApproval)"
+                           checked="@_requiresDoubleApproval" @onchange="e => _requiresDoubleApproval = (bool)e.Value!" />
+                    <span>Exige DEUX approbateurs distincts (double validation)</span>
+                </label>
+            </div>
+        </div>
+
         <!-- Étapes -->
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
@@ -187,10 +214,24 @@ else
                                             disabled="@(index == _etapes.Count - 1)" @onclick="() => Deplacer(index, 1)" title="Descendre">
                                         <i class="bi bi-arrow-down"></i>
                                     </button>
-                                    <button class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
-                                            @onclick="() => Supprimer(index)" title="Supprimer">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                    @if (_indexASupprimer == index)
+                                    {
+                                        <button class="p-1.5 rounded-lg bg-rose-500 text-white transition animate-pulse"
+                                                @onclick="() => Supprimer(index)" title="Confirmer la suppression">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                        <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                                                @onclick="() => _indexASupprimer = null" title="Annuler">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                                                @onclick="() => _indexASupprimer = index" title="Supprimer — un second clic confirmera">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
                                 </div>
                             </div>
 
@@ -209,7 +250,7 @@ else
                                 </div>
                             }
 
-                            <div class="pl-10 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                            <div class="pl-10 grid grid-cols-2 md:grid-cols-6 gap-3 text-xs">
                                 <div>
                                     <label class="block text-slate-500 font-semibold mb-1">Durée normale (s)</label>
                                     <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
@@ -239,6 +280,11 @@ else
                                            checked="@etape.RequiresConfirmation" @onchange="e => etape.RequiresConfirmation = (bool)e.Value!" />
                                     <span>Confirmation avant</span>
                                 </label>
+                                <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer" title="Peut être lancée en même temps que l'étape contiguë suivante, si elle est aussi marquée parallélisable (FR-023). Le validateur de séquence refuse toute combinaison qui violerait le graphe de dépendances.">
+                                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                                           checked="@etape.CanRunInParallel" @onchange="e => etape.CanRunInParallel = (bool)e.Value!" />
+                                    <span>Parallélisable</span>
+                                </label>
                             </div>
                         </div>
                     }
@@ -253,6 +299,7 @@ else
 
     private Workflow? _workflow;
     private List<WorkflowStep> _etapes = [];
+    private int? _indexASupprimer;
     private List<N4Component> _composants = [];
     private List<SequenceViolation> _violations = [];
     private int _bloquantes;
@@ -260,6 +307,8 @@ else
     private bool _enregistrement;
     private string? _message;
     private string _messageClass = string.Empty;
+    private bool _requiresApproval;
+    private bool _requiresDoubleApproval;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -268,6 +317,8 @@ else
 
         _etapes = _workflow.Steps.OrderBy(s => s.Order).ToList();
         _composants = await Referential.GetComponentsAsync(_workflow.EnvironmentId);
+        _requiresApproval = _workflow.RequiresApproval;
+        _requiresDoubleApproval = _workflow.RequiresDoubleApproval;
         await Controler();
     }
 
@@ -302,12 +353,14 @@ else
         if (cible < 0 || cible >= _etapes.Count) return;
 
         (_etapes[index], _etapes[cible]) = (_etapes[cible], _etapes[index]);
+        _indexASupprimer = null;
         await Controler();
     }
 
     private async Task Supprimer(int index)
     {
         _etapes.RemoveAt(index);
+        _indexASupprimer = null;
         await Controler();
     }
 
@@ -337,7 +390,8 @@ else
             Notes = s.Notes
         }).ToList();
 
-        var r = await Workflows.SaveAsync(_workflow.Id, _workflow.Name, _workflow.Description, copies);
+        var r = await Workflows.SaveAsync(
+            _workflow.Id, _workflow.Name, _workflow.Description, copies, _requiresApproval, _requiresDoubleApproval);
         _enregistrement = false;
 
         if (!r.Succeeded)
@@ -363,7 +417,10 @@ else
     {
         if (_workflow is null) return;
 
-        var erreur = await Workflows.ChangeStatusAsync(_workflow.Id, LifecycleStatus.Valide);
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await Workflows.ChangeStatusAsync(_workflow.Id, LifecycleStatus.Valide, acteur);
         if (erreur is not null) { Signaler(erreur, false); return; }
 
         await OnParametersSetAsync();

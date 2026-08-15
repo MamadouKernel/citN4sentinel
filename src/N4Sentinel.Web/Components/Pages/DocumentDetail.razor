@@ -177,7 +177,10 @@ else
 
     private async Task Revoquer()
     {
-        var erreur = await Base.RevokeAsync(Id);
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await Base.RevokeAsync(Id, acteur);
         _d = await Base.GetDocumentAsync(Id);
 
         _message = erreur ?? "Document retiré des réponses. Il reste consultable, et les rapports "

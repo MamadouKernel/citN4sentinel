@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "n4sentinel-web",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/N4Sentinel.Web", "--urls", "http://localhost:5161"],
+      "port": 5161
+    }
+  ]
+}

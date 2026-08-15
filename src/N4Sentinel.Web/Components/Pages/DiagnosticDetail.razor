@@ -3,12 +3,14 @@
 @using Microsoft.AspNetCore.Components.Forms
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Diagnostic
+@using N4Sentinel.Infrastructure.Procedures
 @using N4Sentinel.Infrastructure.Referential
 @attribute [Authorize(Policy = N4Policies.PeutDiagnostiquer)]
 @rendermode InteractiveServer
 @inject DiagnosticSessionService Sessions
 @inject LogAnalysisService Analyse
 @inject ReferentialService Referential
+@inject SopService Sop
 @inject IJSRuntime JS
 
 <PageTitle>@(_s?.Title ?? "Diagnostic") — N4 Sentinel</PageTitle>
@@ -44,7 +46,7 @@ else
             <div class="flex flex-wrap items-center gap-2">
                 <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
                         disabled="@(_enCours || _s.Sources.Count == 0)" @onclick="Conclure">
-                    <i class="bi bi-lightbulb"></i> @(_enCours ? "Analyse…" : "Conclure")
+                    <i class="bi bi-lightbulb"></i> @(_analyseEnCours ? "Analyse…" : "Conclure")
                 </button>
 
                 @if (_s.HasBeenAnalysed)
@@ -87,12 +89,124 @@ else
         <!-- Verdict -->
         @if (_s.HasBeenAnalysed)
         {
-            <div class="glass-card rounded-2xl border p-5 space-y-2 @BordureVerdict()">
-                <div class="flex items-center gap-2">
-                    <i class="bi @IconeVerdict() text-lg"></i>
-                    <h3 class="text-sm font-bold text-white">@DiagnosticSessionService.LibelleVerdict(_s.Verdict)</h3>
+            <div class="glass-card rounded-2xl border p-5 space-y-3 @BordureVerdict()">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex items-center gap-2">
+                        <i class="bi @IconeVerdict() text-lg"></i>
+                        <h3 class="text-sm font-bold text-white">@DiagnosticSessionService.LibelleVerdict(_s.Verdict)</h3>
+                    </div>
+                    <button class="px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800 border border-slate-700/60 text-slate-300 font-semibold text-[11px] transition"
+                            @onclick="BasculerReference">
+                        <i class="bi @(_s.IsReferenceBaseline ? "bi-bookmark-check-fill text-emerald-400" : "bi-bookmark")"></i>
+                        @(_s.IsReferenceBaseline ? "Référence saine" : "Marquer comme référence saine")
+                    </button>
                 </div>
                 <p class="text-xs text-slate-200 leading-relaxed">@_s.VerdictExplanation</p>
+            </div>
+        }
+
+        <!-- Comparaison à une référence (FR-066) -->
+        @if (_s.HasBeenAnalysed)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3 text-xs">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-arrow-left-right text-sky-400"></i> Comparaison à une référence
+                </h3>
+
+                <div class="flex flex-wrap items-end gap-3">
+                    <div class="flex-1 min-w-56">
+                        <label class="block text-slate-400 font-semibold mb-1">Session de référence (saine, validée)</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_referenceChoisie" @bind:after="AppliquerReference">
+                            <option value="@Guid.Empty">Aucune</option>
+                            @foreach (var r in _referencesDisponibles)
+                            {
+                                <option value="@r.Id">@r.Title — @r.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                @if (_comparaison is not null)
+                {
+                    @if (_comparaison.IsStale)
+                    {
+                        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            Référence vieille de @_comparaison.ReferenceAgeDays jour(s) — à utiliser avec prudence,
+                            l'environnement a pu évoluer depuis.
+                        </div>
+                    }
+                    @if (_comparaison.ReferenceScopeIncomplete)
+                    {
+                        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            Certaines sources de la référence n'avaient pas pu être collectées : sa couverture est incomplète.
+                        </div>
+                    }
+
+                    <p class="text-slate-400">
+                        Référence du @_comparaison.Reference.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                        — @_comparaison.Reference.Sources.Count(s => s.Succeeded) journal(aux) analysé(s).
+                    </p>
+
+                    @if (_comparaison.NewFindings.Count == 0)
+                    {
+                        <div class="text-emerald-400"><i class="bi bi-check-circle-fill"></i> Aucun constat absent de la référence.</div>
+                    }
+                    else
+                    {
+                        <div>
+                            <div class="font-semibold text-slate-300 mb-1">@_comparaison.NewFindings.Count constat(s) absent(s) de la référence :</div>
+                            <ul class="space-y-1">
+                                @foreach (var f in _comparaison.NewFindings.Take(10))
+                                {
+                                    <li class="text-slate-300">
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold @PastilleSeverite(f.Severity)">@f.Severity</span>
+                                        @f.Title
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        <!-- Chronologie multi-sources (FR-061) -->
+        @if (_chronologie.Count > 0)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-5 border-b border-slate-800">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-clock-history text-sky-400"></i> Chronologie
+                    </h3>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        Alignée sur l'écart d'horloge mesuré à la collecte de chaque source. Une entrée reste
+                        marquée « incertaine » quand cet écart est inconnu ou significatif — l'ordre affiché
+                        est alors probable, pas garanti.
+                    </p>
+                </div>
+                <div class="divide-y divide-slate-800/60 text-xs">
+                    @foreach (var t in _chronologie)
+                    {
+                        <div class="p-3 flex items-start gap-3">
+                            <div class="font-mono text-slate-400 whitespace-nowrap">@t.AdjustedTime.ToLocalTime().ToString("HH:mm:ss")</div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-slate-200">
+                                    <span class="font-semibold">@t.ComponentName</span> — @t.Title
+                                </div>
+                                @if (t.IsUncertain)
+                                {
+                                    <div class="text-[10px] text-amber-400 mt-0.5">
+                                        <i class="bi bi-question-circle"></i>
+                                        Ordre incertain
+                                        @(t.ClockSkewSeconds is { } e ? $"— écart de {e:0.0} s mesuré à la collecte" : "— écart d'horloge non mesuré")
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
         }
 
@@ -134,8 +248,8 @@ else
                         Ou verser un fichier
                     </label>
                     <div class="flex flex-wrap items-center gap-3">
-                        <InputFile OnChange="Verser" accept=".log,.txt,.out"
-                                   class="text-slate-300 text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200 file:font-bold file:cursor-pointer" />
+                        <InputFile OnChange="Verser" accept=".log,.txt,.out" disabled="@_enCours"
+                                   class="text-slate-300 text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200 file:font-bold file:cursor-pointer disabled:opacity-40" />
                         <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_composantImport">
                             <option value="@Guid.Empty">Composant non précisé</option>
                             @foreach (var c in _composants)
@@ -169,7 +283,13 @@ else
                                 {
                                     <tr>
                                         <td class="py-2 font-mono text-slate-300">@src.FileName</td>
-                                        <td class="py-2 text-slate-400">@(src.ComponentName ?? "—")</td>
+                                        <td class="py-2 text-slate-400">
+                                            @(src.ComponentName ?? "—")
+                                            @if (src.ComponentAutoDetected)
+                                            {
+                                                <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/15 text-sky-400" title="Identifié automatiquement depuis le nom du fichier (FR-071)">auto</span>
+                                            }
+                                        </td>
                                         <td class="py-2 text-slate-400">
                                             @(src.Origin == LogOriginKind.CollecteCiblee ? "collecte" : "import")
                                         </td>
@@ -192,6 +312,28 @@ else
                                             }
                                         </td>
                                     </tr>
+                                    @if (src.Succeeded && src.LineCount > 0)
+                                    {
+                                        <tr>
+                                            <td colspan="6" class="pb-2.5 pt-0">
+                                                <div class="text-[10px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                                                    @if (src.EarliestEntryAt is not null)
+                                                    {
+                                                        <span>
+                                                            <i class="bi bi-calendar-range"></i>
+                                                            @src.EarliestEntryAt.Value.ToLocalTime().ToString("dd/MM HH:mm:ss")
+                                                            → @src.LatestEntryAt!.Value.ToLocalTime().ToString("dd/MM HH:mm:ss")
+                                                        </span>
+                                                    }
+                                                    <span>@src.InfoCount info · @src.WarningCount avert. · @src.ErrorCount erreur(s)</span>
+                                                    @if (src.DetectedVersion is { Length: > 0 } v)
+                                                    {
+                                                        <span>version @v (détectée)</span>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -201,7 +343,7 @@ else
         </div>
 
         <!-- Hypothèses -->
-        @if (_s.Hypotheses.Count > 0)
+        @if (_s.HasBeenAnalysed)
         {
             <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
                 <div class="p-5 border-b border-slate-800">
@@ -214,6 +356,14 @@ else
                     </p>
                 </div>
 
+                @if (_s.Hypotheses.Count == 0)
+                {
+                    <div class="p-8 text-center text-slate-400 text-xs">
+                        Aucune hypothèse n'a pu être retenue à partir de ce qui a été analysé.
+                    </div>
+                }
+                else
+                {
                 <div class="divide-y divide-slate-800">
                     @foreach (var h in _s.Hypotheses.OrderBy(x => x.Rank))
                     {
@@ -249,6 +399,48 @@ else
                                 <p class="text-slate-400"><strong>À vérifier.</strong> @h.Recommendation</p>
                             }
                         </div>
+                    }
+                </div>
+                }
+            </div>
+        }
+
+        <!-- SOP validés suggérés (FR-089D, AC-23) -->
+        @if (_sopSuggeres.Count > 0)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-5 border-b border-slate-800">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-journal-check text-emerald-400"></i> Procédures déjà validées pour ce contexte
+                    </h3>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        Rattachées à un composant ou une signature observés dans cette session (AC-23).
+                    </p>
+                </div>
+                <div class="divide-y divide-slate-800">
+                    @foreach (var (sop, stats) in _sopSuggeres.OrderByDescending(s => s.Stats.Total))
+                    {
+                        <a href="/sop/@sop.Id" class="block p-4 hover:bg-slate-800/40 transition text-xs">
+                            <div class="flex items-center justify-between gap-3 flex-wrap">
+                                <div class="font-bold text-white">@sop.Title <span class="text-slate-500 font-normal">v@sop.Version</span></div>
+                                <div class="text-[11px] text-slate-400">
+                                    @if (stats.Total == 0)
+                                    {
+                                        <span>Jamais encore exécuté</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-emerald-400">@stats.Termine terminée(s)</span>
+                                        @if (stats.Abandonne > 0)
+                                        {
+                                            <span class="text-rose-400 ml-2">@stats.Abandonne abandonnée(s)</span>
+                                        }
+                                        <span class="ml-2 text-slate-500">sur @stats.Total au total</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="text-slate-400 mt-1">@sop.Code — dernière modification le @((sop.ModifiedAt ?? sop.CreatedAt).ToLocalTime().ToString("dd/MM/yyyy"))</div>
+                        </a>
                     }
                 </div>
             </div>
@@ -356,19 +548,117 @@ else
     private int _filtreGravite = -1;
     private bool _enCours;
 
+    /// <summary>
+    /// Distinct de <see cref="_enCours"/> : sert uniquement au libellé du
+    /// bouton Conclure, pour ne pas afficher "Analyse…" pendant une simple
+    /// collecte ou un versement de fichier, qui n'ont rien à voir.
+    /// </summary>
+    private bool _analyseEnCours;
+
     private string? _message;
     private string _messageClass = string.Empty;
 
     /// <summary>2 Mo : au-delà, seule la fin du fichier est retenue de toute façon.</summary>
     private const long TailleMaximale = 2L * 1024 * 1024;
 
+    // --- FR-061/066 ------------------------------------------------------
+    private List<TimelineEntry> _chronologie = [];
+    private List<DiagnosticSession> _referencesDisponibles = [];
+    private Guid _referenceChoisie;
+    private ReferenceComparison? _comparaison;
+
+    // --- FR-089D/AC-23 : SOP validés suggérés pour les composants/signatures de cette session ---
+    private List<(Domain.Sop Sop, SopUsageStats Stats)> _sopSuggeres = [];
+
     protected override async Task OnParametersSetAsync()
     {
         await Charger();
-        if (_s is not null) _composants = await Referential.GetComponentsAsync(_s.EnvironmentId);
+        if (_s is not null)
+        {
+            _composants = await Referential.GetComponentsAsync(_s.EnvironmentId);
+            _referencesDisponibles = (await Sessions.GetBaselineCandidatesAsync(_s.EnvironmentId))
+                .Where(r => r.Id != _s.Id)
+                .ToList();
+            _referenceChoisie = _s.ReferenceSessionId ?? Guid.Empty;
+            _chronologie = DiagnosticSessionService.BuildTimeline(_s);
+            _comparaison = _s.ReferenceSessionId is not null
+                ? await Sessions.CompareToReferenceAsync(_s.Id)
+                : null;
+
+            await ChargerSuggestionsSopAsync();
+        }
+    }
+
+    /// <summary>
+    /// Un incident en cours de diagnostic ressemble souvent à un incident déjà
+    /// résolu — c'est exactement le scénario AC-23. On propose les SOP validés
+    /// rattachés aux composants observés dans cette session, ou aux signatures
+    /// déjà reconnues dans ses constats, avec leur historique d'utilisation
+    /// réel (jamais un taux de réussite inventé).
+    /// </summary>
+    private async Task ChargerSuggestionsSopAsync()
+    {
+        var composantsVus = _s!.Sources.Select(s => s.ComponentId).Where(c => c is not null).Select(c => c!.Value).Distinct();
+        var signaturesVues = _s.Findings.Select(f => f.SignatureId).Where(s => s is not null).Select(s => s!.Value).Distinct();
+
+        var trouves = new Dictionary<Guid, Domain.Sop>();
+
+        foreach (var composantId in composantsVus)
+            foreach (var sop in await Sop.SuggestForReuseAsync(_s.EnvironmentId, componentId: composantId))
+                trouves.TryAdd(sop.Id, sop);
+
+        foreach (var signatureId in signaturesVues)
+            foreach (var sop in await Sop.SuggestForReuseAsync(_s.EnvironmentId, signatureId: signatureId))
+                trouves.TryAdd(sop.Id, sop);
+
+        var resultats = new List<(Domain.Sop, SopUsageStats)>();
+        foreach (var sop in trouves.Values)
+            resultats.Add((sop, await Sop.GetUsageStatsAsync(sop.Id)));
+
+        _sopSuggeres = resultats;
     }
 
     private async Task Charger() => _s = await Sessions.GetAsync(Id);
+
+    private async Task BasculerReference()
+    {
+        if (_s is null) return;
+
+        var erreur = await Sessions.MarkAsBaselineAsync(_s.Id, !_s.IsReferenceBaseline);
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+
+    private async Task AppliquerReference()
+    {
+        if (_s is null) return;
+
+        var erreur = await Sessions.SetReferenceAsync(
+            _s.Id, _referenceChoisie == Guid.Empty ? null : _referenceChoisie);
+
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+
+    private static string PastilleSeverite(SignatureSeverity s) => s switch
+    {
+        SignatureSeverity.Critique => "bg-rose-500/15 text-rose-400",
+        SignatureSeverity.Erreur => "bg-amber-500/15 text-amber-400",
+        SignatureSeverity.Avertissement => "bg-sky-500/15 text-sky-400",
+        _ => "bg-slate-800 text-slate-400"
+    };
 
     private async Task Collecter()
     {
@@ -417,10 +707,12 @@ else
     private async Task Conclure()
     {
         _enCours = true;
+        _analyseEnCours = true;
         _message = null;
 
         await Analyse.ConcludeAsync(Id);
         _enCours = false;
+        _analyseEnCours = false;
 
         await Charger();
     }

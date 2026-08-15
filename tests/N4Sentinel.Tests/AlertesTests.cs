@@ -28,7 +28,7 @@ public sealed class AlertesTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
-        _factory = new TestDbContextFactory(new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
         _alerts = new AlertService(_factory, NullLogger<AlertService>.Instance);
 
         await using var db = _factory.CreateDbContext();
@@ -70,7 +70,10 @@ public sealed class AlertesTests : IAsyncLifetime
         ComponentState etat = ComponentState.Disponible,
         LogProofState preuve = LogProofState.Proved,
         double? ecartHorloge = null,
-        string serviceStatus = "Running") => new()
+        string serviceStatus = "Running",
+        double? tempsReponseMs = null,
+        bool? synchroEnRetard = null,
+        double? diskFreePercent = null) => new()
     {
         ComponentId = _componentId,
         LogicalName = "Center Node",
@@ -83,6 +86,10 @@ public sealed class AlertesTests : IAsyncLifetime
         LogProofStatus = preuve,
         LogPathResolved = @"C:\ProgramData\Navis\center\logs\navis-apex.log",
         ClockSkewSeconds = ecartHorloge,
+        ResponseTimeMs = tempsReponseMs,
+        SyncDelayed = synchroEnRetard,
+        DiskFreePercentMin = diskFreePercent,
+        DiskCriticalDrive = diskFreePercent is not null ? "C:" : null,
         Verdict = "verdict de test"
     };
 
@@ -189,6 +196,66 @@ public sealed class AlertesTests : IAsyncLifetime
         Assert.DoesNotContain(await ToutesAsync(), a => a.Kind == AlertKind.EcartHorloge);
     }
 
+    [Fact(DisplayName = "Un temps de reponse au-dela du seuil declenche une alerte de noeud lent (FR-058)")]
+    public async Task Un_Temps_De_Reponse_Eleve_Declenche_Une_Alerte()
+    {
+        await _alerts.EvaluateAsync(Instantane(tempsReponseMs: 8000), _envId);
+
+        var alerte = (await ToutesAsync()).Single(a => a.Kind == AlertKind.NoeudLent);
+        Assert.Equal(AlertSeverity.Avertissement, alerte.Severity);
+        Assert.Contains("8000", alerte.Detail);
+    }
+
+    [Fact(DisplayName = "Un temps de reponse normal ne declenche rien")]
+    public async Task Un_Temps_De_Reponse_Normal_N_Alerte_Pas()
+    {
+        await _alerts.EvaluateAsync(Instantane(tempsReponseMs: 120), _envId);
+
+        Assert.DoesNotContain(await ToutesAsync(), a => a.Kind == AlertKind.NoeudLent);
+    }
+
+    [Fact(DisplayName = "Un disque sous 10% libre declenche une alerte de ressource critique (FR-054)")]
+    public async Task Un_Disque_Presque_Plein_Declenche_Une_Alerte()
+    {
+        await _alerts.EvaluateAsync(Instantane(diskFreePercent: 8.0), _envId);
+
+        var alerte = (await ToutesAsync()).Single(a => a.Kind == AlertKind.RessourceCritique);
+        Assert.Equal(AlertSeverity.Avertissement, alerte.Severity);
+        Assert.Contains("C:", alerte.Detail);
+        Assert.Contains("8", alerte.Detail);
+
+        // Sous 5%, la gravite monte a Critique.
+        await _alerts.EvaluateAsync(Instantane(diskFreePercent: 3.0), _envId);
+        var apres = (await ToutesAsync()).Single(a => a.Kind == AlertKind.RessourceCritique);
+        Assert.Equal(AlertSeverity.Critique, apres.Severity);
+        Assert.Equal(alerte.Id, apres.Id);
+    }
+
+    [Fact(DisplayName = "Un disque avec assez d'espace libre ne declenche rien")]
+    public async Task Un_Disque_Avec_Assez_D_Espace_N_Alerte_Pas()
+    {
+        await _alerts.EvaluateAsync(Instantane(diskFreePercent: 42.0), _envId);
+
+        Assert.DoesNotContain(await ToutesAsync(), a => a.Kind == AlertKind.RessourceCritique);
+    }
+
+    [Fact(DisplayName = "Une synchronisation N4-XPS en retard declenche une alerte critique (FR-056)")]
+    public async Task Une_Synchronisation_En_Retard_Declenche_Une_Alerte()
+    {
+        await _alerts.EvaluateAsync(Instantane(synchroEnRetard: true), _envId);
+
+        var alerte = (await ToutesAsync()).Single(a => a.Kind == AlertKind.SynchronisationXpsRetardee);
+        Assert.Equal(AlertSeverity.Critique, alerte.Severity);
+    }
+
+    [Fact(DisplayName = "Une synchronisation N4-XPS a jour ne declenche rien")]
+    public async Task Une_Synchronisation_A_Jour_N_Alerte_Pas()
+    {
+        await _alerts.EvaluateAsync(Instantane(synchroEnRetard: false), _envId);
+
+        Assert.DoesNotContain(await ToutesAsync(), a => a.Kind == AlertKind.SynchronisationXpsRetardee);
+    }
+
     [Fact(DisplayName = "Plusieurs conditions simultanees produisent plusieurs alertes distinctes")]
     public async Task Des_Conditions_Distinctes_Coexistent()
     {
@@ -247,6 +314,76 @@ public sealed class AlertesTests : IAsyncLifetime
         var alerte = (await ToutesAsync()).Single(a => a.Kind == AlertKind.CollecteImpossible);
         Assert.Equal(AlertSeverity.Avertissement, alerte.Severity);
         Assert.Contains("absence de problème", alerte.Recommendation!);
+    }
+
+    // -----------------------------------------------------------------------
+    // Conflit de role Center/Standby (FR-032/033)
+    // -----------------------------------------------------------------------
+    private static ComponentHealthSnapshot InstantaneRole(ComponentRole role, string nom, bool? actif) => new()
+    {
+        ComponentId = Guid.NewGuid(),
+        LogicalName = nom,
+        EnvironmentCode = "UAT",
+        HostName = nom,
+        Role = role,
+        State = ComponentState.Disponible,
+        LogProofStatus = LogProofState.Proved,
+        HoldsActiveRole = actif,
+        Verdict = "verdict de test"
+    };
+
+    [Fact(DisplayName = "Center et Standby actifs en meme temps ouvrent une alerte critique de portee environnement")]
+    public async Task Center_Et_Standby_Actifs_Ouvrent_Une_Alerte()
+    {
+        var center = InstantaneRole(ComponentRole.CenterNode, "Center Node", actif: true);
+        var standby = InstantaneRole(ComponentRole.StandbyCenterNode, "Standby Node", actif: true);
+
+        await _alerts.EvaluateCenterConflictAsync(_envId, center, standby);
+
+        var alerte = Assert.Single(await ToutesAsync());
+        Assert.Equal(AlertKind.ConflitRoleActifCenter, alerte.Kind);
+        Assert.Equal(AlertSeverity.Critique, alerte.Severity);
+        Assert.Null(alerte.ComponentId);
+        Assert.Contains("Center Node", alerte.Detail);
+        Assert.Contains("Standby Node", alerte.Detail);
+    }
+
+    [Fact(DisplayName = "Un seul des deux actif ne declenche rien")]
+    public async Task Un_Seul_Actif_N_Alerte_Pas()
+    {
+        var center = InstantaneRole(ComponentRole.CenterNode, "Center Node", actif: true);
+        var standby = InstantaneRole(ComponentRole.StandbyCenterNode, "Standby Node", actif: false);
+
+        await _alerts.EvaluateCenterConflictAsync(_envId, center, standby);
+
+        Assert.Empty(await ToutesAsync());
+    }
+
+    [Fact(DisplayName = "Role non prouvable (marqueur non configure) ne declenche pas de faux conflit")]
+    public async Task Role_Non_Prouvable_N_Alerte_Pas()
+    {
+        var center = InstantaneRole(ComponentRole.CenterNode, "Center Node", actif: null);
+        var standby = InstantaneRole(ComponentRole.StandbyCenterNode, "Standby Node", actif: null);
+
+        await _alerts.EvaluateCenterConflictAsync(_envId, center, standby);
+
+        Assert.Empty(await ToutesAsync());
+    }
+
+    [Fact(DisplayName = "Le conflit se resout automatiquement des que la bascule est faite")]
+    public async Task Le_Conflit_Se_Resout_Quand_La_Bascule_Est_Faite()
+    {
+        var center = InstantaneRole(ComponentRole.CenterNode, "Center Node", actif: true);
+        var standby = InstantaneRole(ComponentRole.StandbyCenterNode, "Standby Node", actif: true);
+        await _alerts.EvaluateCenterConflictAsync(_envId, center, standby);
+        Assert.Single(await ToutesAsync());
+
+        // Le Standby redescend : la bascule s'est resolue d'elle-meme.
+        var standbyResolu = InstantaneRole(ComponentRole.StandbyCenterNode, "Standby Node", actif: false);
+        await _alerts.EvaluateCenterConflictAsync(_envId, center, standbyResolu);
+
+        var alerte = Assert.Single(await ToutesAsync());
+        Assert.Equal(AlertStatus.Resolue, alerte.Status);
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<N4SentinelDbContext> options)

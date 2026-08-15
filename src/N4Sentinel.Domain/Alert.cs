@@ -27,7 +27,35 @@ public enum AlertKind
     CollecteImpossible = 5,
 
     /// <summary>Le composant reste en cours de démarrage bien au-delà de son délai.</summary>
-    DemarrageAnormalementLong = 6
+    DemarrageAnormalementLong = 6,
+
+    /// <summary>
+    /// Center et Standby détiennent tous deux le rôle actif simultanément
+    /// (FR-032/033) — un split-brain N4. Portée environnement, pas composant :
+    /// aucun des deux nœuds n'est individuellement en cause.
+    /// </summary>
+    ConflitRoleActifCenter = 7,
+
+    /// <summary>FR-058 : temps de réponse anormalement élevé — un nœud sous tension avant même de tomber.</summary>
+    NoeudLent = 8,
+
+    /// <summary>FR-056 : aucun échange N4-XPS normal confirmé depuis plus que le délai toléré.</summary>
+    SynchronisationXpsRetardee = 9,
+
+    /// <summary>FR-059I : un ou plusieurs fichiers EDI restent non consommés au-delà du délai déclaré.</summary>
+    FichierEdiNonConsomme = 10,
+
+    /// <summary>FR-059I : aucune intégration EDI réussie observée depuis plus que le délai déclaré.</summary>
+    AucuneIntegrationEdiRecente = 11,
+
+    /// <summary>
+    /// FR-059I : un fichier EDI échoue plusieurs fois de suite. Distinct de
+    /// <see cref="FichierEdiNonConsomme"/> — un fichier peut échouer et être
+    /// retraité rapidement plusieurs fois sans jamais dépasser le seuil
+    /// d'ancienneté, ce qui masquerait un partenaire ou un format qui pose
+    /// systématiquement problème.
+    /// </summary>
+    EchecsEdiRepetes = 12
 }
 
 public enum AlertSeverity

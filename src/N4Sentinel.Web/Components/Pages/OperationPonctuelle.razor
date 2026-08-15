@@ -244,6 +244,15 @@
 
     private async Task Recalculer()
     {
+        // Un composant non pilotable ne peut rester coché que sous l'action
+        // Vérifier. En changer sans le retirer de force laisserait une case
+        // cochée mais grisée, impossible à décocher depuis l'écran.
+        if (_action != StepAction.Verifier)
+        {
+            var nonPilotables = _composants.Where(c => !c.CanBeControlled).Select(c => c.Id);
+            _selection.ExceptWith(nonPilotables);
+        }
+
         _impact = _selection.Count == 0
             ? null
             : await AdHoc.AnalyseImpactAsync(_envId, _selection, _action);

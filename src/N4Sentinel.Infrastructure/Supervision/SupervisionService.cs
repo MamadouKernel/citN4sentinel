@@ -16,7 +16,7 @@ namespace N4Sentinel.Infrastructure.Supervision;
 ///   1. Statut du service Windows et du processus
 ///   2. Joignabilité du port applicatif
 ///   3. Marqueur de démarrage dans le journal applicatif (ReadinessProfile)
-///   4. Métriques système (écart d'horloge < 5s, espace disque > 10%)
+///   4. Métriques système (écart d'horloge < tolérance de l'environnement, espace disque > 10%)
 /// </summary>
 public sealed class SupervisionService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
@@ -24,8 +24,19 @@ public sealed class SupervisionService(
     IN4Connector connector,
     ILogger<SupervisionService> logger)
 {
+    /// <summary>
+    /// Évalue l'état réel d'un composant.
+    ///
+    /// <paramref name="previous"/> est l'instantané précédent, si l'appelant
+    /// en a un (le cache de supervision, typiquement). Sert uniquement au
+    /// suivi de synchronisation N4-XPS (FR-056) : un relevé ne lit qu'un
+    /// DELTA de journal, donc un échange normal peut être confirmé à un
+    /// passage puis absent du delta suivant sans que la synchronisation ait
+    /// réellement cessé — la dernière confirmation doit survivre d'un
+    /// relevé à l'autre, pas être perdue faute de la revoir à chaque fois.
+    /// </summary>
     public async Task<ComponentHealthSnapshot> EvaluateComponentAsync(
-        Guid componentId, CancellationToken ct = default)
+        Guid componentId, CancellationToken ct = default, ComponentHealthSnapshot? previous = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -97,6 +108,12 @@ public sealed class SupervisionService(
         if (!string.IsNullOrWhiteSpace(component.WindowsServiceName))
         {
             var svcRes = await connector.GetServiceAsync(target, component.WindowsServiceName, ct);
+
+            // FR-057/058 : le temps de ce premier aller-retour est le signal de
+            // lenteur le moins cher qui soit — il est deja mesure par le
+            // connecteur pour chaque appel, jusqu'ici jete apres usage.
+            snapshot.ResponseTimeMs = svcRes.Duration.TotalMilliseconds;
+
             if (svcRes.Succeeded && svcRes.Value is not null)
             {
                 snapshot.ServiceStatus = svcRes.Value.Status;
@@ -176,6 +193,26 @@ public sealed class SupervisionService(
                     snapshot.LogProofStatus = LogProofState.WaitingForProof;
                     snapshot.Verdict = "Service Windows actif, initialisation applicative en cours (attente du marqueur de journal).";
                 }
+
+                // FR-032/033 : le service demarre ne dit pas qui detient le role
+                // actif sur un cluster Center/Standby. Cherche dans le meme
+                // journal, independamment du marqueur d'initialisation ci-dessus.
+                if (component.Role is ComponentRole.CenterNode or ComponentRole.StandbyCenterNode
+                    && component.Readiness.ActiveRolePatterns.Count > 0)
+                {
+                    snapshot.HoldsActiveRole = FindMatch(text, component.Readiness.ActiveRolePatterns) is not null;
+                }
+
+                // FR-056 : un echange N4-XPS normal vu dans CE delta vaut
+                // confirmation fraiche. Absent de ce delta ne veut pas dire
+                // absent tout court — le report de la derniere confirmation
+                // connue se fait plus bas, une fois ce bloc termine.
+                if (component.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps
+                    && component.Readiness.SyncPatterns.Count > 0
+                    && FindMatch(text, component.Readiness.SyncPatterns) is not null)
+                {
+                    snapshot.LastSyncConfirmedAt = DateTimeOffset.UtcNow;
+                }
             }
             else
             {
@@ -200,18 +237,56 @@ public sealed class SupervisionService(
             }
         }
 
+        // FR-056 (suite) : reporte la derniere confirmation connue si ce
+        // relevé n'en a pas trouvé de nouvelle, puis juge le retard — apres
+        // le bloc de lecture de journal quel que soit son issue, pour ne
+        // jamais perdre l'information faute d'avoir pu relire le journal.
+        if (component.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps
+            && component.Readiness.SyncPatterns.Count > 0)
+        {
+            snapshot.LastSyncConfirmedAt ??= previous?.LastSyncConfirmedAt;
+
+            if (snapshot.LastSyncConfirmedAt is { } confirmeLe)
+            {
+                var seuil = TimeSpan.FromMinutes(component.Readiness.SyncDelayThresholdMinutes);
+                snapshot.SyncDelayed = DateTimeOffset.UtcNow - confirmeLe > seuil;
+            }
+        }
+
         // 3. Métriques système (Contrôle d'écart d'horloge et espace disque)
         var sysRes = await connector.GetSystemAsync(target, ct);
         if (sysRes.Succeeded && sysRes.Value is not null)
         {
             snapshot.ClockSkewSeconds = sysRes.Value.ClockSkewSeconds;
 
-            if (sysRes.Value.ClockSkewSeconds.HasValue && Math.Abs(sysRes.Value.ClockSkewSeconds.Value) > 5.0)
+            var tolerance = component.Environment?.ClockToleranceSeconds ?? 1;
+            if (sysRes.Value.ClockSkewSeconds.HasValue && Math.Abs(sysRes.Value.ClockSkewSeconds.Value) > tolerance)
             {
                 if (snapshot.State == ComponentState.Disponible)
                     snapshot.State = ComponentState.Degrade;
 
                 snapshot.Verdict += $" [ATTENTION : Écart d'horloge de {sysRes.Value.ClockSkewSeconds.Value:0.0}s avec le serveur Sentinel]";
+            }
+
+            // Espace disque (FR-054) : le plus critique des disques du
+            // serveur, meme seuil que le pre-check (< 10 % libre) pour que
+            // supervision continue et pre-check disent la meme chose.
+            var pireDisque = sysRes.Value.Disks
+                .OrderBy(d => d.FreePercent)
+                .FirstOrDefault();
+
+            if (pireDisque is not null)
+            {
+                snapshot.DiskFreePercentMin = pireDisque.FreePercent;
+                snapshot.DiskCriticalDrive = pireDisque.Drive;
+
+                if (pireDisque.FreePercent < 10)
+                {
+                    if (snapshot.State == ComponentState.Disponible)
+                        snapshot.State = ComponentState.Degrade;
+
+                    snapshot.Verdict += $" [ATTENTION : disque {pireDisque.Drive} à {pireDisque.FreePercent:0.0}% libre]";
+                }
             }
         }
 
@@ -257,7 +332,42 @@ public sealed class ComponentHealthSnapshot
     public string? LogPathResolved { get; set; }
     public string? MatchedPattern { get; set; }
 
+    /// <summary>
+    /// FR-032/033. Null : non applicable (composant hors Center/Standby) ou
+    /// non prouvable (aucun marqueur de role configure) — jamais suppose.
+    /// Vrai/faux seulement quand un marqueur d'ActiveRolePatterns a ete
+    /// cherche dans le journal.
+    /// </summary>
+    public bool? HoldsActiveRole { get; set; }
+
+    /// <summary>
+    /// FR-057/058 : temps de l'aller-retour d'interrogation du service —
+    /// le signal de lenteur le moins cher, déjà mesuré par le connecteur pour
+    /// chaque appel. Un nœud sous tension répond mesurablement plus lentement
+    /// avant même qu'une alerte d'état ne se déclenche.
+    /// </summary>
+    public double? ResponseTimeMs { get; set; }
+
+    /// <summary>FR-056 : dernière confirmation d'échange normal N4-XPS trouvée dans le journal, si un marqueur est configuré.</summary>
+    public DateTimeOffset? LastSyncConfirmedAt { get; set; }
+
+    /// <summary>
+    /// FR-056. Null : non applicable (hors Bridge/XPS) ou non prouvable
+    /// (aucun marqueur configuré). Vrai si le dernier échange confirmé
+    /// dépasse le délai de retard toléré.
+    /// </summary>
+    public bool? SyncDelayed { get; set; }
+
     public double? ClockSkewSeconds { get; set; }
+
+    /// <summary>
+    /// FR-054/AC-15 : pourcentage libre du disque le plus critique du serveur
+    /// hébergeant ce composant. Null tant qu'aucun relevé système n'a réussi —
+    /// jamais supposé sain par défaut.
+    /// </summary>
+    public double? DiskFreePercentMin { get; set; }
+    public string? DiskCriticalDrive { get; set; }
+
     public string Verdict { get; set; } = string.Empty;
     public DateTimeOffset EvaluatedAt { get; init; } = DateTimeOffset.UtcNow;
 

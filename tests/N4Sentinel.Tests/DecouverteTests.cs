@@ -32,7 +32,7 @@ public sealed class DecouverteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
-        _factory = new TestDbContextFactory(new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
         await using (var db = _factory.CreateDbContext())
         {
@@ -271,6 +271,12 @@ public sealed class DecouverteTests : IAsyncLifetime
             Task.FromResult(ConnectorResult<ServiceSnapshot>.Ok(
                 new ServiceSnapshot { Name = n, Status = a == ServiceControlAction.Demarrer ? "Running" : "Stopped" },
                 TimeSpan.Zero));
+
+        public Task<ConnectorResult<FolderSnapshot>> ListFilesAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<FolderSnapshot>.Ok(new FolderSnapshot { Path = p, Exists = false }, TimeSpan.Zero));
+
+        public Task<ConnectorResult<WriteProbeResult>> ProbeWriteAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+            Task.FromResult(ConnectorResult<WriteProbeResult>.Ok(new WriteProbeResult { CanWrite = false, Error = "Non simulé." }, TimeSpan.Zero));
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<N4SentinelDbContext> options)

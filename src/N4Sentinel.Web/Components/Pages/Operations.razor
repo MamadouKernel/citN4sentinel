@@ -90,7 +90,7 @@
                             <div>
                                 <label class="block text-slate-400 font-semibold mb-1">Workflow</label>
                                 <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                                        @bind="_workflowId">
+                                        @bind="_workflowId" @bind:after="ActualiserApercu">
                                     <option value="@Guid.Empty">Choisir…</option>
                                     @foreach (var w in _lancables)
                                     {
@@ -249,6 +249,33 @@
         _lancables = await Workflows.GetRunnableAsync(_envId);
         _verrou = await Locks.GetAsync(_envId);
         if (_verrou is { IsExpired: true }) _verrou = null;
+
+        ActualiserApercu();
+    }
+
+    /// <summary>
+    /// Résume l'ampleur du workflow choisi avant lancement — jamais une
+    /// estimation, seulement ce que le workflow décrit réellement (nombre
+    /// d'étapes, composants distincts visés).
+    /// </summary>
+    private void ActualiserApercu()
+    {
+        var workflow = _lancables.FirstOrDefault(w => w.Id == _workflowId);
+        if (workflow is null)
+        {
+            _apercu = null;
+            return;
+        }
+
+        var composants = workflow.Steps
+            .Where(s => s.ComponentId.HasValue)
+            .Select(s => s.ComponentId!.Value)
+            .Distinct()
+            .Count();
+
+        _apercu = composants > 0
+            ? $"{workflow.Steps.Count} étape(s), sur {composants} composant(s) distinct(s), dans l'ordre défini par la version {workflow.Version}."
+            : $"{workflow.Steps.Count} étape(s) sans composant applicatif ciblé (contrôles d'infrastructure), version {workflow.Version}.";
     }
 
     private async Task Preparer()

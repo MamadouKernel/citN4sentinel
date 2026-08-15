@@ -24,7 +24,7 @@ public sealed class DemonstrationTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
-        _factory = new TestDbContextFactory(new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
         _seeder = new DemonstrationSeeder(_factory, NullLogger<DemonstrationSeeder>.Instance);
 
         await using var db = _factory.CreateDbContext();

@@ -25,8 +25,25 @@ public sealed class SequenceValidator(IDbContextFactory<N4SentinelDbContext> dbF
     /// Vérifie qu'une suite d'étapes respecte le graphe de dépendances.
     /// Retourne la liste des violations ; vide si la séquence est acceptable.
     /// </summary>
-    public async Task<List<SequenceViolation>> ValidateAsync(
-        Guid environmentId, IReadOnlyList<WorkflowStep> steps, CancellationToken ct = default)
+    public Task<List<SequenceViolation>> ValidateAsync(
+        Guid environmentId, IReadOnlyList<WorkflowStep> steps, CancellationToken ct = default) =>
+        ValidateAsync(environmentId, steps.Select(s => new SequenceStepInfo(
+            s.Order, s.ComponentId, s.Action, s.CanRunInParallel)).ToList(), ct);
+
+    /// <summary>
+    /// Même contrôle, rejoué sur les étapes RÉELLEMENT préparées pour une
+    /// exécution (FR-044) — et non plus seulement à l'édition d'un workflow.
+    /// Un workflow validé aujourd'hui peut violer le graphe de dépendances de
+    /// demain si une dépendance a changé entre-temps : la garantie doit tenir
+    /// au lancement, pas seulement à la conception.
+    /// </summary>
+    public Task<List<SequenceViolation>> ValidateAsync(
+        Guid environmentId, IReadOnlyList<ExecutionStep> steps, CancellationToken ct = default) =>
+        ValidateAsync(environmentId, steps.Select(s => new SequenceStepInfo(
+            s.Order, s.ComponentId, s.Action, s.CanRunInParallel)).ToList(), ct);
+
+    private async Task<List<SequenceViolation>> ValidateAsync(
+        Guid environmentId, IReadOnlyList<SequenceStepInfo> steps, CancellationToken ct)
     {
         var violations = new List<SequenceViolation>();
 
@@ -206,6 +223,13 @@ public sealed class SequenceValidator(IDbContextFactory<N4SentinelDbContext> dbF
              + ". Aucun de ces composants ne pourrait alors être démarré en premier.";
     }
 }
+
+/// <summary>
+/// Forme minimale commune à <see cref="WorkflowStep"/> (à l'édition) et
+/// <see cref="ExecutionStep"/> (au lancement réel) : tout ce dont le
+/// validateur a besoin, rien de plus.
+/// </summary>
+internal sealed record SequenceStepInfo(int Order, Guid? ComponentId, StepAction Action, bool CanRunInParallel);
 
 /// <summary>Incohérence relevée dans une séquence.</summary>
 public sealed record SequenceViolation

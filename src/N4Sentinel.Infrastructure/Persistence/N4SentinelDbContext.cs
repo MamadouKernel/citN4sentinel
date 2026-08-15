@@ -39,6 +39,13 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<DiagnosticHypothesis> Hypotheses => Set<DiagnosticHypothesis>();
     public DbSet<KnowledgeDocument> Documents => Set<KnowledgeDocument>();
     public DbSet<DocumentSection> DocumentSections => Set<DocumentSection>();
+    public DbSet<Sop> Sops => Set<Sop>();
+    public DbSet<SopStep> SopSteps => Set<SopStep>();
+    public DbSet<SopAssociation> SopAssociations => Set<SopAssociation>();
+    public DbSet<SopExecution> SopExecutions => Set<SopExecution>();
+    public DbSet<SopExecutionStep> SopExecutionSteps => Set<SopExecutionStep>();
+    public DbSet<SharedFolderSnapshot> SharedFolderSnapshots => Set<SharedFolderSnapshot>();
+    public DbSet<EdiFile> EdiFiles => Set<EdiFile>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -47,6 +54,14 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
         // Les listes de motifs sont stockees en JSON : elles se lisent et
         // s'editent comme un tout, jamais unitairement. Une table dediee
         // n'apporterait qu'une jointure supplementaire.
+        //
+        // ATTENTION migrations futures : toute colonne ajoutee via ce
+        // convertisseur (AddColumn sur une table existante) doit utiliser
+        // `defaultValue: "[]"`, jamais `""`. Une chaine vide n'est pas un JSON
+        // valide ; `dotnet ef migrations add` genere `""` par defaut pour un
+        // nouveau `List<string>`, et il faut le corriger a la main dans le
+        // fichier de migration avant de committer (vecu avec
+        // Readiness_ActiveRolePatterns, cf. migration RoleActifCenter).
         var jsonListConverter = new ValueConverter<List<string>, string>(
             v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
             v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>());
@@ -156,6 +171,11 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
                 r.Property(p => p.ErrorPatterns).HasColumnName("Readiness_ErrorPatterns");
                 r.Property(p => p.IgnorePatterns).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
                 r.Property(p => p.IgnorePatterns).HasColumnName("Readiness_IgnorePatterns");
+                r.Property(p => p.ActiveRolePatterns).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
+                r.Property(p => p.ActiveRolePatterns).HasColumnName("Readiness_ActiveRolePatterns");
+                r.Property(p => p.SyncPatterns).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
+                r.Property(p => p.SyncPatterns).HasColumnName("Readiness_SyncPatterns");
+                r.Property(p => p.SyncDelayThresholdMinutes).HasColumnName("Readiness_SyncDelayThresholdMinutes");
                 r.Property(p => p.ServiceRunningTimeoutSeconds).HasColumnName("Readiness_ServiceRunningTimeoutSeconds");
                 r.Property(p => p.LogReadyTimeoutSeconds).HasColumnName("Readiness_LogReadyTimeoutSeconds");
                 r.Property(p => p.StopTimeoutSeconds).HasColumnName("Readiness_StopTimeoutSeconds");
@@ -163,6 +183,20 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
                 r.Property(p => p.ProgressEverySeconds).HasColumnName("Readiness_ProgressEverySeconds");
                 r.Property(p => p.PostReadySettleSeconds).HasColumnName("Readiness_PostReadySettleSeconds");
                 r.Ignore(p => p.IsProvable);
+            });
+
+            e.OwnsOne(x => x.SharedFolder, sf =>
+            {
+                sf.Property(p => p.RootPath).HasMaxLength(500).HasColumnName("SharedFolder_RootPath");
+                sf.Property(p => p.Category).HasColumnName("SharedFolder_Category");
+                sf.Property(p => p.PendingSubfolder).HasMaxLength(200).HasColumnName("SharedFolder_PendingSubfolder");
+                sf.Property(p => p.ConsumedSubfolder).HasMaxLength(200).HasColumnName("SharedFolder_ConsumedSubfolder");
+                sf.Property(p => p.BlockedSubfolder).HasMaxLength(200).HasColumnName("SharedFolder_BlockedSubfolder");
+                sf.Property(p => p.ErrorSubfolder).HasMaxLength(200).HasColumnName("SharedFolder_ErrorSubfolder");
+                sf.Property(p => p.MaxPendingAgeHours).HasColumnName("SharedFolder_MaxPendingAgeHours");
+                sf.Property(p => p.EdiFileNamingPattern).HasMaxLength(500).HasColumnName("SharedFolder_EdiFileNamingPattern");
+                sf.Property(p => p.MaxHoursSinceLastIntegration).HasColumnName("SharedFolder_MaxHoursSinceLastIntegration");
+                sf.Ignore(p => p.IsConfigured);
             });
         });
 
@@ -355,6 +389,150 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
              .HasForeignKey(x => x.ExecutionId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        builder.Entity<Sop>(e =>
+        {
+            e.ToTable("Sops");
+
+            // Meme regle que Workflow : code + version unique, l'ancienne
+            // version restant rattachee a ses executions passees.
+            e.HasIndex(x => new { x.EnvironmentId, x.Code, x.Version }).IsUnique();
+
+            e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Objective).HasMaxLength(2000);
+            e.Property(x => x.Scope).HasMaxLength(2000);
+            e.Property(x => x.Prerequisites).HasMaxLength(2000);
+            e.Property(x => x.Risks).HasMaxLength(2000);
+            e.Property(x => x.Controls).HasMaxLength(2000);
+            e.Property(x => x.ExpectedOutcome).HasMaxLength(2000);
+            e.Property(x => x.RollbackPlan).HasMaxLength(2000);
+            e.Property(x => x.EscalationPath).HasMaxLength(2000);
+            e.Property(x => x.AppliesToVersion).HasMaxLength(50);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsUsable);
+            e.Ignore(x => x.DisplayName);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<SopStep>(e =>
+        {
+            e.ToTable("SopSteps");
+            e.HasIndex(x => new { x.SopId, x.Order });
+            e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Instruction).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.ExpectedResult).HasMaxLength(2000);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Sop).WithMany(x => x.Steps)
+             .HasForeignKey(x => x.SopId).OnDelete(DeleteBehavior.Cascade);
+
+            // Meme regle que WorkflowStep : la suppression d'un composant
+            // vise doit echouer bruyamment, jamais effacer l'etape en silence.
+            e.HasOne(x => x.Component).WithMany()
+             .HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<SopAssociation>(e =>
+        {
+            e.ToTable("SopAssociations");
+            e.HasIndex(x => new { x.ComponentId, x.Kind });
+            e.HasIndex(x => x.SignatureId);
+            e.Property(x => x.SignatureCode).HasMaxLength(60);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Sop).WithMany(x => x.Associations)
+             .HasForeignKey(x => x.SopId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<SopExecution>(e =>
+        {
+            e.ToTable("SopExecutions");
+            e.HasIndex(x => new { x.EnvironmentId, x.Status });
+            e.HasIndex(x => x.CorrelationId);
+            e.HasIndex(x => x.StartedAt);
+
+            e.Property(x => x.SopCode).HasMaxLength(60);
+            e.Property(x => x.SopTitle).HasMaxLength(200);
+            e.Property(x => x.EnvironmentCode).HasMaxLength(20);
+            e.Property(x => x.StartedBy).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(2000);
+            e.Property(x => x.TicketReference).HasMaxLength(100);
+            e.Property(x => x.AbandonReason).HasMaxLength(2000);
+            e.Property(x => x.CorrelationId).HasMaxLength(40);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsFinished);
+            e.Ignore(x => x.Duration);
+
+            // Le SOP ne se supprime pas en cascade : l'historique des
+            // executions doit survivre a la suppression du modele, exactement
+            // comme WorkflowExecution vis-a-vis de Workflow.
+            e.HasOne(x => x.Sop).WithMany()
+             .HasForeignKey(x => x.SopId).OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<SopExecutionStep>(e =>
+        {
+            e.ToTable("SopExecutionSteps");
+            e.HasIndex(x => new { x.SopExecutionId, x.Order });
+
+            e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Instruction).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.ExpectedResult).HasMaxLength(2000);
+            e.Property(x => x.ComponentName).HasMaxLength(150);
+            e.Property(x => x.ConfirmedBy).HasMaxLength(256);
+            e.Property(x => x.Evidence).HasMaxLength(2000);
+            e.Property(x => x.DeviationNote).HasMaxLength(2000);
+            e.Property(x => x.SkippedBy).HasMaxLength(256);
+            e.Property(x => x.SkipReason).HasMaxLength(1000);
+            e.Property(x => x.History).HasMaxLength(4000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsTerminal);
+            e.Ignore(x => x.Duration);
+
+            e.HasOne(x => x.SopExecution).WithMany(x => x.Steps)
+             .HasForeignKey(x => x.SopExecutionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<SharedFolderSnapshot>(e =>
+        {
+            e.ToTable("SharedFolderSnapshots");
+            e.HasIndex(x => new { x.ComponentId, x.CapturedAt });
+
+            e.Property(x => x.UnreachableReason).HasMaxLength(1000);
+            e.Property(x => x.MissingMandatoryFiles).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
+            e.Property(x => x.CorruptionIndicators).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.SuspectedCorruption);
+
+            // Le composant ne se supprime pas en cascade : l'historique des
+            // relevés doit survivre a la suppression du composant, comme pour
+            // WorkflowExecution vis-a-vis de Workflow.
+            e.HasOne(x => x.Component).WithMany()
+             .HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<EdiFile>(e =>
+        {
+            e.ToTable("EdiFiles");
+            e.HasIndex(x => new { x.ComponentId, x.FileName }).IsUnique();
+            e.HasIndex(x => new { x.ComponentId, x.Status });
+
+            e.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+            e.Property(x => x.MessageType).HasMaxLength(100);
+            e.Property(x => x.Partner).HasMaxLength(100);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.Age);
+
+            e.HasOne(x => x.Component).WithMany()
+             .HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
         builder.Entity<EnvironmentLock>(e =>
         {
             e.ToTable("EnvironmentLocks");
@@ -407,6 +585,13 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Environment).WithMany()
              .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+
+            // Auto-reference : Restrict, pas Cascade — supprimer une session de
+            // reference ne doit jamais entrainer la suppression en cascade de
+            // toutes les sessions qui la citent, et SQL Server refuse de toute
+            // facon une cascade auto-referencee.
+            e.HasOne(x => x.ReferenceSession).WithMany()
+             .HasForeignKey(x => x.ReferenceSessionId).OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<LogSource>(e =>
@@ -419,6 +604,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.ComponentName).HasMaxLength(150);
             e.Property(x => x.HostName).HasMaxLength(255);
             e.Property(x => x.Error).HasMaxLength(2000);
+            e.Property(x => x.DetectedVersion).HasMaxLength(100);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.Succeeded);
 

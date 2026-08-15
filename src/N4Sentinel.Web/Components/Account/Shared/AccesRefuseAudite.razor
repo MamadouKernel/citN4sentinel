@@ -1,0 +1,27 @@
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Persistence
+@inject NavigationManager NavigationManager
+@inject IAuditWriter AuditWriter
+@inject IHttpContextAccessor HttpContextAccessor
+
+@code {
+    /// <summary>
+    /// Rendu quand un utilisateur AUTHENTIFIE atteint une route dont il n'a pas
+    /// l'habilitation (SEC-008, FR-091) - a distinguer d'un visiteur non
+    /// authentifie, qui doit simplement se connecter (RedirectToLogin).
+    /// </summary>
+    [Parameter]
+    public string? Utilisateur { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var ip = HttpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString();
+
+        await AuditWriter.WriteAsync(
+            AuditAction.TentativeNonAutorisee, AuditOutcome.Refuse,
+            Utilisateur ?? "utilisateur inconnu", ip,
+            detail: $"Acces refuse a {NavigationManager.Uri}");
+
+        NavigationManager.NavigateTo("Account/AccessDenied", forceLoad: true);
+    }
+}

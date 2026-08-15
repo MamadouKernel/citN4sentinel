@@ -57,6 +57,23 @@ public enum ComponentRole
 }
 
 /// <summary>
+/// Catégorisation d'un dossier partagé supervisé (FR-059A). Un même
+/// <see cref="ComponentRole.DossierPartage"/> peut recevoir plusieurs
+/// catégories réelles selon le site (configuration, échange ActiveMQ,
+/// intégrations EDI, archives, erreurs) — la catégorie n'est jamais déduite
+/// du rôle du composant, elle est déclarée.
+/// </summary>
+public enum SharedFolderCategory
+{
+    ConfigurationN4 = 0,
+    ActiveMqKahaDb = 1,
+    EchangeEdi = 2,
+    Archives = 3,
+    DossiersErreur = 4,
+    Autre = 99
+}
+
+/// <summary>
 /// Distingue les composants pilotables de ceux qui sont uniquement observes.
 /// Le rattachement d'un systeme a l'ecosysteme N4 ne vaut PAS autorisation
 /// de demarrer ou d'arreter ses services (CdC 2.4).
@@ -149,4 +166,19 @@ public enum AuditAction
     TentativeNonAutorisee = 7,
     ExecutionOperation = 8,
     Contournement = 9
+}
+
+/// <summary>
+/// FR-046/047 : choix explicite exige avant toute action mutative (arret,
+/// redemarrage) sur le Center primaire. Ni l'un ni l'autre n'est un defaut :
+/// c'est precisement le choix qu'un service Windows "Running" ne permet pas
+/// de deduire tout seul (FR-032/033).
+/// </summary>
+public enum CenterContinuityChoice
+{
+    /// <summary>Le Center reste le noeud actif : le Standby ne doit rien prendre en charge.</summary>
+    ResterActif = 0,
+
+    /// <summary>Le role actif doit passer au Standby pendant l'operation.</summary>
+    Basculer = 1
 }

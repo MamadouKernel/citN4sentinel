@@ -15,7 +15,14 @@
 
 <PageTitle>Premier démarrage — N4 Sentinel</PageTitle>
 
-@if (_verifie && !_ouvert)
+@if (!_verifie)
+{
+    <div class="max-w-md mx-auto glass-card rounded-2xl border border-slate-800 p-8 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Vérification de l'installation...</div>
+    </div>
+}
+else if (!_ouvert)
 {
     <div class="max-w-md mx-auto glass-card rounded-2xl border border-slate-800 p-8 text-center space-y-3">
         <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 text-xl border border-emerald-500/20">

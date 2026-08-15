@@ -1,0 +1,238 @@
+@page "/sop"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Procedures
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject SopService Catalogue
+@inject SopExecutionService Executions
+@inject ReferentialService Referential
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+
+<PageTitle>SOP — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Procédures opérationnelles (SOP)</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Un SOP ne lance aucune commande : chaque étape est réalisée à la main, l'application
+                trace sa confirmation, sa preuve et ses écarts.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Recharger">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <!-- Lancement -->
+    @if (_envId != Guid.Empty)
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-play-circle text-sky-400"></i> Démarrer un SOP
+                </h3>
+            </div>
+
+            @if (_lancables.Count == 0)
+            {
+                <div class="p-6 text-xs text-slate-400 space-y-2">
+                    <p>Aucun SOP validé pour cet environnement.</p>
+                    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="adminCtx">
+                        <a href="/admin/sop" class="text-theme-primary hover:underline font-semibold">
+                            Définir un SOP →
+                        </a>
+                    </AuthorizeView>
+                </div>
+            }
+            else
+            {
+                <div class="p-5 space-y-4 text-xs">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">SOP</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_sopId">
+                                <option value="@Guid.Empty">Choisir…</option>
+                                @foreach (var s in _lancables)
+                                {
+                                    <option value="@s.Id">@s.Title (v@s.Version) — @s.Steps.Count étape(s)</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Référence de ticket</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                   placeholder="INC-1234 (facultatif)" @bind="_ticket" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Motif (facultatif)</label>
+                        <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                  placeholder="Pourquoi ce SOP, maintenant." @bind="_motif"></textarea>
+                    </div>
+
+                    <button class="px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40 inline-flex items-center gap-2"
+                            disabled="@(_sopId == Guid.Empty || _enCours)" @onclick="Demarrer">
+                        <i class="bi bi-play-fill"></i>
+                        @(_enCours ? "Démarrage…" : "Démarrer")
+                    </button>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Historique -->
+    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+        <div class="p-5 border-b border-slate-800">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-clock-history text-sky-400"></i> Exécutions récentes
+            </h3>
+        </div>
+
+        @if (_recentes.Count == 0)
+        {
+            <div class="p-8 text-center text-slate-400 text-xs">Aucune exécution enregistrée.</div>
+        }
+        else
+        {
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <tr>
+                            <th class="text-left px-5 py-3 font-bold">SOP</th>
+                            <th class="text-left px-5 py-3 font-bold">Démarré par</th>
+                            <th class="text-left px-5 py-3 font-bold">Démarré</th>
+                            <th class="text-center px-5 py-3 font-bold">Progression</th>
+                            <th class="text-center px-5 py-3 font-bold">État</th>
+                            <th class="text-right px-5 py-3 font-bold"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        @foreach (var x in _recentes)
+                        {
+                            var faites = x.Steps.Count(s => s.IsTerminal);
+
+                            <tr class="hover:bg-white/[0.02] transition">
+                                <td class="px-5 py-3.5">
+                                    <div class="font-bold text-white flex items-center gap-2">
+                                        @x.SopTitle
+                                        <span class="font-mono text-[10px] text-slate-500">v@x.SopVersion</span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 font-mono">@x.EnvironmentCode &middot; @x.CorrelationId</div>
+                                </td>
+                                <td class="px-5 py-3.5 text-slate-300">@x.StartedBy</td>
+                                <td class="px-5 py-3.5 text-slate-400">@x.StartedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                                <td class="px-5 py-3.5 text-center text-slate-300">@faites / @x.Steps.Count</td>
+                                <td class="px-5 py-3.5 text-center">
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold @PastilleEtat(x.Status)">
+                                        @LibelleEtat(x.Status)
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3.5 text-right">
+                                    <a href="@($"/sop/{x.Id}")"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition">
+                                        <i class="bi bi-eye"></i> Suivre
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<Domain.Sop> _lancables = [];
+    private List<SopExecution> _recentes = [];
+
+    private Guid _envId;
+    private Guid _sopId;
+    private string _motif = string.Empty;
+    private string _ticket = string.Empty;
+    private bool _enCours;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1) _envId = _environnements[0].Id;
+        await Recharger();
+    }
+
+    private async Task Recharger()
+    {
+        _recentes = await Executions.GetRecentAsync(_envId == Guid.Empty ? null : _envId);
+        _lancables = _envId == Guid.Empty ? [] : await Catalogue.GetUsableAsync(_envId);
+    }
+
+    private async Task Demarrer()
+    {
+        _enCours = true;
+        _message = null;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var r = await Executions.StartAsync(
+            _sopId, acteur,
+            string.IsNullOrWhiteSpace(_motif) ? null : _motif.Trim(),
+            string.IsNullOrWhiteSpace(_ticket) ? null : _ticket.Trim());
+
+        _enCours = false;
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        Nav.NavigateTo($"/sop/{r.ExecutionId}");
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    public static string LibelleEtat(SopExecutionStatus s) => s switch
+    {
+        SopExecutionStatus.EnCours => "En cours",
+        SopExecutionStatus.Termine => "Terminé",
+        SopExecutionStatus.Abandonne => "Abandonné",
+        _ => s.ToString()
+    };
+
+    public static string PastilleEtat(SopExecutionStatus s) => s switch
+    {
+        SopExecutionStatus.Termine => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+        SopExecutionStatus.EnCours => "bg-sky-500/10 text-sky-400 border border-sky-500/20",
+        SopExecutionStatus.Abandonne => "bg-rose-500/10 text-rose-400 border border-rose-500/20",
+        _ => "bg-slate-800 text-slate-400 border border-slate-700"
+    };
+}

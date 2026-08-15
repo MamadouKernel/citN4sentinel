@@ -64,8 +64,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
                + "TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        _factory = new TestDbContextFactory(
-            new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
         await using (var db = _factory.CreateDbContext())
             await db.Database.EnsureCreatedAsync();
@@ -93,20 +92,21 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             NullLogger<SupervisionService>.Instance);
 
         _verrous = new EnvironmentLockService(_factory, NullLogger<EnvironmentLockService>.Instance);
-        _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance);
+        _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance, new AuditWriter(_factory));
         _rapports = new ExecutionReportService(_factory);
 
         _executeur = new StepExecutor(_factory, cibles, _connecteur, supervision,
             NullLogger<StepExecutor>.Instance);
 
         _precheck = new PreflightService(_factory, cibles, _connecteur, _verrous,
-            NullLogger<PreflightService>.Instance);
+            new SequenceValidator(_factory), supervision,
+            new CenterContinuityService(_factory, supervision), NullLogger<PreflightService>.Instance);
 
         _moteur = new OrchestrationEngine(
             new PorteeDeTest(_factory, _verrous, _executeur),
             NullLogger<OrchestrationEngine>.Instance);
 
-        _executions = new ExecutionService(_factory, _verrous,
+        _executions = new ExecutionService(_factory, _verrous, new AuditWriter(_factory),
             NullLogger<ExecutionService>.Instance, _moteur);
     }
 
@@ -438,6 +438,122 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     }
 
     // =======================================================================
+    // FR-023 — Exécution réellement parallèle
+    // =======================================================================
+    [Fact(DisplayName = "Deux étapes indépendantes déclarées parallélisables s'exécutent en même temps, pas l'une après l'autre")]
+    public async Task Deux_Etapes_Parallelisables_S_Executent_Simultanement()
+    {
+        // Deux temporisations sans composant : aucune commande n'est emise,
+        // seul le VRAI delai (StepExecutor.AttendreAsync) compte. Si le moteur
+        // les lancait toujours l'une apres l'autre, le total avoisinerait 2×3 s ;
+        // lancees ensemble via Task.WhenAll, il avoisine 3 s.
+        var workflow = new Workflow
+        {
+            EnvironmentId = _envId,
+            Code = $"PAR{Guid.NewGuid():N}"[..8],
+            Name = "Deux temporisations indépendantes",
+            Kind = WorkflowKind.OperationPartielle
+        };
+        var workflowId = await _workflows.CreateAsync(workflow);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.WorkflowSteps.AddRange(
+                new WorkflowStep
+                {
+                    WorkflowId = workflowId, Order = 1, Name = "Temporisation A",
+                    Action = StepAction.Attendre, ExpectedSeconds = 3, TimeoutSeconds = 30,
+                    CanRunInParallel = true, FailurePolicy = StepFailurePolicy.Bloquer
+                },
+                new WorkflowStep
+                {
+                    WorkflowId = workflowId, Order = 2, Name = "Temporisation B",
+                    Action = StepAction.Attendre, ExpectedSeconds = 3, TimeoutSeconds = 30,
+                    CanRunInParallel = true, FailurePolicy = StepFailurePolicy.Bloquer
+                });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test"));
+
+        var execution = await PreparerEtLancerAsync(workflowId);
+
+        var chrono = System.Diagnostics.Stopwatch.StartNew();
+        await DeroulerAsync(execution);
+        chrono.Stop();
+
+        var fin = await _executions.GetAsync(execution);
+        Assert.Equal(ExecutionStatus.TermineSucces, fin!.Status);
+        Assert.All(fin.Steps, s => Assert.Equal(ExecutionStepState.Reussi, s.State));
+
+        // Marge large (5 s pour deux etapes de 3 s) : loin des ~6 s qu'un
+        // sequencement aurait produit, sans rendre le test fragile sous charge.
+        Assert.True(chrono.Elapsed < TimeSpan.FromSeconds(5),
+            $"Les deux étapes ont pris {chrono.Elapsed.TotalSeconds:F1} s au total : "
+            + "elles semblent s'être exécutées l'une après l'autre, pas en parallèle.");
+    }
+
+    [Fact(DisplayName = "Une étape non déclarée parallélisable attend son tour même si celle qui la précède l'est")]
+    public async Task Une_Etape_Non_Parallelisable_N_Est_Jamais_Groupee()
+    {
+        // La contiguïté s'arrête a la premiere etape non marquee : meme si
+        // A et C sont toutes deux parallelisables, B au milieu ne l'est pas,
+        // et personne apres B ne doit etre lance avec A.
+        var workflow = new Workflow
+        {
+            EnvironmentId = _envId,
+            Code = $"SEQ{Guid.NewGuid():N}"[..8],
+            Name = "Parallélisable puis pas",
+            Kind = WorkflowKind.OperationPartielle
+        };
+        var workflowId = await _workflows.CreateAsync(workflow);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.WorkflowSteps.AddRange(
+                new WorkflowStep
+                {
+                    WorkflowId = workflowId, Order = 1, Name = "A",
+                    Action = StepAction.Attendre, ExpectedSeconds = 1, TimeoutSeconds = 30,
+                    CanRunInParallel = true, FailurePolicy = StepFailurePolicy.Bloquer
+                },
+                new WorkflowStep
+                {
+                    WorkflowId = workflowId, Order = 2, Name = "B",
+                    Action = StepAction.Attendre, ExpectedSeconds = 1, TimeoutSeconds = 30,
+                    CanRunInParallel = false, FailurePolicy = StepFailurePolicy.Bloquer
+                },
+                new WorkflowStep
+                {
+                    WorkflowId = workflowId, Order = 3, Name = "C",
+                    Action = StepAction.Attendre, ExpectedSeconds = 1, TimeoutSeconds = 30,
+                    CanRunInParallel = true, FailurePolicy = StepFailurePolicy.Bloquer
+                });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test"));
+
+        var execution = await PreparerEtLancerAsync(workflowId);
+        await DeroulerAsync(execution);
+
+        var fin = await _executions.GetAsync(execution);
+        Assert.Equal(ExecutionStatus.TermineSucces, fin!.Status);
+
+        var (a, b, c) = (
+            fin.Steps.Single(s => s.Name == "A"),
+            fin.Steps.Single(s => s.Name == "B"),
+            fin.Steps.Single(s => s.Name == "C"));
+
+        // B ne peut pas avoir demarre avant que A soit terminee : elle n'a
+        // jamais ete groupee avec elle.
+        Assert.True(b.StartedAt >= a.EndedAt);
+        // C, elle, est parallelisable — mais seule dans son lot puisque rien
+        // ne la suit : elle demarre normalement des que B est terminee.
+        Assert.True(c.StartedAt >= b.EndedAt);
+    }
+
+    // =======================================================================
     // Aides
     // =======================================================================
     private string Journal(string composant)
@@ -479,7 +595,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
 
         await db.SaveChangesAsync();
 
-        Assert.Null(await _workflows.ChangeStatusAsync(id, LifecycleStatus.Valide));
+        Assert.Null(await _workflows.ChangeStatusAsync(id, LifecycleStatus.Valide, "test"));
         return id;
     }
 
@@ -489,6 +605,13 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             workflowId, "recette", "Rejeu de recette contre le simulateur", "REC-01", simulation);
 
         Assert.True(prep.Succeeded, prep.Error);
+
+        // Inoffensif quand la sequence ne vise pas le Center (le champ reste
+        // simplement inutilise) ; necessaire des qu'elle l'arrete ou le
+        // redemarre (FR-046/047). Ces scenarios de recette ne testent pas la
+        // bascule elle-meme, donc le choix par defaut le plus sur convient.
+        Assert.Null(await _executions.SetContinuityChoiceAsync(
+            prep.ExecutionId, CenterContinuityChoice.ResterActif, "recette"));
 
         var rapport = await _precheck.RunAsync(prep.ExecutionId);
         Assert.False(rapport.HasBlockingFailure, string.Join(" | ",
@@ -688,6 +811,12 @@ internal sealed class SimulateurConnector(IN4Connector reel) : IN4Connector
 
     public Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(ConnectorTarget t, CancellationToken ct = default) =>
         reel.GetPendingUpdatesAsync(t, ct);
+
+    public Task<ConnectorResult<FolderSnapshot>> ListFilesAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+        reel.ListFilesAsync(t, p, ct);
+
+    public Task<ConnectorResult<WriteProbeResult>> ProbeWriteAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+        reel.ProbeWriteAsync(t, p, ct);
 
     // -----------------------------------------------------------------------
     /// <summary>Racine du simulateur, déduite du chemin de journal en cours d'usage.</summary>

@@ -27,7 +27,8 @@ namespace N4Sentinel.Infrastructure.Knowledge;
 /// </summary>
 public sealed class KnowledgeService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
-    ILogger<KnowledgeService> logger)
+    ILogger<KnowledgeService> logger,
+    IAuditWriter auditWriter)
 {
     /// <summary>Longueur d'un extrait présenté dans une réponse.</summary>
     private const int LongueurExtrait = 420;
@@ -140,10 +141,19 @@ public sealed class KnowledgeService(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Document « {Reference} » validé par {Acteur}.", document.Reference, actor);
+
+        // FR-091 : la validation d'un document change ce qui alimente les
+        // reponses de l'assistant a tous les utilisateurs — un changement de
+        // statut de cette nature doit rester dans la piste d'audit.
+        await auditWriter.WriteAsync(
+            AuditAction.ChangementDeStatut, AuditOutcome.Succes, actor,
+            entityType: nameof(KnowledgeDocument), entityId: document.Id.ToString(),
+            entityLabel: document.Reference, reason: "Document validé (Brouillon → Validé).", ct: ct);
+
         return null;
     }
 
-    public async Task<string?> RevokeAsync(Guid documentId, CancellationToken ct = default)
+    public async Task<string?> RevokeAsync(Guid documentId, string actor, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -154,6 +164,12 @@ public sealed class KnowledgeService(
         // document, et la citation doit rester verifiable.
         document.Status = LifecycleStatus.Desactive;
         await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.ChangementDeStatut, AuditOutcome.Succes, actor,
+            entityType: nameof(KnowledgeDocument), entityId: document.Id.ToString(),
+            entityLabel: document.Reference, reason: "Document retiré des réponses (Désactivé).", ct: ct);
+
         return null;
     }
 

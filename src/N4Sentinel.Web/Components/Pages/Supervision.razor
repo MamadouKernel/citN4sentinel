@@ -12,6 +12,9 @@
    porter le nom de son type englobant, et ce fichier genere la classe
    Supervision. *@
 @inject SupervisionService SupervisionMoteur
+@inject UndeclaredComponentScanner Scanner
+@inject DatabaseHealthService DatabaseHealth
+@inject SharedFolderHealthService SharedFolders
 @inject ReferentialService Referential
 @inject NavigationManager Nav
 
@@ -23,8 +26,9 @@
         <div>
             <div class="flex items-center gap-2">
                 <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Supervision Temps Réel</h1>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold @BadgeClasses border flex items-center gap-1"
+                      title="@(DerniereEvaluation is { } derniereMaj ? $"Dernière évaluation à {derniereMaj.ToLocalTime():HH:mm:ss}" : "Aucun composant évalué pour l'instant.")">
+                    <span class="w-1.5 h-1.5 rounded-full @BadgeDotClasses"></span> @BadgeTexte
                 </span>
             </div>
             <p class="text-xs sm:text-sm text-slate-400 mt-1">État réel des serveurs, services Windows et preuves d'initialisation dans les journaux applicatifs</p>
@@ -62,8 +66,377 @@
                 <i class="bi bi-arrow-clockwise text-sm @(_isRefreshing ? "animate-spin" : "")"></i>
                 <span>Rafraîchir</span>
             </button>
+
+            <button @onclick="OpenScanPanelAsync" disabled="@_isScanning"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-bold text-xs transition disabled:opacity-50">
+                <i class="bi bi-search text-sm @(_isScanning ? "animate-spin" : "")"></i>
+                <span>Composants non déclarés</span>
+            </button>
+
+            <button @onclick="OpenReseauBasePanelAsync" disabled="@_dbEnCours"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-bold text-xs transition disabled:opacity-50">
+                <i class="bi bi-hdd-network text-sm @(_dbEnCours ? "animate-spin" : "")"></i>
+                <span>Réseau &amp; Base</span>
+            </button>
+
+            <button @onclick="OpenDossiersPanelAsync" disabled="@_dossiersEnCours"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-bold text-xs transition disabled:opacity-50">
+                <i class="bi bi-folder2-open text-sm @(_dossiersEnCours ? "animate-spin" : "")"></i>
+                <span>Dossiers partagés</span>
+            </button>
         </div>
     </div>
+
+    @if (_scanPanelOpen)
+    {
+        <!-- Découverte de composants non déclarés (SUP-06, AC-15) -->
+        <div class="glass-card rounded-2xl border border-amber-500/30 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-search text-amber-400"></i>
+                    Composants non déclarés
+                </h3>
+                <button @onclick="() => _scanPanelOpen = false" class="text-slate-400 hover:text-white text-xs">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-4">
+                @if (string.IsNullOrWhiteSpace(_selectedEnvCode))
+                {
+                    <div class="text-xs text-slate-400">
+                        Sélectionnez un environnement précis dans le filtre ci-dessus pour lancer une recherche —
+                        cette action interroge chaque serveur de l'environnement.
+                    </div>
+                }
+                else if (_isScanning)
+                {
+                    <div class="text-xs text-slate-400 flex items-center gap-2">
+                        <i class="bi bi-arrow-clockwise animate-spin"></i> Recherche en cours sur les serveurs de @_selectedEnvCode…
+                    </div>
+                }
+                else if (_scanResult is not null)
+                {
+                    <div class="text-xs text-slate-400">
+                        @_scanResult.ServersScanned serveur(s) interrogé(s)
+                        @if (!_scanResult.IsComplete)
+                        {
+                            <span class="text-amber-400">— @_scanResult.Unreachable.Count injoignable(s)</span>
+                        }
+                    </div>
+
+                    @if (_scanResult.Unreachable.Count > 0)
+                    {
+                        <div class="text-[11px] text-rose-400 space-y-1">
+                            @foreach (var u in _scanResult.Unreachable)
+                            {
+                                <div><i class="bi bi-exclamation-triangle-fill"></i> @u.HostName : @u.Reason</div>
+                            }
+                        </div>
+                    }
+
+                    @if (_scanResult.Undeclared.Count == 0)
+                    {
+                        @if (_scanResult.IsComplete)
+                        {
+                            <div class="text-xs text-emerald-400 flex items-center gap-2">
+                                <i class="bi bi-check-circle-fill"></i> Aucun composant non déclaré détecté.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-xs text-amber-400 flex items-center gap-2">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                Aucun composant non déclaré détecté sur les serveurs joignables — mais
+                                @_scanResult.Unreachable.Count serveur(s) n'ont pas pu être interrogés
+                                (ci-dessus) : le résultat est incomplet, pas une confirmation de propreté.
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs text-slate-300">
+                                <thead class="text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                                    <tr>
+                                        <th class="py-2 pr-3 font-bold">Service</th>
+                                        <th class="py-2 pr-3 font-bold">Serveur</th>
+                                        <th class="py-2 pr-3 font-bold">Statut</th>
+                                        <th class="py-2 pr-3 font-bold">Rôle à déclarer</th>
+                                        <th class="py-2 pr-3 font-bold text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-800/60">
+                                    @foreach (var u in _scanResult.Undeclared)
+                                    {
+                                        var cle = $"{u.HostName}::{u.ServiceName}";
+                                        <tr>
+                                            <td class="py-2.5 pr-3">
+                                                <div class="font-bold text-white">@(u.DisplayName ?? u.ServiceName)</div>
+                                                <div class="text-[10px] text-slate-500 font-mono">@u.ServiceName</div>
+                                            </td>
+                                            <td class="py-2.5 pr-3 font-mono">@u.HostName</td>
+                                            <td class="py-2.5 pr-3">
+                                                @if (u.IsRunning)
+                                                {
+                                                    <span class="text-emerald-400 font-semibold">@u.Status</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-slate-400">@u.Status</span>
+                                                }
+                                            </td>
+                                            <td class="py-2.5 pr-3">
+                                                <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2 py-1 text-[11px] focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                                                        @bind:get="RoleChoisi(cle, u.SuggestedRole)" @bind:set="v => _rolesChoisis[cle] = v">
+                                                    @foreach (var role in Enum.GetValues<ComponentRole>())
+                                                    {
+                                                        <option value="@role">@role</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                            <td class="py-2.5 pr-3 text-right">
+                                                <button @onclick="() => DeclareAsync(u, cle)"
+                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-semibold text-[11px] transition">
+                                                    <i class="bi bi-plus-circle"></i>
+                                                    <span>Déclarer</span>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    @if (_dbPanelOpen)
+    {
+        <!-- Réseau et base (FR-057) -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-hdd-network text-sky-400"></i>
+                    Réseau et base
+                </h3>
+                <button @onclick="() => _dbPanelOpen = false" class="text-slate-400 hover:text-white text-xs">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-4">
+                @if (string.IsNullOrWhiteSpace(_selectedEnvCode))
+                {
+                    <div class="text-xs text-slate-400">
+                        Sélectionnez un environnement précis dans le filtre ci-dessus.
+                    </div>
+                }
+                else if (_dbEnCours)
+                {
+                    <div class="text-xs text-slate-400 flex items-center gap-2">
+                        <i class="bi bi-arrow-clockwise animate-spin"></i> Contrôle en cours…
+                    </div>
+                }
+                else if (_dbResultats.Count == 0)
+                {
+                    <div class="text-xs text-slate-400">
+                        Aucun composant de rôle Base de données déclaré dans cet environnement.
+                    </div>
+                }
+                else
+                {
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-2 pr-3 font-bold">Base</th>
+                                    <th class="py-2 pr-3 font-bold">Disponibilité</th>
+                                    <th class="py-2 pr-3 font-bold">Latence</th>
+                                    <th class="py-2 pr-3 font-bold">Requêtes lentes / bloquées</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                @foreach (var r in _dbResultats)
+                                {
+                                    <tr>
+                                        <td class="py-2.5 pr-3 font-bold text-white">@r.ComponentName</td>
+                                        <td class="py-2.5 pr-3">
+                                            @if (r.Reachable)
+                                            {
+                                                <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill"></i> Disponible</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-rose-400 font-semibold" title="@r.Error"><i class="bi bi-x-circle-fill"></i> Indisponible</span>
+                                            }
+                                        </td>
+                                        <td class="py-2.5 pr-3 font-mono">
+                                            @(r.LatencyMs is { } ms ? $"{ms:0} ms" : "—")
+                                        </td>
+                                        <td class="py-2.5 pr-3">
+                                            @if (!r.Reachable)
+                                            {
+                                                <span class="text-slate-500">—</span>
+                                            }
+                                            else if (r.QueryVisibilityDenied)
+                                            {
+                                                <span class="text-amber-400">Non visible (droit VIEW SERVER STATE absent)</span>
+                                            }
+                                            else if (r.SlowOrBlockedQueries.Count == 0)
+                                            {
+                                                <span class="text-emerald-400">Aucune</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="space-y-1">
+                                                    @foreach (var q in r.SlowOrBlockedQueries.Take(5))
+                                                    {
+                                                        <div class="@(q.IsBlocked ? "text-rose-400" : "text-amber-400")">
+                                                            SPID @q.SessionId
+                                                            @(q.IsBlocked ? $"bloqué par {q.BlockingSessionId}" : $"{q.ElapsedMs} ms")
+                                                            @(q.WaitType is { Length: > 0 } w ? $" ({w})" : "")
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_dossiersPanelOpen)
+    {
+        <!-- Dossiers partagés (FR-059A à FR-059D) -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-folder2-open text-teal-400"></i>
+                    Dossiers partagés
+                </h3>
+                <button @onclick="() => _dossiersPanelOpen = false" class="text-slate-400 hover:text-white text-xs">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-4">
+                <p class="text-[11px] text-slate-500 leading-relaxed">
+                    Un indice de corruption reste une SUSPICION, jamais une conclusion — voir le détail avant
+                    d'agir. La classification en attente/consommé/bloqué/erreur n'apparaît que pour les dossiers
+                    dont les sous-dossiers ont été déclarés sur la fiche du composant.
+                </p>
+
+                @if (string.IsNullOrWhiteSpace(_selectedEnvCode))
+                {
+                    <div class="text-xs text-slate-400">
+                        Sélectionnez un environnement précis dans le filtre ci-dessus.
+                    </div>
+                }
+                else if (_dossiersEnCours)
+                {
+                    <div class="text-xs text-slate-400 flex items-center gap-2">
+                        <i class="bi bi-arrow-clockwise animate-spin"></i> Contrôle en cours…
+                    </div>
+                }
+                else if (_dossiersResultats.Count == 0)
+                {
+                    <div class="text-xs text-slate-400">
+                        Aucun dossier partagé configuré dans cet environnement (chemin déclaré sur la fiche du composant).
+                    </div>
+                }
+                else
+                {
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-2 pr-3 font-bold">Dossier</th>
+                                    <th class="py-2 pr-3 font-bold">Catégorie</th>
+                                    <th class="py-2 pr-3 font-bold">Accessibilité</th>
+                                    <th class="py-2 pr-3 font-bold">Fichiers</th>
+                                    <th class="py-2 pr-3 font-bold">Écriture</th>
+                                    <th class="py-2 pr-3 font-bold">Indices</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                @foreach (var (composant, dossierReleve) in _dossiersResultats)
+                                {
+                                    <tr>
+                                        <td class="py-2.5 pr-3 font-bold text-white">@composant.LogicalName</td>
+                                        <td class="py-2.5 pr-3">@LibelleCategorieDossier(composant.SharedFolder.Category)</td>
+                                        <td class="py-2.5 pr-3">
+                                            @if (dossierReleve.Reachable == true)
+                                            {
+                                                <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill"></i> Accessible</span>
+                                            }
+                                            else if (dossierReleve.Reachable == false)
+                                            {
+                                                <span class="text-rose-400 font-semibold" title="@dossierReleve.UnreachableReason"><i class="bi bi-x-circle-fill"></i> Inaccessible</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-slate-500">Non mesuré</span>
+                                            }
+                                        </td>
+                                        <td class="py-2.5 pr-3 font-mono">
+                                            @(dossierReleve.Reachable == true ? $"{dossierReleve.TotalFileCount} ({FormaterTaille(dossierReleve.TotalSizeBytes)})" : "—")
+                                            @if (dossierReleve.PendingCount is { } p)
+                                            {
+                                                <div class="text-[10px] text-slate-500">@p en attente</div>
+                                            }
+                                        </td>
+                                        <td class="py-2.5 pr-3">
+                                            @if (dossierReleve.CanWrite == true)
+                                            {
+                                                <span class="text-emerald-400">OK</span>
+                                            }
+                                            else if (dossierReleve.CanWrite == false)
+                                            {
+                                                <span class="text-rose-400">Refusée</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-slate-500">—</span>
+                                            }
+                                        </td>
+                                        <td class="py-2.5 pr-3">
+                                            @if (dossierReleve.SuspectedCorruption)
+                                            {
+                                                <div class="space-y-1">
+                                                    <span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-bold">
+                                                        SUSPICION — @dossierReleve.CorruptionIndicators.Count indice(s)
+                                                    </span>
+                                                    @foreach (var indice in dossierReleve.CorruptionIndicators)
+                                                    {
+                                                        <div class="text-[10px] text-slate-400">@indice</div>
+                                                    }
+                                                    <a href="/sop" class="text-[10px] text-sky-400 hover:underline">
+                                                        Procédure de reconstitution guidée →
+                                                    </a>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-emerald-400">Aucun</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 
     <!-- Summary KPI Grid -->
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -111,7 +484,9 @@
                     <i class="bi bi-activity text-sky-400"></i>
                     Matrice des Composants
                 </h3>
-                <span class="text-xs text-slate-400">Dernière évaluation : @DateTime.Now.ToString("HH:mm:ss")</span>
+                <span class="text-xs text-slate-400">
+                    Dernière évaluation : @(DerniereEvaluation is { } t ? t.ToLocalTime().ToString("HH:mm:ss") : "—")
+                </span>
             </div>
 
         <div class="overflow-x-auto">
@@ -147,6 +522,44 @@
                                         <span>@snap.LogicalName</span>
                                     </div>
                                     <div class="text-[10px] text-slate-400 font-mono mt-0.5">@snap.Role</div>
+                                    @if (snap.Role is ComponentRole.CenterNode or ComponentRole.StandbyCenterNode)
+                                    {
+                                        <div class="text-[10px] mt-0.5">
+                                            @switch (snap.HoldsActiveRole)
+                                            {
+                                                case true:
+                                                    <span class="text-emerald-400 font-semibold"><i class="bi bi-star-fill"></i> Rôle actif détenu</span>
+                                                    break;
+                                                case false:
+                                                    <span class="text-slate-500">Rôle non détenu</span>
+                                                    break;
+                                                default:
+                                                    <span class="text-slate-500">Rôle actif : à confirmer</span>
+                                                    break;
+                                            }
+                                        </div>
+                                    }
+                                    @if (snap.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps)
+                                    {
+                                        <div class="text-[10px] mt-0.5">
+                                            @switch (snap.SyncDelayed)
+                                            {
+                                                case true:
+                                                    <span class="text-rose-400 font-semibold" title="@(snap.LastSyncConfirmedAt is { } confirme ? $"Dernier échange confirmé le {confirme.ToLocalTime():dd/MM HH:mm}" : "Aucun échange confirmé")">
+                                                        <i class="bi bi-exclamation-triangle-fill"></i> Synchro N4-XPS en retard
+                                                    </span>
+                                                    break;
+                                                case false:
+                                                    <span class="text-emerald-400" title="@($"Dernier échange confirmé le {snap.LastSyncConfirmedAt!.Value.ToLocalTime():dd/MM HH:mm}")">
+                                                        <i class="bi bi-arrow-repeat"></i> Synchro N4-XPS à jour
+                                                    </span>
+                                                    break;
+                                                default:
+                                                    <span class="text-slate-500">Synchro N4-XPS : à confirmer</span>
+                                                    break;
+                                            }
+                                        </div>
+                                    }
                                 </td>
 
                                 <td class="py-3.5 px-4 font-mono font-bold text-slate-300">
@@ -198,6 +611,12 @@
                                     @if (snap.ProcessId.HasValue)
                                     {
                                         <div class="text-[10px] text-slate-400 font-mono">PID: @snap.ProcessId</div>
+                                    }
+                                    @if (snap.ResponseTimeMs is { } ms)
+                                    {
+                                        <div class="text-[10px] font-mono @(ms > 5000 ? "text-amber-400 font-bold" : "text-slate-500")">
+                                            <i class="bi bi-speedometer2"></i> @ms.ToString("0") ms
+                                        </div>
                                     }
                                 </td>
 
@@ -271,9 +690,41 @@
         });
     }
 
-    private void OnFilterChanged()
+    private async Task OnFilterChanged()
     {
+        // _selectedEnvId alimente la vue Schéma Topologique : sans cette
+        // ligne, le filtre de la vue Tableau et celui de la cartographie
+        // divergent silencieusement (la cartographie retombe sur son propre
+        // sélecteur interne).
+        _selectedEnvId = string.IsNullOrWhiteSpace(_selectedEnvCode)
+            ? null
+            : _environnements?.FirstOrDefault(e => e.Code == _selectedEnvCode)?.Id;
+
         LoadSnapshots();
+
+        // Le panneau de recherche affiche le resultat pour UN environnement :
+        // en changer sans relancer laisserait voir le resultat de l'ancien
+        // filtre sous le nouveau, silencieusement faux.
+        if (_scanPanelOpen)
+        {
+            _scanResult = null;
+            if (_selectedEnvId is { } envId)
+                await LancerScanAsync(envId);
+        }
+
+        if (_dbPanelOpen)
+        {
+            _dbResultats = [];
+            if (_selectedEnvId is { } envId)
+                await LancerControleReseauBaseAsync(envId);
+        }
+
+        if (_dossiersPanelOpen)
+        {
+            _dossiersResultats = [];
+            if (_selectedEnvId is { } envId)
+                await LancerControleDossiersAsync(envId);
+        }
     }
 
     private void LoadSnapshots()
@@ -284,6 +735,29 @@
 
         _summary = SupervisionCache.GetSummary(_selectedEnvCode);
     }
+
+    /// <summary>Horodatage réel du dernier relevé — jamais l'heure de rendu de la page.</summary>
+    private DateTimeOffset? DerniereEvaluation =>
+        _snapshots.Count == 0 ? null : _snapshots.Max(s => s.EvaluatedAt);
+
+    /// <summary>
+    /// « LIVE » n'est vrai que si un relevé a eu lieu récemment (le balayage
+    /// de fond tourne toutes les 30 s) — jamais une affirmation statique.
+    /// </summary>
+    private bool EstEnDirect =>
+        DerniereEvaluation is { } t && DateTimeOffset.UtcNow - t < TimeSpan.FromSeconds(90);
+
+    private string BadgeTexte => _snapshots.Count == 0 ? "Aucune donnée" : EstEnDirect ? "LIVE" : "Figé";
+
+    private string BadgeClasses => _snapshots.Count == 0
+        ? "bg-slate-500/20 text-slate-400 border-slate-500/30"
+        : EstEnDirect
+            ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+            : "bg-amber-500/20 text-amber-400 border-amber-500/30";
+
+    private string BadgeDotClasses => _snapshots.Count == 0
+        ? "bg-slate-500"
+        : EstEnDirect ? "bg-emerald-400 animate-pulse" : "bg-amber-400";
 
     private async Task RefreshAllAsync()
     {
@@ -297,7 +771,8 @@
                     var components = await Referential.GetComponentsAsync(env.Id);
                     foreach (var comp in components)
                     {
-                        var snap = await SupervisionMoteur.EvaluateComponentAsync(comp.Id);
+                        var precedent = SupervisionCache.GetSnapshot(comp.Id);
+                        var snap = await SupervisionMoteur.EvaluateComponentAsync(comp.Id, previous: precedent);
                         SupervisionCache.UpdateSnapshot(snap);
                     }
                 }
@@ -312,8 +787,152 @@
 
     private async Task EvaluateSingleAsync(Guid componentId)
     {
-        var snap = await SupervisionMoteur.EvaluateComponentAsync(componentId);
+        var precedent = SupervisionCache.GetSnapshot(componentId);
+        var snap = await SupervisionMoteur.EvaluateComponentAsync(componentId, previous: precedent);
         SupervisionCache.UpdateSnapshot(snap);
+    }
+
+    // -----------------------------------------------------------------------
+    // Composants non déclarés (SUP-06, recette AC-15)
+    // -----------------------------------------------------------------------
+    private bool _scanPanelOpen;
+    private bool _isScanning;
+    private ScanResult? _scanResult;
+    private readonly Dictionary<string, ComponentRole> _rolesChoisis = [];
+
+    private ComponentRole RoleChoisi(string cle, ComponentRole suggestion) =>
+        _rolesChoisis.TryGetValue(cle, out var role) ? role : suggestion;
+
+    private async Task OpenScanPanelAsync()
+    {
+        _scanPanelOpen = true;
+        if (_selectedEnvId is { } envId)
+        {
+            await LancerScanAsync(envId);
+        }
+    }
+
+    private async Task LancerScanAsync(Guid envId)
+    {
+        _isScanning = true;
+        _scanResult = null;
+        _rolesChoisis.Clear();
+        StateHasChanged();
+        try
+        {
+            _scanResult = await Scanner.ScanAsync(envId);
+        }
+        finally
+        {
+            _isScanning = false;
+        }
+    }
+
+    private async Task DeclareAsync(UndeclaredComponent decouvert, string cle)
+    {
+        if (_selectedEnvId is not { } envId) return;
+
+        var role = RoleChoisi(cle, decouvert.SuggestedRole);
+        await Scanner.DeclareAsync(envId, decouvert, role);
+
+        // La fiche nait en Brouillon : on la retire de la liste des non
+        // declares (elle est desormais connue du referentiel), sans relancer
+        // tout le scan pour un seul element.
+        _scanResult?.Undeclared.Remove(decouvert);
+        _rolesChoisis.Remove(cle);
+    }
+
+    // -----------------------------------------------------------------------
+    // Réseau et base (FR-057)
+    // -----------------------------------------------------------------------
+    private bool _dbPanelOpen;
+    private bool _dbEnCours;
+    private List<DatabaseHealthSnapshot> _dbResultats = [];
+
+    private async Task OpenReseauBasePanelAsync()
+    {
+        _dbPanelOpen = true;
+        if (_selectedEnvId is { } envId)
+        {
+            await LancerControleReseauBaseAsync(envId);
+        }
+    }
+
+    private async Task LancerControleReseauBaseAsync(Guid envId)
+    {
+        _dbEnCours = true;
+        _dbResultats = [];
+        StateHasChanged();
+        try
+        {
+            var composants = await Referential.GetComponentsAsync(envId);
+            var resultats = new List<DatabaseHealthSnapshot>();
+            foreach (var c in composants.Where(c => c.Role == ComponentRole.BaseDeDonnees))
+            {
+                resultats.Add(await DatabaseHealth.EvaluateAsync(c));
+            }
+            _dbResultats = resultats;
+        }
+        finally
+        {
+            _dbEnCours = false;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Dossiers partagés (FR-059A à FR-059D)
+    // -----------------------------------------------------------------------
+    private bool _dossiersPanelOpen;
+    private bool _dossiersEnCours;
+    private List<(N4Component Composant, SharedFolderSnapshot Releve)> _dossiersResultats = [];
+
+    private async Task OpenDossiersPanelAsync()
+    {
+        _dossiersPanelOpen = true;
+        if (_selectedEnvId is { } envId)
+        {
+            await LancerControleDossiersAsync(envId);
+        }
+    }
+
+    private async Task LancerControleDossiersAsync(Guid envId)
+    {
+        _dossiersEnCours = true;
+        _dossiersResultats = [];
+        StateHasChanged();
+        try
+        {
+            var composants = await Referential.GetComponentsAsync(envId);
+            var resultats = new List<(N4Component, SharedFolderSnapshot)>();
+            foreach (var c in composants.Where(c => c.SharedFolder.IsConfigured))
+            {
+                resultats.Add((c, await SharedFolders.EvaluateAsync(c)));
+            }
+            _dossiersResultats = resultats;
+        }
+        finally
+        {
+            _dossiersEnCours = false;
+        }
+    }
+
+    private static string LibelleCategorieDossier(SharedFolderCategory c) => c switch
+    {
+        SharedFolderCategory.ConfigurationN4 => "Configuration N4",
+        SharedFolderCategory.ActiveMqKahaDb => "ActiveMQ / KahaDB",
+        SharedFolderCategory.EchangeEdi => "Échange EDI",
+        SharedFolderCategory.Archives => "Archives",
+        SharedFolderCategory.DossiersErreur => "Dossier d'erreur",
+        _ => "Autre"
+    };
+
+    private static string FormaterTaille(long octets)
+    {
+        double v = octets;
+        string[] unites = ["o", "Ko", "Mo", "Go", "To"];
+        var i = 0;
+        while (v >= 1024 && i < unites.Length - 1) { v /= 1024; i++; }
+        return $"{v:0.#} {unites[i]}";
     }
 
     public void Dispose()

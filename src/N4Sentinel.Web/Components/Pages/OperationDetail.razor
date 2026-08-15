@@ -38,6 +38,12 @@ else
                     {
                         <span class="px-2.5 py-1 rounded-lg bg-slate-700/60 text-slate-200 text-[11px] font-bold">SIMULATION</span>
                     }
+                    @if (_x.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout)
+                    {
+                        <span class="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-extrabold flex items-center gap-1">
+                            <i class="bi bi-robot"></i> PALIER 2 — AUTOMATIQUE
+                        </span>
+                    }
                 </h1>
                 <p class="text-xs text-slate-400 mt-1">
                     @_x.EnvironmentCode &middot; demandée par <span class="text-slate-200">@_x.RequestedBy</span>
@@ -45,11 +51,22 @@ else
                 </p>
             </div>
 
-            <div class="text-right">
+            <div class="text-right space-y-2">
                 <span class="px-3 py-1.5 rounded-full text-xs font-bold @Operations.PastilleEtat(_x.Status)">
                     @Operations.LibelleEtat(_x.Status)
                 </span>
-                <div class="text-[11px] text-slate-400 mt-2">
+
+                @if (_x.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout && _x.Status == ExecutionStatus.EnCours)
+                {
+                    <div>
+                        <button @onclick="ActiverArrêtUrgencePalier1" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-md">
+                            <i class="bi bi-exclamation-triangle-fill text-amber-400"></i>
+                            <span>Arrêt d'Urgence / Fallback Palier 1 (1-Click)</span>
+                        </button>
+                    </div>
+                }
+
+                <div class="text-[11px] text-slate-400">
                     @if (_x.StartedAt is { } debut)
                     {
                         <div>Lancée à @debut.ToLocalTime().ToString("dd/MM HH:mm:ss")</div>
@@ -79,11 +96,24 @@ else
                     <div class="text-slate-200 font-mono">@(_x.TicketReference ?? "—")</div>
                 </div>
                 <div>
-                    <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Approbation</div>
-                    <div class="text-slate-200">
+                    <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">
+                        Approbation@(_x.RequiresDoubleApproval ? " (double requise)" : "")
+                    </div>
+                    <div class="text-slate-200 space-y-0.5">
                         @if (_x.ApprovedBy is not null)
                         {
-                            <text>@_x.ApprovedBy, le @_x.ApprovedAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")</text>
+                            <div>1<sup>re</sup> : @_x.ApprovedBy, le @_x.ApprovedAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")</div>
+                            @if (_x.RequiresDoubleApproval)
+                            {
+                                @if (_x.SecondApprovedBy is not null)
+                                {
+                                    <div>2<sup>e</sup> : @_x.SecondApprovedBy, le @_x.SecondApprovedAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")</div>
+                                }
+                                else
+                                {
+                                    <div class="text-amber-400">En attente d'un second approbateur, distinct du premier.</div>
+                                }
+                            }
                         }
                         else
                         {
@@ -101,6 +131,43 @@ else
                 </div>
             }
         </div>
+
+        <!-- Continuité Center (FR-046/047) -->
+        @if (_x.ContinuityChoiceRequired)
+        {
+            <div class="glass-card rounded-2xl border @(_x.ContinuityChoice is null ? "border-amber-500/40" : "border-slate-800") p-5 text-xs space-y-3">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-arrow-left-right text-amber-400"></i> Continuité Center
+                </h3>
+                <p class="text-slate-400 leading-relaxed">
+                    Cette opération arrête ou redémarre le Center. Un service Windows démarré ne dit pas qui
+                    détient le rôle actif du cluster (FR-032/033) : précisez l'intention avant de poursuivre.
+                </p>
+
+                @if (_x.ContinuityChoice is { } choix)
+                {
+                    <div class="text-slate-200">
+                        <span class="font-bold">@(choix == CenterContinuityChoice.Basculer ? "Basculer vers le Standby" : "Rester actif")</span>
+                        — choisi par @_x.ContinuityChoiceBy le @_x.ContinuityChoiceAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")
+                    </div>
+                }
+                else if (!_x.IsFinished)
+                {
+                    <AuthorizeView Policy="@N4Policies.PeutExecuter">
+                        <div class="flex flex-wrap gap-2">
+                            <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                                    @onclick="() => ChoisirContinuite(CenterContinuityChoice.ResterActif)">
+                                <i class="bi bi-shield-check"></i> Le Center reste actif
+                            </button>
+                            <button class="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-bold text-xs transition"
+                                    @onclick="() => ChoisirContinuite(CenterContinuityChoice.Basculer)">
+                                <i class="bi bi-arrow-left-right"></i> Basculer vers le Standby
+                            </button>
+                        </div>
+                    </AuthorizeView>
+                }
+            </div>
+        }
 
         <!-- Issue -->
         @if (_x.Outcome is { Length: > 0 } issue)
@@ -224,10 +291,24 @@ else
 
                 @if (!_x.IsFinished)
                 {
-                    <button class="px-4 py-2 rounded-xl bg-rose-600/80 hover:bg-rose-500 text-white font-bold text-xs transition"
-                            @onclick="Annuler">
-                        <i class="bi bi-x-lg"></i> Annuler
-                    </button>
+                    @if (_annulationArmee)
+                    {
+                        <button class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition animate-pulse"
+                                @onclick="Annuler">
+                            <i class="bi bi-exclamation-triangle-fill"></i> Confirmer l'annulation ?
+                        </button>
+                        <button class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+                                @onclick="() => _annulationArmee = false">
+                            Non
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="px-3 py-1.5 rounded-lg bg-transparent hover:bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold text-xs transition"
+                                @onclick="() => _annulationArmee = true">
+                            <i class="bi bi-x-lg"></i> Annuler
+                        </button>
+                    }
                 }
             </div>
         </AuthorizeView>
@@ -362,8 +443,10 @@ else
                                             @if (etape.IsSkippable)
                                             {
                                                 <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
-                                                       placeholder="Justification du contournement" @bind="_justification" />
-                                                <button class="px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs transition"
+                                                       placeholder="Justification du contournement" @bind="_justification" @bind:event="oninput" />
+                                                <button class="px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-40 disabled:hover:bg-amber-600/80"
+                                                        disabled="@string.IsNullOrWhiteSpace(_justification)"
+                                                        title="@(string.IsNullOrWhiteSpace(_justification) ? "La justification est obligatoire avant de contourner une étape." : null)"
                                                         @onclick="() => Contourner(etape.Id)">
                                                     <i class="bi bi-skip-forward"></i> Contourner
                                                 </button>
@@ -393,6 +476,7 @@ else
     private int _termines;
     private string _note = string.Empty;
     private string _justification = string.Empty;
+    private bool _annulationArmee;
 
     private List<PreflightCheck> _controles = [];
     private bool _preflightEnCours;
@@ -486,6 +570,8 @@ else
     }
 
     private async Task Approuver() => await Executer(async a => await Executions.ApproveAsync(Id, a));
+    private async Task ChoisirContinuite(CenterContinuityChoice choix) =>
+        await Executer(async a => await Executions.SetContinuityChoiceAsync(Id, choix, a));
     private async Task Lancer() => await Executer(async a => await Executions.StartAsync(Id, a));
     private async Task MettreEnPause() => await Executer(async a => await Executions.RequestPauseAsync(Id, a));
     private async Task Reprendre() => await Executer(async a => await Executions.ResumeAsync(Id, a));
@@ -514,7 +600,18 @@ else
 
         _note = string.Empty;
         _justification = string.Empty;
+        _annulationArmee = false;
 
+        await Charger();
+    }
+
+    private async Task ActiverArrêtUrgencePalier1()
+    {
+        if (_x is null) return;
+        var acteur = await ActeurAsync();
+        await Moteur.ToggleFallbackToSemiAutoAsync(_x.Id, acteur);
+        _message = "Bascule d'urgence activée : l'exécution repasse sous contrôle semi-automatique strict (Palier 1).";
+        _messageClass = "bg-amber-500/10 border-amber-500/30 text-amber-200";
         await Charger();
     }
 

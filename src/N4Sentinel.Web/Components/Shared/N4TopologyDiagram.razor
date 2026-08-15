@@ -1,10 +1,12 @@
 @using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Connectors
 @using N4Sentinel.Infrastructure.Referential
 @using N4Sentinel.Infrastructure.Supervision
 @using N4Sentinel.Web.State
 
 @inject ReferentialService Referential
 @inject SupervisionStateCache SupervisionCache
+@inject NodeVitalsService Vitals
 @inject CurrentEnvironmentState EnvState
 @implements IDisposable
 
@@ -344,105 +346,176 @@
 
             <!-- Modal Content -->
             <div class="p-6 space-y-6 max-h-[80vh] overflow-y-auto text-xs">
-                
-                <!-- System Telemetry Grid: CPU & RAM -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <!-- CPU Usage -->
-                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                        <div class="flex items-center justify-between font-bold">
-                            <span class="text-slate-400 flex items-center gap-1.5"><i class="bi bi-cpu text-sky-400"></i> Charge CPU</span>
-                            <span class="text-white font-mono text-sm">@_activeTelemetry.CpuPercent.ToString("F1")%</span>
-                        </div>
-                        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                            <div class="h-full rounded-full @(_activeTelemetry.CpuPercent > 80 ? "bg-rose-400" : _activeTelemetry.CpuPercent > 50 ? "bg-amber-400" : "bg-sky-400")"
-                                 style="width: @(Math.Min(100, _activeTelemetry.CpuPercent))%"></div>
-                        </div>
-                        <div class="text-[10px] text-slate-500 font-medium">Charge processeur serveur nœud</div>
-                    </div>
 
-                    <!-- RAM Usage -->
-                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                        <div class="flex items-center justify-between font-bold">
-                            <span class="text-slate-400 flex items-center gap-1.5"><i class="bi bi-memory text-purple-400"></i> Mémoire RAM</span>
-                            <span class="text-white font-mono text-sm">@_activeTelemetry.RamUsedGb.ToString("F1") GB / @_activeTelemetry.RamTotalGb.ToString("F0") GB</span>
-                        </div>
-                        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                            <div class="h-full rounded-full bg-purple-400"
-                                 style="width: @(Math.Min(100, (_activeTelemetry.RamUsedGb / _activeTelemetry.RamTotalGb) * 100))%"></div>
-                        </div>
-                        <div class="text-[10px] text-slate-500 font-medium">Taux d'occupation mémoire physique</div>
-                    </div>
-                </div>
-
-                <!-- NTP Domain Sync & Windows Updates -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <!-- NTP Compliance -->
-                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                        <div class="text-slate-400 font-bold flex items-center gap-1.5">
-                            <i class="bi bi-clock-history text-emerald-400"></i> Horloge &amp; Synchronisation NTP
-                        </div>
-                        @if (_activeTelemetry.NtpSynced)
-                        {
-                            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 font-extrabold border border-emerald-500/30">
-                                <i class="bi bi-check-circle-fill"></i> OK &middot; Synchronisé (Écart @_activeTelemetry.NtpDriftMs ms)
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-300 font-extrabold border border-rose-500/30">
-                                <i class="bi bi-x-circle-fill"></i> KO &middot; Désynchronisé (Écart @_activeTelemetry.NtpDriftMs ms)
-                            </span>
-                        }
-                    </div>
-
-                    <!-- Windows Updates -->
-                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                        <div class="text-slate-400 font-bold flex items-center gap-1.5">
-                            <i class="bi bi-box-seam text-amber-400"></i> Mises à Jour en Attente
-                        </div>
-                        <div class="font-bold text-white text-xs">
-                            <span class="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                                @_activeTelemetry.PendingUpdatesCount patch(s) KB disponible(s)
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Pending KB List -->
-                @if (_activeTelemetry.PendingKbList.Count > 0)
+                @if (_activeTelemetry.IsStatic)
                 {
-                    <div class="space-y-2">
-                        <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider">Patchs Windows Update sur ce Nœud</div>
-                        <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1 font-mono text-[11px] text-slate-300">
-                            @foreach (var kb in _activeTelemetry.PendingKbList)
+                    <!-- Système périphérique hors référentiel N4 : jamais de télémétrie réelle -->
+                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-slate-400 leading-relaxed flex items-start gap-2">
+                        <i class="bi bi-info-circle-fill text-sky-400 mt-0.5"></i>
+                        <span>
+                            Système périphérique non intégré au référentiel N4 Sentinel — fiche de référence
+                            uniquement, aucune mesure en temps réel.
+                        </span>
+                    </div>
+                    <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 font-mono text-[11px] text-slate-300">
+                        Service / rôle : @_activeTelemetry.ServiceName
+                    </div>
+                }
+                else if (_loadingTelemetry)
+                {
+                    <div class="p-10 text-center text-slate-400">
+                        <div class="animate-spin inline-block w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full mb-3"></div>
+                        <div>Interrogation du serveur en cours…</div>
+                    </div>
+                }
+                else if (_activeTelemetry.Vitals is not { Reachable: true } && _activeTelemetry.Vitals is var injoignable)
+                {
+                    <div class="p-5 rounded-2xl bg-slate-800/40 border border-slate-700 text-slate-300 leading-relaxed flex items-start gap-2">
+                        <i class="bi bi-exclamation-octagon-fill text-slate-400 mt-0.5"></i>
+                        <span>
+                            <strong class="text-white">Serveur injoignable.</strong>
+                            @(injoignable?.Error ?? "Aucune information technique disponible pour ce composant.")
+                        </span>
+                    </div>
+                }
+                else
+                {
+                    var vitals = _activeTelemetry.Vitals;
+
+                    <!-- System Telemetry Grid: CPU & RAM -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- CPU Usage -->
+                        <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between font-bold">
+                                <span class="text-slate-400 flex items-center gap-1.5"><i class="bi bi-cpu text-sky-400"></i> Charge CPU</span>
+                                <span class="text-white font-mono text-sm">@Pourcent(vitals.Metrics?.CpuPercent)</span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                                <div class="h-full rounded-full @Barre(vitals.Metrics?.CpuPercent, 75, 90)"
+                                     style="width: @Largeur(vitals.Metrics?.CpuPercent)"></div>
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-medium">
+                                @if (vitals.Metrics?.LogicalProcessors is { } coeurs)
+                                {
+                                    <text>@coeurs cœur(s) logique(s)</text>
+                                }
+                                else
+                                {
+                                    <text>Charge processeur serveur nœud</text>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- RAM Usage -->
+                        <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between font-bold">
+                                <span class="text-slate-400 flex items-center gap-1.5"><i class="bi bi-memory text-purple-400"></i> Mémoire RAM</span>
+                                <span class="text-white font-mono text-sm">@Octets(vitals.Metrics?.UsedMemoryBytes) / @Octets(vitals.Metrics?.TotalMemoryBytes)</span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                                <div class="h-full rounded-full @Barre(vitals.Metrics?.MemoryUsedPercent, 85, 93)"
+                                     style="width: @Largeur(vitals.Metrics?.MemoryUsedPercent)"></div>
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-medium">@Pourcent(vitals.Metrics?.MemoryUsedPercent) occupé</div>
+                        </div>
+                    </div>
+
+                    <!-- NTP Domain Sync & Windows Updates -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- NTP Compliance -->
+                        <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                            <div class="text-slate-400 font-bold flex items-center gap-1.5">
+                                <i class="bi bi-clock-history text-emerald-400"></i> Horloge &amp; Synchronisation NTP
+                            </div>
+                            @if (vitals.Clock is { } horloge)
                             {
-                                <div class="flex items-center gap-2">
-                                    <i class="bi bi-shield-exclamation text-amber-400"></i>
-                                    <span>@kb</span>
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-extrabold border @PastilleHorloge(horloge.State)">
+                                    <i class="bi @(horloge.State == ClockState.Conforme ? "bi-check-circle-fill" : horloge.State == ClockState.NonConforme ? "bi-x-circle-fill" : "bi-question-circle-fill")"></i>
+                                    @horloge.Summary
+                                </span>
+                                <p class="text-[10px] text-slate-500 leading-relaxed">@horloge.Detail</p>
+                            }
+                            else
+                            {
+                                <span class="text-slate-500">État non relevé.</span>
+                            }
+                        </div>
+
+                        <!-- Windows Updates -->
+                        <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                            <div class="text-slate-400 font-bold flex items-center gap-1.5">
+                                <i class="bi bi-box-seam text-amber-400"></i> Mises à Jour Windows
+                            </div>
+                            @if (vitals.Updates is null)
+                            {
+                                <p class="text-[11px] text-slate-500 leading-relaxed">
+                                    Jamais relevé — le relevé est lent (30 s à 2 min). Lancez-le depuis
+                                    <a href="/vitalite" class="text-theme-primary hover:underline">Vitalité des nœuds</a>.
+                                </p>
+                            }
+                            else if (!vitals.Updates.Succeeded)
+                            {
+                                <p class="text-[11px] text-rose-300 leading-relaxed">@vitals.Updates.Error</p>
+                            }
+                            else
+                            {
+                                var maj = vitals.Updates.Snapshot!;
+                                <div class="font-bold text-white text-xs">
+                                    <span class="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                        @maj.PendingCount patch(s) en attente
+                                    </span>
                                 </div>
+                                <p class="text-[10px] @(vitals.Updates.IsStale ? "text-amber-400" : "text-slate-500")">
+                                    Mesuré à @vitals.Updates.MeasuredAt.ToLocalTime().ToString("dd/MM HH:mm")
+                                    @(vitals.Updates.IsStale ? " — mesure périmée." : ".")
+                                </p>
                             }
                         </div>
                     </div>
-                }
 
-                <!-- Disks Storage List -->
-                <div class="space-y-2">
-                    <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider">Disques de Stockage</div>
-                    <div class="grid grid-cols-1 gap-2.5">
-                        @foreach (var disk in _activeTelemetry.Disks)
+                    <!-- Pending KB List -->
+                    @if (vitals.Updates?.Snapshot?.Sample is { Count: > 0 } echantillon)
+                    {
+                        <div class="space-y-2">
+                            <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider">Patchs Windows Update sur ce Nœud</div>
+                            <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1 font-mono text-[11px] text-slate-300">
+                                @foreach (var kb in echantillon)
+                                {
+                                    <div class="flex items-center gap-2">
+                                        <i class="bi bi-shield-exclamation text-amber-400"></i>
+                                        <span>@kb</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Disks Storage List -->
+                    <div class="space-y-2">
+                        <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider">Disques de Stockage</div>
+                        @if (vitals.Metrics?.Disks is { Count: > 0 } disques)
                         {
-                            <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 font-mono">
-                                <div>
-                                    <div class="font-bold text-white">@disk.DriveLetter</div>
-                                    <div class="text-[10px] text-slate-500">@disk.FreeGb GB libre sur @disk.TotalGb GB</div>
-                                </div>
-                                <div class="text-right">
-                                    <span class="font-bold text-sky-400">@disk.UsePercent.ToString("F0")% occupé</span>
-                                </div>
+                            <div class="grid grid-cols-1 gap-2.5">
+                                @foreach (var disk in disques)
+                                {
+                                    <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 font-mono">
+                                        <div>
+                                            <div class="font-bold text-white">@disk.Drive</div>
+                                            <div class="text-[10px] text-slate-500">@Octets(disk.FreeBytes) libre sur @Octets(disk.TotalBytes)</div>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="font-bold text-sky-400">@((100 - disk.FreePercent).ToString("F0"))% occupé</span>
+                                        </div>
+                                    </div>
+                                }
                             </div>
                         }
+                        else
+                        {
+                            <div class="text-slate-500 text-[11px]">Aucun disque relevé.</div>
+                        }
                     </div>
-                </div>
+                }
             </div>
 
             <!-- Modal Footer -->
@@ -471,31 +544,25 @@
     private readonly List<N4Component> _xpsNodes = [];
 
     private bool _showTelemetryModal;
-    private NodeTelemetryDto? _activeTelemetry;
+    private bool _loadingTelemetry;
+    private NodeModalDto? _activeTelemetry;
 
-    public class NodeTelemetryDto
+    /// <summary>
+    /// Fiche affichée dans le modal de nœud. Pour un composant réel du
+    /// référentiel, <see cref="Vitals"/> porte la mesure effective, relevée à
+    /// l'ouverture — plus aucune valeur inventée. Pour un système périphérique
+    /// (GOS, DGPS...), <see cref="IsStatic"/> est vrai et aucune télémétrie
+    /// n'est prétendue.
+    /// </summary>
+    public class NodeModalDto
     {
         public string Name { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
         public string HostName { get; set; } = string.Empty;
         public string IpAddress { get; set; } = string.Empty;
         public string ServiceName { get; set; } = string.Empty;
-        public double CpuPercent { get; set; } = 24.5;
-        public double RamUsedGb { get; set; } = 14.2;
-        public double RamTotalGb { get; set; } = 32.0;
-        public bool NtpSynced { get; set; } = true;
-        public double NtpDriftMs { get; set; } = 1.2;
-        public int PendingUpdatesCount { get; set; } = 2;
-        public List<string> PendingKbList { get; set; } = [];
-        public List<DiskDriveInfoDto> Disks { get; set; } = [];
-    }
-
-    public class DiskDriveInfoDto
-    {
-        public string DriveLetter { get; set; } = string.Empty;
-        public double FreeGb { get; set; }
-        public double TotalGb { get; set; }
-        public double UsePercent { get; set; }
+        public bool IsStatic { get; set; }
+        public NodeVitals? Vitals { get; set; }
     }
 
     protected override async Task OnInitializedAsync()
@@ -730,6 +797,17 @@
             dotStyle = "bg-amber-300 animate-pulse";
             stateLabel = "Démarrage (Ambre)";
         }
+        else if (state == ComponentState.Inconnu)
+        {
+            // Gris : soit jamais evalue, soit serveur injoignable au dernier
+            // controle (import, ou balayage de fond). Label distinct de
+            // « Non supervise », qui lui signale une exclusion deliberee.
+            bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
+            borderStyle = "border-slate-600/70 shadow-slate-950/70";
+            textStyle = "text-slate-100 font-extrabold";
+            dotStyle = "bg-slate-400";
+            stateLabel = "Injoignable";
+        }
         else
         {
             bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
@@ -739,7 +817,7 @@
             stateLabel = "Non supervisé";
         }
 
-        <div @onclick="() => OpenComponentNodeModal(comp)"
+        <div @onclick="() => OpenComponentNodeModalAsync(comp)"
              class="flex flex-col items-center p-3.5 sm:p-4 rounded-3xl border-2 transition-all duration-300 shadow-xl relative group cursor-pointer hover:scale-105 hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0 @(isMatch ? "ring-4 ring-sky-400 shadow-sky-500/80 animate-pulse" : "")">
             <!-- Cylinder Top Oval Cap -->
             <div class="w-full h-3 rounded-t-full bg-white/20 border-b border-white/30 mb-1.5 flex items-center justify-center">
@@ -774,59 +852,52 @@
         </div>
     };
 
-    private void OpenComponentNodeModal(N4Component comp)
+    /// <summary>
+    /// Ouvre le modal et relève la vitalité réelle du serveur (FR-051). Le
+    /// modal s'ouvre immédiatement en état de chargement : l'interrogation
+    /// WinRM prend jusqu'à quelques secondes, elle ne doit pas bloquer le clic.
+    /// </summary>
+    private async Task OpenComponentNodeModalAsync(N4Component comp)
     {
-        var snapshot = SupervisionCache.GetSnapshot(comp.Id);
-        var state = snapshot?.State ?? ComponentState.Disponible;
-
-        _activeTelemetry = new NodeTelemetryDto
+        _activeTelemetry = new NodeModalDto
         {
             Name = comp.LogicalName,
             Role = comp.Role.ToString(),
-            HostName = comp.Server?.HostName ?? "N4HOST01",
-            IpAddress = comp.Server?.IpAddress ?? "10.88.180.141",
-            ServiceName = comp.WindowsServiceName ?? "NavisN4Service",
-            CpuPercent = state == ComponentState.Arret ? 0.0 : state == ComponentState.Demarrage ? 78.4 : 22.5,
-            RamUsedGb = comp.Role == ComponentRole.BaseDeDonnees ? 24.8 : 12.4,
-            RamTotalGb = comp.Role == ComponentRole.BaseDeDonnees ? 64.0 : 32.0,
-            NtpSynced = true,
-            NtpDriftMs = 0.8,
-            PendingUpdatesCount = 2,
-            PendingKbList = [
-                "KB5034123 — Security Update for Windows Server (Mise à jour de sécurité)",
-                "KB5034441 — Cumulative Update for .NET Framework 4.8"
-            ],
-            Disks = [
-                new DiskDriveInfoDto { DriveLetter = "C:\\ (OS System)", FreeGb = 160, TotalGb = 500, UsePercent = 68 },
-                new DiskDriveInfoDto { DriveLetter = "D:\\ (Navis Data & Logs)", FreeGb = 1200, TotalGb = 2000, UsePercent = 40 }
-            ]
+            HostName = comp.Server?.HostName ?? "—",
+            IpAddress = comp.Server?.IpAddress ?? "—",
+            ServiceName = comp.WindowsServiceName ?? "—",
+            IsStatic = false
         };
         _showTelemetryModal = true;
+        _loadingTelemetry = true;
+        StateHasChanged();
+
+        _activeTelemetry.Vitals = comp.ServerId is { } serverId
+            ? await Vitals.ReadAsync(serverId)
+            : NodeVitals.Injoignable(comp.Id, comp.Server?.HostName ?? comp.LogicalName,
+                "Ce composant n'est rattaché à aucun serveur du référentiel.");
+
+        _loadingTelemetry = false;
+        StateHasChanged();
     }
 
+    /// <summary>
+    /// Systèmes périphériques (GOS, DGPS, VBS...) hors référentiel N4 :
+    /// aucun serveur à interroger, donc aucune télémétrie prétendue.
+    /// </summary>
     private void OpenStaticNodeModal(string name, string role, string hostName, string ipAddress, string serviceName)
     {
-        _activeTelemetry = new NodeTelemetryDto
+        _activeTelemetry = new NodeModalDto
         {
             Name = name,
             Role = role,
             HostName = hostName,
             IpAddress = ipAddress,
             ServiceName = serviceName,
-            CpuPercent = 18.2,
-            RamUsedGb = 8.4,
-            RamTotalGb = 16.0,
-            NtpSynced = true,
-            NtpDriftMs = 1.1,
-            PendingUpdatesCount = 1,
-            PendingKbList = [
-                "KB5034882 — Fix pour le protocole de synchronisation d'horloge NTP"
-            ],
-            Disks = [
-                new DiskDriveInfoDto { DriveLetter = "C:\\ (OS)", FreeGb = 220, TotalGb = 500, UsePercent = 56 }
-            ]
+            IsStatic = true
         };
         _showTelemetryModal = true;
+        _loadingTelemetry = false;
     }
 
     private void CloseTelemetryModal()
@@ -834,6 +905,40 @@
         _showTelemetryModal = false;
         _activeTelemetry = null;
     }
+
+    // -----------------------------------------------------------------------
+    // Présentation (mêmes règles que la page Vitalité des nœuds)
+    // -----------------------------------------------------------------------
+    private static string Pourcent(double? v) => v is null ? "—" : $"{v.Value:0.0} %";
+
+    private static string Largeur(double? v) =>
+        v is null ? "0%" : $"{Math.Clamp(v.Value, 0, 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}%";
+
+    private static string Octets(long? v)
+    {
+        if (v is null) return "—";
+        double o = v.Value;
+        string[] unites = ["o", "Ko", "Mo", "Go", "To"];
+        var i = 0;
+        while (o >= 1024 && i < unites.Length - 1) { o /= 1024; i++; }
+        return $"{o:0.0} {unites[i]}";
+    }
+
+    private static string Barre(double? v, double attention, double critique) => v switch
+    {
+        null => "bg-slate-700",
+        var x when x >= critique => "bg-rose-400",
+        var x when x >= attention => "bg-amber-400",
+        _ => "bg-sky-400"
+    };
+
+    private static string PastilleHorloge(ClockState s) => s switch
+    {
+        ClockState.Conforme => "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+        ClockState.NonConforme => "bg-rose-500/10 text-rose-300 border-rose-500/30",
+        ClockState.AConfirmer => "bg-amber-500/10 text-amber-300 border-amber-500/30",
+        _ => "bg-slate-800 text-slate-400 border-slate-700"
+    };
 
     public void Dispose()
     {

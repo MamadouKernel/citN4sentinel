@@ -172,6 +172,21 @@ public class DiagnosticSession : AuditableEntity
 
     public DateTimeOffset? AnalysedAt { get; set; }
 
+    /// <summary>FR-068 : alerte à l'origine de cette session, si elle a été ouverte automatiquement.</summary>
+    public Guid? SourceAlertId { get; set; }
+
+    /// <summary>
+    /// FR-066 : session marquée comme référence saine par un utilisateur
+    /// habilité — jamais par déduction automatique. C'est une affirmation
+    /// humaine ("j'ai vérifié, ceci était normal"), pas une propriété que
+    /// l'application pourrait établir seule.
+    /// </summary>
+    public bool IsReferenceBaseline { get; set; }
+
+    /// <summary>FR-066 : session de référence choisie pour la comparaison, s'il y en a une.</summary>
+    public Guid? ReferenceSessionId { get; set; }
+    public DiagnosticSession? ReferenceSession { get; set; }
+
     public ICollection<LogSource> Sources { get; set; } = [];
     public ICollection<LogFinding> Findings { get; set; } = [];
     public ICollection<DiagnosticHypothesis> Hypotheses { get; set; } = [];
@@ -190,6 +205,17 @@ public class LogSource : AuditableEntity
     public ComponentRole? ComponentRole { get; set; }
     public string? HostName { get; set; }
 
+    /// <summary>
+    /// FR-071 : vrai si le composant a été deviné (nom de fichier ou
+    /// contenu) plutôt que désigné par l'opérateur — une collecte ciblée ou
+    /// un import avec composant choisi n'a jamais ce champ à vrai. Une
+    /// identification automatique reste une hypothèse, affichée comme telle.
+    /// </summary>
+    public bool ComponentAutoDetected { get; set; }
+
+    /// <summary>FR-071 : version repérée dans le contenu, si un motif connu l'indique.</summary>
+    public string? DetectedVersion { get; set; }
+
     public LogOriginKind Origin { get; set; }
 
     /// <summary>Chemin réellement lu, après résolution d'un éventuel générique.</summary>
@@ -198,6 +224,23 @@ public class LogSource : AuditableEntity
 
     public long SizeBytes { get; set; }
     public int LineCount { get; set; }
+
+    // --- Résumé (FR-073) --------------------------------------------------
+    /// <summary>Horodatage de la première ligne datée du fichier — pas seulement des anomalies.</summary>
+    public DateTimeOffset? EarliestEntryAt { get; set; }
+    public DateTimeOffset? LatestEntryAt { get; set; }
+
+    public int InfoCount { get; set; }
+    public int WarningCount { get; set; }
+    public int ErrorCount { get; set; }
+
+    /// <summary>
+    /// FR-061 : écart d'horloge du serveur source, mesuré au moment de la
+    /// collecte (collecte ciblée uniquement — non mesurable sur un import
+    /// manuel). Les horodatages tirés de ce journal peuvent être décalés
+    /// d'autant ; la chronologie multi-sources en tient compte et le signale.
+    /// </summary>
+    public double? ClockSkewSecondsAtCollection { get; set; }
 
     /// <summary>
     /// Nombre de secrets masqués avant enregistrement. Affiché à l'opérateur :

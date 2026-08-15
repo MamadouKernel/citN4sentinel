@@ -1,0 +1,18 @@
+{
+  "name": "N4 Sentinel — Console d'Exploitation N4",
+  "short_name": "N4 Sentinel",
+  "description": "Console d'Exploitation, d'Orchestration et de Diagnostic N4 pour Côte d'Ivoire Terminal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0284c7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

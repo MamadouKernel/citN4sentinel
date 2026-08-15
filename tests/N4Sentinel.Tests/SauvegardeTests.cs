@@ -36,8 +36,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
                + "TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        _factory = new TestDbContextFactory(
-            new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
         await using (var db = _factory.CreateDbContext())
         {

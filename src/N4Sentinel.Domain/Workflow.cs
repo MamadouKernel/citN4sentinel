@@ -85,6 +85,17 @@ public class Workflow : AuditableEntity
     /// </summary>
     public bool RequiresApproval { get; set; }
 
+    /// <summary>
+    /// Exige DEUX approbateurs distincts, ni l'un ni l'autre le demandeur
+    /// (FR-013). Réservé aux opérations dont l'impact justifie un double
+    /// regard — n'a d'effet que si <see cref="RequiresApproval"/> l'est aussi ;
+    /// l'inverse (double sans simple) n'aurait pas de sens.
+    /// </summary>
+    public bool RequiresDoubleApproval { get; set; }
+
+    /// <summary>Niveau d'automatisation de ce workflow (Palier 1 ou Palier 2).</summary>
+    public AutomationLevel AutomationLevel { get; set; } = AutomationLevel.SemiAutomatique;
+
     public ICollection<WorkflowStep> Steps { get; set; } = [];
 
     /// <summary>

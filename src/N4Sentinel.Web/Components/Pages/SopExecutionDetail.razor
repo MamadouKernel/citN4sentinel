@@ -1,0 +1,362 @@
+@page "/sop/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Procedures
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject SopExecutionService Executions
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>@(_x?.SopTitle ?? "Exécution SOP") — N4 Sentinel</PageTitle>
+
+@if (_x is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement…</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <!-- En-tête -->
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+                <a href="/sop" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour aux SOP
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3 flex-wrap">
+                    @_x.SopTitle
+                    <span class="text-base font-mono text-sky-400">v@_x.SopVersion</span>
+                </h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    @_x.EnvironmentCode &middot; démarrée par <span class="text-slate-200">@_x.StartedBy</span>
+                    &middot; corrélation <span class="font-mono text-slate-500">@_x.CorrelationId</span>
+                </p>
+            </div>
+
+            <div class="text-right">
+                <span class="px-3 py-1.5 rounded-full text-xs font-bold @SopExecutions.PastilleEtat(_x.Status)">
+                    @SopExecutions.LibelleEtat(_x.Status)
+                </span>
+                <div class="text-[11px] text-slate-400 mt-2">
+                    <div>Démarrée à @_x.StartedAt.ToLocalTime().ToString("dd/MM HH:mm:ss")</div>
+                    <div class="font-mono">@Duree()</div>
+                </div>
+            </div>
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <!-- Motif -->
+        @if (_x.Reason is { Length: > 0 } || _x.TicketReference is { Length: > 0 })
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 p-5 text-xs space-y-2">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Motif</div>
+                        <div class="text-slate-200 leading-relaxed">@(_x.Reason ?? "—")</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider mb-1">Ticket</div>
+                        <div class="text-slate-200 font-mono">@(_x.TicketReference ?? "—")</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_x.Status == SopExecutionStatus.Abandonne)
+        {
+            <div class="p-4 rounded-xl text-xs leading-relaxed border bg-rose-500/10 border-rose-500/20 text-rose-200">
+                <strong class="block mb-1">Abandonnée</strong>
+                @_x.AbandonReason
+            </div>
+        }
+        else if (_x.Status == SopExecutionStatus.Termine)
+        {
+            <div class="p-4 rounded-xl text-xs leading-relaxed border bg-emerald-500/10 border-emerald-500/20 text-emerald-200">
+                <strong class="block mb-1">Terminée</strong>
+                Chaque étape a été confirmée par un opérateur.
+                @if (_x.Steps.Any(s => s.State == SopExecutionStepState.Ecart))
+                {
+                    <text> Au moins un écart a été constaté — voir le détail ci-dessous.</text>
+                }
+            </div>
+        }
+
+        <!-- Commandes -->
+        <AuthorizeView Policy="@N4Policies.PeutExecuter">
+            @if (_x.Status != SopExecutionStatus.Abandonne)
+            {
+                <div class="flex flex-wrap items-center gap-2">
+                    @if (_abandonArme)
+                    {
+                        <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
+                               placeholder="Motif de l'abandon" @bind="_abandonMotif" @bind:event="oninput" />
+                        <button class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition disabled:opacity-40"
+                                disabled="@string.IsNullOrWhiteSpace(_abandonMotif)" @onclick="Abandonner">
+                            <i class="bi bi-exclamation-triangle-fill"></i> Confirmer l'abandon
+                        </button>
+                        <button class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+                                @onclick="() => _abandonArme = false">
+                            Non
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="px-3 py-1.5 rounded-lg bg-transparent hover:bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold text-xs transition"
+                                @onclick="() => _abandonArme = true">
+                            <i class="bi bi-x-lg"></i> Abandonner
+                        </button>
+                    }
+                </div>
+            }
+        </AuthorizeView>
+
+        <!-- Étapes -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-list-check text-sky-400"></i>
+                    Étapes — @_termines / @_x.Steps.Count
+                </h3>
+                <div class="w-full sm:w-64 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-theme-gradient transition-all duration-500"
+                         style="width:@(_x.Steps.Count == 0 ? 0 : _termines * 100 / _x.Steps.Count)%"></div>
+                </div>
+            </div>
+
+            <div class="divide-y divide-slate-800">
+                @foreach (var etape in _x.Steps.OrderBy(s => s.Order))
+                {
+                    <div class="p-5 @(etape.State == SopExecutionStepState.EnCours ? "bg-sky-500/[0.04]" : "")">
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 @PastilleEtape(etape.State)">
+                                <i class="bi @IconeEtape(etape.State) text-sm"></i>
+                            </div>
+
+                            <div class="flex-1 min-w-0 space-y-1.5">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-bold text-white text-sm">@etape.Order. @etape.Title</span>
+                                    @if (etape.ComponentName is not null)
+                                    {
+                                        <span class="text-[11px] text-slate-400">@etape.ComponentName</span>
+                                    }
+                                    @if (etape.Duration is { } d && etape.StartedAt is not null)
+                                    {
+                                        <span class="text-[11px] font-mono text-slate-500">@N4Sentinel.Infrastructure.Orchestration.StepExecutor.Formater(d)</span>
+                                    }
+                                </div>
+
+                                @if (etape.Evidence is { Length: > 0 } preuve)
+                                {
+                                    <div class="text-xs text-emerald-300/90 leading-relaxed flex items-start gap-2">
+                                        <i class="bi bi-patch-check-fill mt-0.5 shrink-0"></i>
+                                        <span><strong>Preuve :</strong> @preuve</span>
+                                    </div>
+                                }
+
+                                @if (etape.DeviationNote is { Length: > 0 } ecart)
+                                {
+                                    <div class="text-xs text-amber-300 leading-relaxed flex items-start gap-2">
+                                        <i class="bi bi-exclamation-triangle-fill mt-0.5 shrink-0"></i>
+                                        <span><strong>Écart constaté :</strong> @ecart</span>
+                                    </div>
+                                }
+
+                                @if (etape.SkippedBy is not null)
+                                {
+                                    <div class="text-xs text-amber-300 leading-relaxed">
+                                        <i class="bi bi-skip-forward-fill"></i>
+                                        Contournée par <strong>@etape.SkippedBy</strong> — @etape.SkipReason
+                                    </div>
+                                }
+
+                                @if (etape.State is SopExecutionStepState.Confirmee or SopExecutionStepState.Ecart && etape.ConfirmedBy is not null)
+                                {
+                                    <div class="text-[11px] text-slate-500">
+                                        Confirmée par @etape.ConfirmedBy le @etape.ConfirmedAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")
+                                    </div>
+                                }
+
+                                @if (etape.History is { Length: > 0 } historique)
+                                {
+                                    <details class="text-[11px] text-slate-500">
+                                        <summary class="cursor-pointer hover:text-slate-300">Historique des reprises</summary>
+                                        <pre class="whitespace-pre-wrap mt-1 text-slate-400">@historique</pre>
+                                    </details>
+                                }
+
+                                @if (etape.State == SopExecutionStepState.EnCours)
+                                {
+                                    <div class="mt-2 p-3.5 rounded-xl bg-violet-500/10 border border-violet-500/25 space-y-2.5">
+                                        <div class="text-xs text-violet-200 leading-relaxed">@etape.Instruction</div>
+                                        @if (etape.ExpectedResult is { Length: > 0 } attendu)
+                                        {
+                                            <div class="text-xs text-slate-400 leading-relaxed">
+                                                <strong class="text-slate-300">Résultat attendu :</strong> @attendu
+                                            </div>
+                                        }
+
+                                        <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="operateur">
+                                            <div>
+                                                <label class="block text-[10px] text-slate-500 font-semibold mb-1">
+                                                    Preuve <span class="text-rose-400">obligatoire</span>
+                                                </label>
+                                                <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs"
+                                                          placeholder="Ce qui a été constaté." @bind="_evidence"></textarea>
+                                            </div>
+                                            <div>
+                                                <label class="block text-[10px] text-slate-500 font-semibold mb-1">Écart (facultatif)</label>
+                                                <input class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs"
+                                                       placeholder="En quoi le résultat diffère de l'attendu, si c'est le cas." @bind="_deviation" />
+                                            </div>
+                                            <div class="flex flex-wrap gap-2 pt-1">
+                                                <button class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
+                                                        disabled="@string.IsNullOrWhiteSpace(_evidence)" @onclick="() => Confirmer(etape.Id)">
+                                                    <i class="bi bi-check2"></i> Confirmer
+                                                </button>
+                                                @if (etape.IsSkippable)
+                                                {
+                                                    <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
+                                                           placeholder="Justification du contournement" @bind="_justification" @bind:event="oninput" />
+                                                    <button class="px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-xs transition disabled:opacity-40"
+                                                            disabled="@string.IsNullOrWhiteSpace(_justification)" @onclick="() => Contourner(etape.Id)">
+                                                        <i class="bi bi-skip-forward"></i> Contourner
+                                                    </button>
+                                                }
+                                            </div>
+                                        </AuthorizeView>
+                                    </div>
+                                }
+
+                                @if (etape.IsTerminal && etape.Order == _derniereEtapeTerminale && _x.Status != SopExecutionStatus.Abandonne)
+                                {
+                                    <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="repreneur">
+                                        @if (_retourArme)
+                                        {
+                                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                                <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
+                                                       placeholder="Pourquoi reprendre cette étape" @bind="_retourMotif" @bind:event="oninput" />
+                                                <button class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs transition disabled:opacity-40"
+                                                        disabled="@string.IsNullOrWhiteSpace(_retourMotif)" @onclick="RevenirEnArriere">
+                                                    <i class="bi bi-arrow-counterclockwise"></i> Confirmer
+                                                </button>
+                                                <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+                                                        @onclick="() => _retourArme = false">
+                                                    Annuler
+                                                </button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <button class="mt-2 px-3 py-1.5 rounded-lg bg-transparent hover:bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs transition"
+                                                    @onclick="() => _retourArme = true">
+                                                <i class="bi bi-arrow-counterclockwise"></i> Revenir à cette étape
+                                            </button>
+                                        }
+                                    </AuthorizeView>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private SopExecution? _x;
+    private int _termines;
+    private int _derniereEtapeTerminale = -1;
+
+    private string _evidence = string.Empty;
+    private string _deviation = string.Empty;
+    private string _justification = string.Empty;
+    private bool _abandonArme;
+    private string _abandonMotif = string.Empty;
+    private bool _retourArme;
+    private string _retourMotif = string.Empty;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnParametersSetAsync() => await Charger();
+
+    private async Task Charger()
+    {
+        _x = await Executions.GetAsync(Id);
+        _termines = _x?.Steps.Count(s => s.IsTerminal) ?? 0;
+        _derniereEtapeTerminale = _x?.Steps.Where(s => s.IsTerminal).Select(s => s.Order).DefaultIfEmpty(-1).Max() ?? -1;
+    }
+
+    private string Duree()
+    {
+        if (_x is null) return string.Empty;
+        return N4Sentinel.Infrastructure.Orchestration.StepExecutor.Formater(_x.Duration);
+    }
+
+    private async Task<string> ActeurAsync()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        return etat.User.Identity?.Name ?? "inconnu";
+    }
+
+    private async Task Confirmer(Guid stepId) => await Executer(async a =>
+        await Executions.ConfirmStepAsync(stepId, a, _evidence.Trim(), string.IsNullOrWhiteSpace(_deviation) ? null : _deviation.Trim()));
+
+    private async Task Contourner(Guid stepId) => await Executer(async a =>
+        await Executions.SkipStepAsync(stepId, a, _justification.Trim()));
+
+    private async Task Abandonner() => await Executer(async a =>
+        await Executions.AbandonAsync(Id, a, _abandonMotif.Trim()));
+
+    private async Task RevenirEnArriere() => await Executer(async a =>
+        await Executions.GoBackAsync(Id, a, _retourMotif.Trim()));
+
+    private async Task Executer(Func<string, Task<string?>> action)
+    {
+        var acteur = await ActeurAsync();
+        var erreur = await action(acteur);
+
+        _message = erreur;
+        _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+
+        _evidence = string.Empty;
+        _deviation = string.Empty;
+        _justification = string.Empty;
+        _abandonArme = false;
+        _abandonMotif = string.Empty;
+        _retourArme = false;
+        _retourMotif = string.Empty;
+
+        await Charger();
+    }
+
+    private static string PastilleEtape(SopExecutionStepState s) => s switch
+    {
+        SopExecutionStepState.Confirmee => "bg-emerald-500/15 text-emerald-400",
+        SopExecutionStepState.Ecart => "bg-amber-500/15 text-amber-400",
+        SopExecutionStepState.EnCours => "bg-sky-500/15 text-sky-400",
+        SopExecutionStepState.Ignoree => "bg-slate-700/40 text-slate-300",
+        SopExecutionStepState.Annulee => "bg-slate-800 text-slate-500",
+        _ => "bg-slate-800 text-slate-500"
+    };
+
+    private static string IconeEtape(SopExecutionStepState s) => s switch
+    {
+        SopExecutionStepState.Confirmee => "bi-check-lg",
+        SopExecutionStepState.Ecart => "bi-exclamation-triangle-fill",
+        SopExecutionStepState.EnCours => "bi-arrow-repeat",
+        SopExecutionStepState.Ignoree => "bi-skip-forward-fill",
+        SopExecutionStepState.Annulee => "bi-slash-circle",
+        _ => "bi-circle"
+    };
+}

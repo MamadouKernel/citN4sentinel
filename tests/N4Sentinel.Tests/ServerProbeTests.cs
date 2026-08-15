@@ -35,9 +35,7 @@ public sealed class ServerProbeTests : IAsyncLifetime
         _connectionString =
             $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        var options = new DbContextOptionsBuilder<N4SentinelDbContext>()
-            .UseSqlServer(_connectionString)
-            .Options;
+        var options = TestDbContextOptions.Builder(_connectionString).Options;
 
         _factory = new TestDbContextFactory(options);
 

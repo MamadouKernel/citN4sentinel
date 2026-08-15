@@ -1,0 +1,306 @@
+@page "/admin/sop"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Orchestration
+@using N4Sentinel.Infrastructure.Procedures
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject SopService Catalogue
+@inject ExecutionService Executions
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+
+<PageTitle>SOP — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Procédures opérationnelles (SOP)</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Un SOP ne pilote rien : c'est une procédure écrite, suivie à la main, dont l'application
+                trace la confirmation, la preuve et les écarts. <strong class="text-white">Un SOP qui a
+                servi ne se modifie plus</strong> — toute modification crée une nouvelle version.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="Recharger">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="() => _depuisExecution = !_depuisExecution">
+                <i class="bi bi-play-circle"></i> Depuis une exécution réussie
+            </button>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="CreerSopReconstitutionAmq"
+                    title="Fondé sur la procédure validée du corpus de support (SOP-2 Fiche A). Chemin guidé retenu pour FR-059E : aucune commande de suppression de fichier n'est émise par l'application.">
+                <i class="bi bi-tools"></i> SOP reconstitution ActiveMQ/KahaDB
+            </button>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="() => _creation = true">
+                <i class="bi bi-plus-lg"></i> Nouveau SOP
+            </button>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    @if (_creation)
+    {
+        <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-4">
+            <h3 class="text-sm font-bold text-white">Nouveau SOP</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Code</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           placeholder="RECONSTITUTION-DOSSIER" @bind="_nouveauCode" />
+                    <p class="text-[10px] text-slate-500 mt-1">Identifiant stable, conservé à travers les versions.</p>
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Titre</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Reconstitution d'un dossier partagé corrompu" @bind="_nouveauTitre" />
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition" @onclick="Creer">
+                    Créer et rédiger les étapes
+                </button>
+                <button class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs transition" @onclick="() => _creation = false">
+                    Annuler
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (_depuisExecution)
+    {
+        <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-4">
+            <h3 class="text-sm font-bold text-white">Générer un brouillon depuis une exécution réussie</h3>
+            <p class="text-[11px] text-slate-400">
+                Chaque étape reprend l'instruction et la preuve RÉELLEMENT observées lors de cette exécution.
+                Créé en brouillon : à relire et ajuster avant validation.
+            </p>
+
+            @if (_executionsRecentes.Count == 0)
+            {
+                <p class="text-xs text-slate-500">Aucune exécution terminée avec succès n'a été trouvée pour cet environnement.</p>
+            }
+            else
+            {
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div class="md:col-span-1">
+                        <label class="block text-slate-400 font-semibold mb-1">Exécution source</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_executionSourceId">
+                            <option value="@Guid.Empty">Choisir…</option>
+                            @foreach (var x in _executionsRecentes)
+                            {
+                                <option value="@x.Id">@x.WorkflowName — @x.EndedAt?.ToString("dd/MM HH:mm")</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Code du SOP généré</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                               placeholder="SOP-DEMARRAGE-BRIDGE" @bind="_genCode" />
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Titre</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               placeholder="Démarrage du Bridge" @bind="_genTitre" />
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@(_executionSourceId == Guid.Empty)" @onclick="GenererDepuisExecution">
+                        Générer le brouillon
+                    </button>
+                    <button class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs transition" @onclick="() => _depuisExecution = false">
+                        Annuler
+                    </button>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_envId == Guid.Empty)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            Choisissez un environnement pour voir ses SOP.
+        </div>
+    }
+    else if (_sops.Count == 0)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs space-y-2">
+            <i class="bi bi-journal-check text-2xl text-slate-600"></i>
+            <p>Aucun SOP n'est défini pour cet environnement.</p>
+        </div>
+    }
+    else
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <tr>
+                            <th class="text-left px-5 py-3 font-bold">SOP</th>
+                            <th class="text-center px-5 py-3 font-bold">Version</th>
+                            <th class="text-center px-5 py-3 font-bold">Étapes</th>
+                            <th class="text-center px-5 py-3 font-bold">État</th>
+                            <th class="text-right px-5 py-3 font-bold"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        @foreach (var groupe in _sops.GroupBy(s => s.Code))
+                        {
+                            var derniere = groupe.OrderByDescending(s => s.Version).First();
+                            var anciennes = groupe.Count() - 1;
+
+                            <tr class="hover:bg-white/[0.02] transition">
+                                <td class="px-5 py-3.5">
+                                    <div class="font-bold text-white">@derniere.Title</div>
+                                    <div class="font-mono text-[10px] text-slate-500">@derniere.Code</div>
+                                    @if (derniere.SourceExecutionId is not null)
+                                    {
+                                        <div class="text-[10px] text-sky-400 mt-0.5"><i class="bi bi-play-circle"></i> généré depuis une exécution</div>
+                                    }
+                                </td>
+                                <td class="px-5 py-3.5 text-center">
+                                    <span class="font-mono text-sky-400 font-bold">v@(derniere.Version)</span>
+                                    @if (anciennes > 0)
+                                    {
+                                        <div class="text-[10px] text-slate-500">@anciennes version(s) archivée(s)</div>
+                                    }
+                                </td>
+                                <td class="px-5 py-3.5 text-center text-slate-300">@derniere.Steps.Count</td>
+                                <td class="px-5 py-3.5 text-center">
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold @Pastille(derniere.Status)">
+                                        @derniere.Status
+                                    </span>
+                                    @if (derniere.HasBeenExecuted)
+                                    {
+                                        <div class="text-[10px] text-amber-400 mt-1 flex items-center justify-center gap-1">
+                                            <i class="bi bi-lock-fill"></i> immuable
+                                        </div>
+                                    }
+                                </td>
+                                <td class="px-5 py-3.5 text-right">
+                                    <a href="@($"/admin/sop/{derniere.Id}")"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition">
+                                        <i class="bi bi-pencil"></i> Étapes
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<Domain.Sop> _sops = [];
+    private Guid _envId;
+
+    private bool _creation;
+    private string _nouveauCode = string.Empty;
+    private string _nouveauTitre = string.Empty;
+
+    private bool _depuisExecution;
+    private List<WorkflowExecution> _executionsRecentes = [];
+    private Guid _executionSourceId;
+    private string _genCode = string.Empty;
+    private string _genTitre = string.Empty;
+
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1) { _envId = _environnements[0].Id; await Recharger(); }
+    }
+
+    private async Task Recharger()
+    {
+        _sops = _envId == Guid.Empty ? [] : await Catalogue.GetForEnvironmentAsync(_envId);
+
+        var recentes = _envId == Guid.Empty ? [] : await Executions.GetRecentAsync(_envId, 100);
+        _executionsRecentes = recentes.Where(x => x.Status == ExecutionStatus.TermineSucces)
+            .OrderByDescending(x => x.EndedAt).Take(20).ToList();
+    }
+
+    private async Task Creer()
+    {
+        if (string.IsNullOrWhiteSpace(_nouveauCode) || string.IsNullOrWhiteSpace(_nouveauTitre))
+        {
+            Signaler("Le code et le titre sont obligatoires.", false);
+            return;
+        }
+
+        var id = await Catalogue.CreateAsync(new Domain.Sop
+        {
+            EnvironmentId = _envId,
+            Code = _nouveauCode.Trim().ToUpperInvariant(),
+            Title = _nouveauTitre.Trim()
+        });
+
+        Nav.NavigateTo($"/admin/sop/{id}");
+    }
+
+    private async Task CreerSopReconstitutionAmq()
+    {
+        var r = await Catalogue.SeedReconstitutionKahaDbAsync(_envId);
+        if (!r.Succeeded) { Signaler(r.Error!, false); return; }
+
+        Nav.NavigateTo($"/admin/sop/{r.SopId}");
+    }
+
+    private async Task GenererDepuisExecution()
+    {
+        if (string.IsNullOrWhiteSpace(_genCode) || string.IsNullOrWhiteSpace(_genTitre))
+        {
+            Signaler("Le code et le titre du SOP généré sont obligatoires.", false);
+            return;
+        }
+
+        var r = await Catalogue.GenerateFromExecutionAsync(_executionSourceId, _genCode.Trim().ToUpperInvariant(), _genTitre.Trim());
+        if (!r.Succeeded) { Signaler(r.Error!, false); return; }
+
+        Nav.NavigateTo($"/admin/sop/{r.SopId}");
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    private static string Pastille(LifecycleStatus s) => s switch
+    {
+        LifecycleStatus.Valide or LifecycleStatus.Actif => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+        LifecycleStatus.AValider => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+        LifecycleStatus.Desactive => "bg-slate-700/40 text-slate-400 border border-slate-600",
+        _ => "bg-slate-800 text-slate-400 border border-slate-700"
+    };
+}

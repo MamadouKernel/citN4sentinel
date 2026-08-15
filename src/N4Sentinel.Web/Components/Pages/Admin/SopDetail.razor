@@ -1,0 +1,556 @@
+@page "/admin/sop/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Procedures
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject SopService Catalogue
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>@(_sop?.Title ?? "SOP") — N4 Sentinel</PageTitle>
+
+@if (_sop is null)
+{
+    <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+        <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+        <div>Chargement…</div>
+    </div>
+}
+else
+{
+    <div class="space-y-6">
+
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div>
+                <a href="/admin/sop" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                    <i class="bi bi-arrow-left"></i> Retour aux SOP
+                </a>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                    @_sop.Title
+                    <span class="text-base font-mono text-sky-400 align-middle">v@_sop.Version</span>
+                </h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    <span class="font-mono">@_sop.Code</span> &middot; @_sop.Environment?.Code
+                </p>
+            </div>
+
+            <div class="flex items-center gap-2">
+                @if (_sop.Status is LifecycleStatus.Brouillon or LifecycleStatus.AValider)
+                {
+                    <button class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@(_etapes.Count == 0)" @onclick="Valider">
+                        <i class="bi bi-check2-circle"></i> Valider
+                    </button>
+                }
+                <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                        disabled="@_enregistrement" @onclick="Enregistrer">
+                    <i class="bi bi-save"></i> @(_enregistrement ? "Enregistrement…" : "Enregistrer")
+                </button>
+            </div>
+        </div>
+
+        @if (_sop.HasBeenExecuted)
+        {
+            <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs leading-relaxed">
+                <strong class="flex items-center gap-2 mb-1"><i class="bi bi-lock-fill"></i> Cette version a déjà servi.</strong>
+                Elle ne sera pas modifiée. Enregistrer créera la <strong>version @(_sop.Version + 1)</strong>,
+                et la v@(_sop.Version) restera attachée aux exécutions qu'elle a produites.
+            </div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <!-- Depuis la documentation (FR-088) -->
+        <div class="glass-card rounded-2xl border border-violet-500/20 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-journals text-violet-300"></i> Depuis la documentation
+                </h3>
+                <p class="text-xs text-slate-400 mt-1">
+                    Interroge la base documentaire et reformate la réponse citée selon le gabarit SOP.
+                    Rien n'est composé qui ne provienne du document : une section absente du texte source reste vide.
+                </p>
+            </div>
+            <div class="p-5 space-y-4">
+                <div class="flex gap-3">
+                    <input class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
+                           placeholder="Ex : comment redémarrer le service Bridge sans perte de messages ?"
+                           value="@_question" @onchange="e => _question = e.Value?.ToString() ?? string.Empty" />
+                    <button class="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@(string.IsNullOrWhiteSpace(_question) || _interrogation)" @onclick="Interroger">
+                        @(_interrogation ? "Recherche…" : "Interroger")
+                    </button>
+                </div>
+
+                @if (_presentation is not null)
+                {
+                    @if (!_presentation.Answered)
+                    {
+                        <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-400 text-xs">
+                            @_presentation.Explanation
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="space-y-2 text-xs">
+                            <p class="text-[10px] text-slate-500 italic">@_presentation.Warning</p>
+                            @if (_presentation.SourceCitation is not null)
+                            {
+                                <p class="text-[10px] text-sky-400"><i class="bi bi-bookmark"></i> @_presentation.SourceCitation</p>
+                            }
+
+                            @SectionPreview("Objectif", _presentation.Objective, v => _objective = v)
+                            @SectionPreview("Périmètre", _presentation.Scope, v => _scope = v)
+                            @SectionPreview("Prérequis", _presentation.Prerequisites, v => _prerequisites = v)
+                            @SectionPreview("Risques", _presentation.Risks, v => _risks = v)
+                            @SectionPreview("Contrôles", _presentation.Controls, v => _controls = v)
+                            @SectionPreview("Résultat attendu", _presentation.ExpectedOutcome, v => _expectedOutcome = v)
+                            @SectionPreview("Retour en arrière", _presentation.RollbackPlan, v => _rollbackPlan = v)
+                            @SectionPreview("Escalade", _presentation.EscalationPath, v => _escalationPath = v)
+
+                            @if (_presentation.StepsSourceIdentified)
+                            {
+                                <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-slate-300 font-semibold">Étapes identifiées dans le texte</span>
+                                        <button class="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 font-bold text-[10px] transition"
+                                                @onclick="UtiliserEtapesProposees">
+                                            Utiliser ces étapes
+                                        </button>
+                                    </div>
+                                    <ol class="list-decimal list-inside space-y-1 text-slate-400">
+                                        @foreach (var e in _presentation.Steps)
+                                        {
+                                            <li>@e</li>
+                                        }
+                                    </ol>
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="text-slate-500">Aucune liste d'étapes reconnue dans le texte source — à rédiger manuellement.</p>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Gabarit structuré (FR-088) -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-card-checklist text-sky-400"></i> Gabarit
+                </h3>
+            </div>
+            <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Objectif</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_objective" @onchange="e => _objective = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Périmètre</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_scope" @onchange="e => _scope = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Prérequis</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_prerequisites" @onchange="e => _prerequisites = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Risques</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_risks" @onchange="e => _risks = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Contrôles</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_controls" @onchange="e => _controls = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Résultat attendu</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_expectedOutcome" @onchange="e => _expectedOutcome = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Retour en arrière</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_rollbackPlan" @onchange="e => _rollbackPlan = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Escalade</label>
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                              value="@_escalationPath" @onchange="e => _escalationPath = e.Value?.ToString()"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-500 font-semibold mb-1">Version N4 applicable</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                           placeholder="3.8.25" value="@_appliesToVersion" @onchange="e => _appliesToVersion = e.Value?.ToString()" />
+                    <p class="text-[10px] text-slate-500 mt-1">Un conseil tiré d'une procédure 3.7 peut être faux en 3.9.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Étapes -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-list-ol text-sky-400"></i> Étapes (@_etapes.Count)
+                </h3>
+                <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                        @onclick="AjouterEtape">
+                    <i class="bi bi-plus-lg"></i> Ajouter une étape
+                </button>
+            </div>
+
+            @if (_etapes.Count == 0)
+            {
+                <div class="p-8 text-center text-slate-400 text-xs">
+                    Aucune étape. Un SOP sans étape ne peut pas être validé.
+                </div>
+            }
+            else
+            {
+                <div class="divide-y divide-slate-800">
+                    @for (var i = 0; i < _etapes.Count; i++)
+                    {
+                        var index = i;
+                        var etape = _etapes[index];
+
+                        <div class="p-5 space-y-3">
+                            <div class="flex items-start gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-xs shrink-0 mt-1">
+                                    @(index + 1)
+                                </div>
+
+                                <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                                    <div>
+                                        <label class="block text-slate-500 font-semibold mb-1">Titre de l'étape</label>
+                                        <input class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                               value="@etape.Title" @onchange="e => etape.Title = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <div>
+                                        <label class="block text-slate-500 font-semibold mb-1">Composant visé (facultatif)</label>
+                                        <select class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                                value="@(etape.ComponentId?.ToString() ?? "")"
+                                                @onchange="e => { var v = e.Value?.ToString(); etape.ComponentId = string.IsNullOrEmpty(v) ? null : Guid.Parse(v); }">
+                                            <option value="">— aucun —</option>
+                                            @foreach (var c in _composants)
+                                            {
+                                                <option value="@c.Id">@c.LogicalName</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer">
+                                        <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                                               checked="@etape.IsSkippable" @onchange="e => etape.IsSkippable = (bool)e.Value!" />
+                                        <span>Contournable</span>
+                                    </label>
+                                </div>
+
+                                <div class="flex items-center gap-1 shrink-0 mt-5">
+                                    <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
+                                            disabled="@(index == 0)" @onclick="() => Deplacer(index, -1)" title="Monter">
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                    <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
+                                            disabled="@(index == _etapes.Count - 1)" @onclick="() => Deplacer(index, 1)" title="Descendre">
+                                        <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    @if (_indexASupprimer == index)
+                                    {
+                                        <button class="p-1.5 rounded-lg bg-rose-500 text-white transition animate-pulse"
+                                                @onclick="() => Supprimer(index)" title="Confirmer la suppression">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                        <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                                                @onclick="() => _indexASupprimer = null" title="Annuler">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                                                @onclick="() => _indexASupprimer = index" title="Supprimer — un second clic confirmera">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="pl-10 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">
+                                        Instruction <span class="text-rose-400">obligatoire</span>
+                                    </label>
+                                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                              placeholder="Ce que l'opérateur doit faire, précisément."
+                                              value="@etape.Instruction" @onchange="e => etape.Instruction = e.Value?.ToString() ?? string.Empty"></textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">Résultat attendu</label>
+                                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                              placeholder="Ce à quoi ressemble une étape réussie."
+                                              value="@etape.ExpectedResult" @onchange="e => etape.ExpectedResult = e.Value?.ToString()"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Associations (FR-089D) -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-link-45deg text-sky-400"></i> Rattachements
+                </h3>
+                <p class="text-xs text-slate-400 mt-1">
+                    Rattacher ce SOP à un composant permet de le proposer automatiquement quand ce composant pose problème.
+                </p>
+            </div>
+            <div class="p-5 space-y-3 text-xs">
+                @if (_sop.Associations.Count == 0)
+                {
+                    <p class="text-slate-500">Aucun rattachement.</p>
+                }
+                else
+                {
+                    @foreach (var a in _sop.Associations)
+                    {
+                        <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                            <span class="text-slate-300">
+                                <i class="bi bi-hdd-network"></i>
+                                @(_composants.FirstOrDefault(c => c.Id == a.ComponentId)?.LogicalName ?? "Composant introuvable")
+                            </span>
+                            <button class="text-rose-400 hover:text-rose-300 transition" @onclick="() => SupprimerAssociation(a.Id)">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    }
+                }
+                <div class="flex gap-2">
+                    <select class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white" @bind="_nouvelleAssociationComposantId">
+                        <option value="@Guid.Empty">Rattacher un composant…</option>
+                        @foreach (var c in _composants)
+                        {
+                            <option value="@c.Id">@c.LogicalName</option>
+                        }
+                    </select>
+                    <button class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
+                            disabled="@(_nouvelleAssociationComposantId == Guid.Empty)" @onclick="AjouterAssociation">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Domain.Sop? _sop;
+    private List<SopStep> _etapes = [];
+    private int? _indexASupprimer;
+    private List<N4Component> _composants = [];
+
+    private bool _enregistrement;
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    private string? _objective, _scope, _prerequisites, _risks, _controls, _expectedOutcome, _rollbackPlan, _escalationPath, _appliesToVersion;
+
+    private string _question = string.Empty;
+    private bool _interrogation;
+    private SopPresentation? _presentation;
+
+    private Guid _nouvelleAssociationComposantId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _sop = await Catalogue.GetAsync(Id);
+        if (_sop is null) return;
+
+        _etapes = _sop.Steps.OrderBy(s => s.Order).ToList();
+        _composants = await Referential.GetComponentsAsync(_sop.EnvironmentId);
+
+        _objective = _sop.Objective;
+        _scope = _sop.Scope;
+        _prerequisites = _sop.Prerequisites;
+        _risks = _sop.Risks;
+        _controls = _sop.Controls;
+        _expectedOutcome = _sop.ExpectedOutcome;
+        _rollbackPlan = _sop.RollbackPlan;
+        _escalationPath = _sop.EscalationPath;
+        _appliesToVersion = _sop.AppliesToVersion;
+    }
+
+    private void Renumeroter()
+    {
+        for (var i = 0; i < _etapes.Count; i++) _etapes[i].Order = i + 1;
+    }
+
+    private void AjouterEtape()
+    {
+        _etapes.Add(new SopStep { Title = "Nouvelle étape", Order = _etapes.Count + 1 });
+    }
+
+    private void Deplacer(int index, int sens)
+    {
+        var cible = index + sens;
+        if (cible < 0 || cible >= _etapes.Count) return;
+
+        (_etapes[index], _etapes[cible]) = (_etapes[cible], _etapes[index]);
+        _indexASupprimer = null;
+    }
+
+    private void Supprimer(int index)
+    {
+        _etapes.RemoveAt(index);
+        _indexASupprimer = null;
+    }
+
+    private async Task Interroger()
+    {
+        _interrogation = true;
+        _presentation = await Catalogue.PresentAsSopAsync(_question);
+        _interrogation = false;
+    }
+
+    private void UtiliserEtapesProposees()
+    {
+        if (_presentation is null) return;
+
+        Renumeroter();
+        foreach (var texte in _presentation.Steps)
+            _etapes.Add(new SopStep { Title = Tronquer(texte, 200), Instruction = texte, Order = _etapes.Count + 1 });
+    }
+
+    private static string Tronquer(string texte, int max) => texte.Length <= max ? texte : texte[..(max - 1)] + "…";
+
+    private async Task Enregistrer()
+    {
+        if (_sop is null) return;
+
+        _enregistrement = true;
+        Renumeroter();
+
+        var gabarit = new SopTemplateFields
+        {
+            Objective = _objective,
+            Scope = _scope,
+            Prerequisites = _prerequisites,
+            Risks = _risks,
+            Controls = _controls,
+            ExpectedOutcome = _expectedOutcome,
+            RollbackPlan = _rollbackPlan,
+            EscalationPath = _escalationPath,
+            AppliesToVersion = _appliesToVersion
+        };
+
+        var copies = _etapes.Select(s => new SopStep
+        {
+            Title = s.Title,
+            Instruction = s.Instruction,
+            ExpectedResult = s.ExpectedResult,
+            ComponentId = s.ComponentId,
+            IsSkippable = s.IsSkippable,
+            Notes = s.Notes
+        }).ToList();
+
+        var r = await Catalogue.SaveAsync(_sop.Id, _sop.Title, gabarit, copies);
+        _enregistrement = false;
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        if (r.CreatedNewVersion)
+        {
+            Id = r.SopId;
+            await OnParametersSetAsync();
+            Signaler($"Version {r.Version} créée. La version précédente reste attachée à ses exécutions.", true);
+            return;
+        }
+
+        await OnParametersSetAsync();
+        Signaler("SOP enregistré.", true);
+    }
+
+    private async Task Valider()
+    {
+        if (_sop is null) return;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await Catalogue.ChangeStatusAsync(_sop.Id, LifecycleStatus.Valide, acteur);
+        if (erreur is not null) { Signaler(erreur, false); return; }
+
+        await OnParametersSetAsync();
+        Signaler("SOP validé : il peut désormais être lancé.", true);
+    }
+
+    private async Task AjouterAssociation()
+    {
+        if (_sop is null || _nouvelleAssociationComposantId == Guid.Empty) return;
+
+        var erreur = await Catalogue.AddAssociationAsync(new SopAssociation
+        {
+            SopId = _sop.Id,
+            Kind = SopAssociationKind.Composant,
+            ComponentId = _nouvelleAssociationComposantId
+        });
+
+        if (erreur is not null) { Signaler(erreur, false); return; }
+
+        _nouvelleAssociationComposantId = Guid.Empty;
+        await OnParametersSetAsync();
+    }
+
+    private async Task SupprimerAssociation(Guid associationId)
+    {
+        await Catalogue.RemoveAssociationAsync(associationId);
+        await OnParametersSetAsync();
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+    }
+
+    private RenderFragment SectionPreview(string titre, string? contenu, Action<string> appliquer) => __builder =>
+    {
+        if (string.IsNullOrWhiteSpace(contenu))
+        {
+            <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/40 border border-slate-800/60">
+                <span class="text-slate-500"><strong class="text-slate-400">@titre :</strong> non identifié dans le texte source.</span>
+            </div>
+        }
+        else
+        {
+            <div class="flex items-start justify-between gap-3 p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                <span class="text-slate-300"><strong class="text-white">@titre :</strong> @contenu</span>
+                <button class="shrink-0 px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 font-bold text-[10px] transition"
+                        @onclick="() => appliquer(contenu)">
+                    Copier dans le gabarit
+                </button>
+            </div>
+        }
+    };
+}

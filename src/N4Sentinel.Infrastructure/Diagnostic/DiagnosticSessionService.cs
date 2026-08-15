@@ -12,8 +12,13 @@ namespace N4Sentinel.Infrastructure.Diagnostic;
 /// l'être. C'est cette dernière partie qui distingue un diagnostic d'une simple
 /// consultation de journal.
 /// </summary>
-public sealed class DiagnosticSessionService(IDbContextFactory<N4SentinelDbContext> dbFactory)
+public sealed class DiagnosticSessionService(
+    IDbContextFactory<N4SentinelDbContext> dbFactory, LogAnalysisService logAnalysis)
 {
+    /// <summary>Au-delà, une référence est jugée trop ancienne pour être utilisée sans avertissement (FR-066).</summary>
+    private static readonly TimeSpan AgeMaximalReference = TimeSpan.FromDays(90);
+
+
     public async Task<Guid> CreateAsync(
         Guid environmentId, string title, string? reason, string? ticket, string requestedBy,
         DateTimeOffset? windowStart, DateTimeOffset? windowEnd, CancellationToken ct = default)
@@ -40,6 +45,123 @@ public sealed class DiagnosticSessionService(IDbContextFactory<N4SentinelDbConte
         return session.Id;
     }
 
+    /// <summary>
+    /// FR-068 : ouvre une session directement depuis une alerte, en
+    /// identifiant le composant concerné — ou, pour une alerte de portée
+    /// environnement, les composants candidats — et en lançant la collecte
+    /// aussitôt. Ne remplace pas la sélection manuelle : elle reste possible
+    /// depuis l'écran de diagnostic, notamment quand aucun candidat ne peut
+    /// être déterminé.
+    /// </summary>
+    public async Task<CreateFromAlertResult> CreateFromAlertAsync(
+        Guid alertId, string requestedBy, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var alert = await db.Alerts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == alertId, ct);
+        if (alert is null) return CreateFromAlertResult.Failed("Alerte introuvable.");
+
+        var environnement = await db.Environments.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Id == alert.EnvironmentId, ct);
+
+        var session = new DiagnosticSession
+        {
+            EnvironmentId = alert.EnvironmentId,
+            EnvironmentCode = environnement?.Code ?? "INCONNU",
+            Title = $"Diagnostic — {alert.Title}",
+            Reason = $"Ouvert automatiquement depuis l'alerte « {alert.Title} » (FR-068). {alert.Detail}",
+            RequestedBy = requestedBy,
+            // Marge avant le premier signalement : la cause precede
+            // generalement l'alerte elle-meme, pas l'inverse.
+            WindowStart = alert.FirstOccurredAt.AddMinutes(-30),
+            WindowEnd = DateTimeOffset.UtcNow,
+            SourceAlertId = alert.Id
+        };
+
+        db.Sessions.Add(session);
+        await db.SaveChangesAsync(ct);
+
+        var candidats = await IdentifierComposantsCandidatsAsync(db, alert, ct);
+
+        foreach (var composantId in candidats)
+            await logAnalysis.CollectFromServerAsync(session.Id, composantId, ct);
+
+        if (candidats.Count > 0)
+            await logAnalysis.ConcludeAsync(session.Id, ct);
+
+        return CreateFromAlertResult.Ok(session.Id, candidats.Count);
+    }
+
+    /// <summary>
+    /// FR-059J : ouvre une session de diagnostic rattachée à UN fichier EDI
+    /// précis, pas seulement au composant qui l'héberge. Le nom du fichier,
+    /// son partenaire et son état constatent la cible dans le motif de la
+    /// session — c'est ce lien-là qui manquait : un clic « Diagnostiquer »
+    /// depuis une alerte EDI ouvrait un diagnostic générique du composant,
+    /// sans jamais dire pour quel fichier.
+    /// </summary>
+    public async Task<CreateFromAlertResult> CreateFromEdiFileAsync(
+        EdiFile fichier, Guid componentId, string requestedBy, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var composant = await db.Components.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == componentId, ct);
+        if (composant is null) return CreateFromAlertResult.Failed("Composant introuvable.");
+
+        var session = new DiagnosticSession
+        {
+            EnvironmentId = composant.EnvironmentId,
+            EnvironmentCode = (await db.Environments.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == composant.EnvironmentId, ct))?.Code ?? "INCONNU",
+            Title = $"Diagnostic EDI — {fichier.FileName}",
+            Reason = $"Fichier « {fichier.FileName} » (partenaire : {fichier.Partner ?? "non classé"}, "
+                   + $"statut : {fichier.Status}, âge : {Formater(fichier.Age)}"
+                   + (fichier.ConsecutiveRejections > 0
+                        ? $", {fichier.ConsecutiveRejections} échec(s) consécutif(s)"
+                        : string.Empty)
+                   + $") sur « {composant.LogicalName} ».",
+            RequestedBy = requestedBy,
+            WindowStart = fichier.FirstSeenAt.AddMinutes(-30),
+            WindowEnd = DateTimeOffset.UtcNow
+        };
+
+        db.Sessions.Add(session);
+        await db.SaveChangesAsync(ct);
+
+        await logAnalysis.CollectFromServerAsync(session.Id, componentId, ct);
+        await logAnalysis.ConcludeAsync(session.Id, ct);
+
+        return CreateFromAlertResult.Ok(session.Id, 1);
+    }
+
+    private static string Formater(TimeSpan d) =>
+        d.TotalHours < 1 ? $"{(int)d.TotalMinutes} min" : $"{(int)d.TotalHours} h";
+
+    /// <summary>
+    /// Une alerte de composant designe directement sa cible. Une alerte de
+    /// portee environnement (ex. conflit de role Center/Standby) n'en
+    /// designe aucune a elle seule : les candidats sont deduits de sa
+    /// nature, jamais devines au hasard — une liste vide est un resultat
+    /// honnete quand aucune regle ne s'applique, pas une erreur a masquer.
+    /// </summary>
+    private static async Task<List<Guid>> IdentifierComposantsCandidatsAsync(
+        N4SentinelDbContext db, Alert alert, CancellationToken ct)
+    {
+        if (alert.ComponentId is { } id) return [id];
+
+        if (alert.Kind == AlertKind.ConflitRoleActifCenter)
+        {
+            return await db.Components.AsNoTracking()
+                .Where(c => c.EnvironmentId == alert.EnvironmentId
+                            && (c.Role == ComponentRole.CenterNode || c.Role == ComponentRole.StandbyCenterNode))
+                .Select(c => c.Id)
+                .ToListAsync(ct);
+        }
+
+        return [];
+    }
+
     public async Task<DiagnosticSession?> GetAsync(Guid id, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -60,6 +182,126 @@ public sealed class DiagnosticSessionService(IDbContextFactory<N4SentinelDbConte
         if (environmentId is not null) requete = requete.Where(s => s.EnvironmentId == environmentId);
 
         return await requete.OrderByDescending(s => s.CreatedAt).Take(count).ToListAsync(ct);
+    }
+
+    /// <summary>FR-066 : sessions pouvant servir de référence — marquées saines explicitement, jamais devinées.</summary>
+    public async Task<List<DiagnosticSession>> GetBaselineCandidatesAsync(
+        Guid environmentId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.Sessions.AsNoTracking()
+            .Where(s => s.EnvironmentId == environmentId && s.IsReferenceBaseline)
+            .OrderByDescending(s => s.CreatedAt)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// FR-066 : marque ou démarque une session comme référence saine. C'est
+    /// une affirmation humaine — l'application ne peut pas déduire seule
+    /// qu'une période a été « validée saine ».
+    /// </summary>
+    public async Task<string?> MarkAsBaselineAsync(Guid sessionId, bool isBaseline, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var session = await db.Sessions.FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+        if (session is null) return "Session introuvable.";
+
+        if (isBaseline && !session.HasBeenAnalysed)
+            return "Une session doit être analysée avant de pouvoir servir de référence.";
+
+        session.IsReferenceBaseline = isBaseline;
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    /// <summary>FR-066 : choisit (ou retire) la session de référence utilisée pour la comparaison.</summary>
+    public async Task<string?> SetReferenceAsync(
+        Guid sessionId, Guid? referenceSessionId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var session = await db.Sessions.FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+        if (session is null) return "Session introuvable.";
+
+        if (referenceSessionId is { } refId)
+        {
+            var reference = await db.Sessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == refId, ct);
+            if (reference is null) return "Session de référence introuvable.";
+            if (!reference.IsReferenceBaseline)
+                return "Cette session n'est pas marquée comme référence saine — marquez-la explicitement avant de vous en servir de comparaison.";
+        }
+
+        session.ReferenceSessionId = referenceSessionId;
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    /// <summary>
+    /// FR-066 : anomalies présentes dans la session courante mais absentes de
+    /// la référence, avec l'âge et la complétude de cette dernière rendus
+    /// visibles — une référence ancienne ou incomplète ne doit jamais être
+    /// utilisée sans avertissement.
+    /// </summary>
+    public async Task<ReferenceComparison?> CompareToReferenceAsync(Guid sessionId, CancellationToken ct = default)
+    {
+        var session = await GetAsync(sessionId, ct);
+        if (session?.ReferenceSessionId is not { } refId) return null;
+
+        var reference = await GetAsync(refId, ct);
+        if (reference is null) return null;
+
+        var motifsReference = reference.Findings
+            .Select(f => f.SignatureCode ?? f.Title)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var nouveaux = session.Findings
+            .Where(f => !motifsReference.Contains(f.SignatureCode ?? f.Title))
+            .OrderByDescending(f => f.Severity)
+            .ToList();
+
+        var age = DateTimeOffset.UtcNow - reference.CreatedAt;
+
+        return new ReferenceComparison(
+            Reference: reference,
+            NewFindings: nouveaux,
+            ReferenceAgeDays: (int)age.TotalDays,
+            IsStale: age > AgeMaximalReference,
+            ReferenceScopeIncomplete: reference.Sources.Any(s => !s.Succeeded));
+    }
+
+    /// <summary>
+    /// FR-061 : aligne les constats de toutes les sources sur une
+    /// chronologie commune, ajustée de l'écart d'horloge mesuré à la
+    /// collecte de chacune. Une entrée reste marquée incertaine dès que cet
+    /// écart est inconnu ou dépasse le seuil d'une seconde — l'ordre affiché
+    /// est alors probable, pas garanti, et le dit.
+    /// </summary>
+    public static List<TimelineEntry> BuildTimeline(DiagnosticSession session)
+    {
+        var sourcesParId = session.Sources.ToDictionary(s => s.Id);
+
+        return session.Findings
+            .Where(f => f.FirstSeenAt is not null)
+            .Select(f =>
+            {
+                sourcesParId.TryGetValue(f.SourceId, out var source);
+                var ecart = source?.ClockSkewSecondsAtCollection;
+                var brut = f.FirstSeenAt!.Value;
+                var ajuste = ecart is { } e ? brut - TimeSpan.FromSeconds(e) : brut;
+
+                return new TimelineEntry(
+                    AdjustedTime: ajuste,
+                    RawTime: brut,
+                    ComponentName: source?.ComponentName ?? "—",
+                    HostName: source?.HostName,
+                    Title: f.Title,
+                    Severity: f.Severity,
+                    ClockSkewSeconds: ecart,
+                    IsUncertain: ecart is null || Math.Abs(ecart.Value) > 1.0);
+            })
+            .OrderBy(t => t.AdjustedTime)
+            .ToList();
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken ct = default)
@@ -221,3 +463,39 @@ public sealed class DiagnosticSessionService(IDbContextFactory<N4SentinelDbConte
         _ => v.ToString()
     };
 }
+
+/// <summary>FR-068.</summary>
+public sealed record CreateFromAlertResult
+{
+    public bool Succeeded { get; init; }
+    public Guid SessionId { get; init; }
+
+    /// <summary>Nombre de composants dont la collecte a été lancée automatiquement.</summary>
+    public int ComponentsCollected { get; init; }
+
+    public string? Error { get; init; }
+
+    public static CreateFromAlertResult Ok(Guid sessionId, int composants) =>
+        new() { Succeeded = true, SessionId = sessionId, ComponentsCollected = composants };
+
+    public static CreateFromAlertResult Failed(string error) => new() { Succeeded = false, Error = error };
+}
+
+/// <summary>FR-066.</summary>
+public sealed record ReferenceComparison(
+    DiagnosticSession Reference,
+    List<LogFinding> NewFindings,
+    int ReferenceAgeDays,
+    bool IsStale,
+    bool ReferenceScopeIncomplete);
+
+/// <summary>FR-061 : une entrée de la chronologie multi-sources.</summary>
+public sealed record TimelineEntry(
+    DateTimeOffset AdjustedTime,
+    DateTimeOffset RawTime,
+    string ComponentName,
+    string? HostName,
+    string Title,
+    SignatureSeverity Severity,
+    double? ClockSkewSeconds,
+    bool IsUncertain);

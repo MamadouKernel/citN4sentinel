@@ -54,6 +54,8 @@ public sealed class ExecutionReportService(IDbContextFactory<N4SentinelDbContext
         sb.AppendLine($"| Motif | {x.Reason} |");
         sb.AppendLine($"| Ticket | {x.TicketReference ?? "—"} |");
         sb.AppendLine($"| Approbation | {(x.ApprovedBy is null ? "non requise" : $"{x.ApprovedBy}, le {Date(x.ApprovedAt)}")} |");
+        if (x.RequiresDoubleApproval)
+            sb.AppendLine($"| Seconde approbation | {(x.SecondApprovedBy is null ? "en attente" : $"{x.SecondApprovedBy}, le {Date(x.SecondApprovedAt)}")} |");
         sb.AppendLine($"| Lancée | {Date(x.StartedAt)} |");
         sb.AppendLine($"| Terminée | {Date(x.EndedAt)} |");
         sb.AppendLine($"| Durée | {(x.Duration is { } d ? StepExecutor.Formater(d) : "—")} |");

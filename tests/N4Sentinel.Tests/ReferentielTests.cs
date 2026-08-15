@@ -29,8 +29,7 @@ public sealed class ReferentielTests : IAsyncLifetime
         _connectionString =
             $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        var options = new DbContextOptionsBuilder<N4SentinelDbContext>()
-            .UseSqlServer(_connectionString)
+        var options = TestDbContextOptions.Builder(_connectionString)
             .AddInterceptors(new AuditingInterceptor(new TestUserContext()))
             .Options;
 

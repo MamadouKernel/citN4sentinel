@@ -18,6 +18,7 @@ namespace N4Sentinel.Infrastructure.Orchestration;
 public sealed class ExecutionService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
     EnvironmentLockService locks,
+    IAuditWriter auditWriter,
     ILogger<ExecutionService> logger,
     OrchestrationEngine? engine = null)
 {
@@ -85,6 +86,17 @@ public sealed class ExecutionService(
         var approbationRequise = !isSimulation && mutative
             && (workflow.RequiresApproval || environnement?.Kind == EnvironmentKind.Production);
 
+        // FR-046/047 : une simulation n'emet aucune commande (FR-005), donc ne
+        // change rien au role actif reel — le choix de continuite ne la
+        // concerne pas.
+        var centerIds = await db.Components.AsNoTracking()
+            .Where(c => c.EnvironmentId == workflow.EnvironmentId && c.Role == ComponentRole.CenterNode)
+            .Select(c => c.Id)
+            .ToListAsync(ct);
+        var continuiteRequise = !isSimulation && centerIds.Count > 0 && workflow.Steps.Any(s =>
+            s.Action is StepAction.Arreter or StepAction.Redemarrer
+            && s.ComponentId is { } id && centerIds.Contains(id));
+
         var execution = new WorkflowExecution
         {
             WorkflowId = workflow.Id,
@@ -98,7 +110,11 @@ public sealed class ExecutionService(
             RequestedBy = requestedBy,
             Reason = reason,
             TicketReference = ticketReference,
-            ExpectedImpact = DecrireImpact(workflow)
+            ExpectedImpact = DecrireImpact(workflow),
+            // Recopie, comme le reste : l'exigence reste exacte meme si le
+            // workflow change avant que l'approbation ait lieu.
+            RequiresDoubleApproval = approbationRequise && workflow.RequiresDoubleApproval,
+            ContinuityChoiceRequired = continuiteRequise
         };
 
         foreach (var modele in workflow.Steps.OrderBy(s => s.Order))
@@ -117,6 +133,7 @@ public sealed class ExecutionService(
                 Instruction = modele.Instruction,
                 MaxRetries = modele.MaxRetries,
                 AutomaticRetry = modele.AutomaticRetry,
+                CanRunInParallel = modele.CanRunInParallel,
                 State = ExecutionStepState.AVenir
             });
         }
@@ -168,6 +185,14 @@ public sealed class ExecutionService(
     // -----------------------------------------------------------------------
     // Approbation et lancement
     // -----------------------------------------------------------------------
+    /// <summary>
+    /// Approuve une exécution en attente. Si le workflow exige une double
+    /// approbation (FR-013), le premier appel enregistre le premier
+    /// approbateur et laisse l'exécution EN ATTENTE — elle ne passe en
+    /// préparation qu'après un second appel, par une personne distincte du
+    /// demandeur ET du premier approbateur. Un double regard qui accepterait
+    /// la même personne deux fois ne serait qu'un simple regard déguisé.
+    /// </summary>
     public async Task<string?> ApproveAsync(Guid executionId, string approvedBy, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -184,9 +209,55 @@ public sealed class ExecutionService(
             return "Le demandeur ne peut pas approuver sa propre opération. "
                  + "L'approbation doit venir d'une autre personne.";
 
-        execution.ApprovedBy = approvedBy;
-        execution.ApprovedAt = DateTimeOffset.UtcNow;
+        if (execution.ApprovedBy is null)
+        {
+            execution.ApprovedBy = approvedBy;
+            execution.ApprovedAt = DateTimeOffset.UtcNow;
+
+            if (!execution.RequiresDoubleApproval)
+                execution.Status = ExecutionStatus.EnPreparation;
+
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+
+        // Une premiere approbation existe deja : soit ce second appel est le
+        // second regard exige, soit il n'y a rien a faire de plus.
+        if (!execution.RequiresDoubleApproval)
+            return "Cette exécution est déjà approuvée.";
+
+        if (string.Equals(execution.ApprovedBy, approvedBy, StringComparison.OrdinalIgnoreCase))
+            return "Le second approbateur doit être une personne différente du premier — "
+                 + "un double regard par la même personne n'en est pas un.";
+
+        execution.SecondApprovedBy = approvedBy;
+        execution.SecondApprovedAt = DateTimeOffset.UtcNow;
         execution.Status = ExecutionStatus.EnPreparation;
+
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    /// <summary>
+    /// Enregistre le choix de continuité Center (FR-046/047) : rester actif,
+    /// ou basculer vers le Standby. Rejouable tant que l'exécution n'est pas
+    /// lancée — un opérateur qui change d'avis avant le lancement réel ne
+    /// doit pas être bloqué par un premier choix.
+    /// </summary>
+    public async Task<string?> SetContinuityChoiceAsync(
+        Guid executionId, CenterContinuityChoice choice, string actor, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
+        if (execution is null) return "Exécution introuvable.";
+
+        if (!execution.IsActive || execution.Status is ExecutionStatus.EnCours or ExecutionStatus.EnPause)
+            return $"Cette exécution est en état {execution.Status} : le choix de continuité ne peut plus être modifié.";
+
+        execution.ContinuityChoice = choice;
+        execution.ContinuityChoiceBy = actor;
+        execution.ContinuityChoiceAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
         return null;
@@ -203,8 +274,23 @@ public sealed class ExecutionService(
         var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
         if (execution is null) return "Exécution introuvable.";
 
+        // AC-07 : une tentative de lancement refusee faute d'approbation est
+        // elle-meme un evenement a tracer, pas seulement le blocage lui-meme.
+        // Sans cette ecriture, un operateur pouvait essayer de lancer une
+        // operation Production non approuvee autant de fois qu'il le
+        // souhaitait sans que rien n'en reste dans la piste d'audit.
         if (execution.Status == ExecutionStatus.EnAttenteApprobation)
+        {
+            await auditWriter.WriteAsync(
+                AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, actor,
+                entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
+                entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
+                environmentId: execution.EnvironmentId,
+                reason: "Lancement tenté avant approbation.",
+                correlationId: execution.CorrelationId, ct: ct);
+
             return "Cette opération attend une approbation avant d'être lancée.";
+        }
 
         if (execution.Status != ExecutionStatus.EnPreparation)
             return $"Cette exécution est en état {execution.Status} : elle ne peut pas être lancée.";
@@ -219,9 +305,19 @@ public sealed class ExecutionService(
                  + "Lancez le pré-check depuis l'écran de l'opération.";
 
         if (execution.PreflightBlocked)
+        {
+            await auditWriter.WriteAsync(
+                AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, actor,
+                entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
+                entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
+                environmentId: execution.EnvironmentId,
+                reason: "Lancement tenté malgré un pré-check bloquant.",
+                correlationId: execution.CorrelationId, ct: ct);
+
             return "Les contrôles préalables ont relevé au moins un échec bloquant. "
                  + "L'opération ne peut pas être lancée tant qu'il n'est pas corrigé — "
                  + "un contrôle bloquant ne se contourne pas.";
+        }
 
         // Une simulation n'emet aucune commande : elle ne prend donc pas le
         // verrou, et n'empeche personne de travailler.
@@ -241,6 +337,13 @@ public sealed class ExecutionService(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Exécution {Correlation} lancée par {Acteur}.", execution.CorrelationId, actor);
+
+        await auditWriter.WriteAsync(
+            AuditAction.ExecutionOperation, AuditOutcome.Succes, actor,
+            entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
+            entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
+            environmentId: execution.EnvironmentId, reason: execution.Reason,
+            correlationId: execution.CorrelationId, ct: ct);
 
         await ReveillerMoteurAsync(ct);
         return null;
@@ -398,6 +501,12 @@ public sealed class ExecutionService(
 
         logger.LogWarning(
             "Étape « {Etape} » contournée par {Acteur} : {Motif}", etape.Name, actor, reason);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Contournement, AuditOutcome.Succes, actor,
+            entityType: nameof(ExecutionStep), entityId: etape.Id.ToString(), entityLabel: etape.Name,
+            environmentId: etape.Execution?.EnvironmentId, reason: reason,
+            correlationId: etape.Execution?.CorrelationId, ct: ct);
 
         return null;
     }

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Diagnostic;
 using N4Sentinel.Infrastructure.Persistence;
 
 namespace N4Sentinel.Infrastructure.Orchestration;
@@ -215,18 +216,21 @@ public sealed class OrchestrationEngine(
                 return;
             }
 
-            var suivante = execution.Steps
+            var restantes = execution.Steps
+                .Where(s => !s.IsTerminal)
                 .OrderBy(s => s.Order)
-                .FirstOrDefault(s => !s.IsTerminal);
+                .ToList();
 
             // --- Plus rien a faire : on conclut.
-            if (suivante is null)
+            if (restantes.Count == 0)
             {
                 var (statut, motif) = Conclure(execution);
                 await TerminerAsync(db, execution, statut, motif, locks, ct);
                 Notifier(executionId);
                 return;
             }
+
+            var suivante = restantes[0];
 
             // --- Etape en attente d'un geste humain : on ne fait rien, on attend.
             if (suivante.State is ExecutionStepState.EnAttente or ExecutionStepState.Bloque)
@@ -236,44 +240,106 @@ public sealed class OrchestrationEngine(
                 continue;
             }
 
-            // --- Confirmation prealable exigee : le moteur demande le feu vert.
+            // --- Confirmation préalable exigée : le moteur vérifie si le Palier 2 (automatique bout en bout) est actif.
             if (suivante.RequiresConfirmation && suivante.ConfirmedBy is null)
             {
-                suivante.State = ExecutionStepState.EnAttente;
-                suivante.ProgressMessage =
-                    "Cette étape exige une confirmation explicite avant d'être exécutée.";
-                await db.SaveChangesAsync(ct);
-                Notifier(executionId);
-                continue;
+                var isPalier2Auto = execution.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout 
+                                  && !execution.IsFallbackSemiAutoForced 
+                                  && suivante.Action != StepAction.InterventionManuelle;
+
+                if (isPalier2Auto)
+                {
+                    suivante.ConfirmedBy = "Système (Palier 2 Automatique)";
+                    suivante.ConfirmedAt = DateTimeOffset.UtcNow;
+                    suivante.ProgressMessage = "Validation automatique Palier 2 — Exécution contrôlée de bout en bout.";
+                    logger.LogInformation("[Palier 2] Auto-confirmation de l'étape {StepName} pour l'exécution {CorrelationId}.", suivante.Name, execution.CorrelationId);
+                }
+                else
+                {
+                    suivante.State = ExecutionStepState.EnAttente;
+                    suivante.ProgressMessage =
+                        "Cette étape exige une confirmation explicite avant d'être exécutée.";
+                    await db.SaveChangesAsync(ct);
+                    Notifier(executionId);
+                    continue;
+                }
             }
 
-            // --- Execution de l'etape.
-            suivante.State = ExecutionStepState.EnCours;
-            suivante.StartedAt ??= DateTimeOffset.UtcNow;
-            suivante.AttemptCount++;
-            suivante.ProgressMessage = "Démarrage de l'étape.";
+            // --- Constitution du lot a lancer ensemble (FR-023) : la premiere
+            // etape, puis toute suite CONTIGUE d'etapes declarees
+            // parallelisables et immediatement pretes. Le validateur de
+            // sequence a deja refuse, a la preparation, toute parallelisation
+            // qui violerait le graphe de dependances (ex. plusieurs noeuds
+            // Cluster demarres ensemble) : le moteur peut donc lancer le lot
+            // sans le rejuger lui-meme. Une etape qui attend une confirmation
+            // ou un geste humain arrete le lot ; elle sera traitee seule, au
+            // tour suivant.
+            var lot = new List<ExecutionStep> { suivante };
+            if (suivante.CanRunInParallel)
+            {
+                foreach (var candidate in restantes.Skip(1))
+                {
+                    if (!candidate.CanRunInParallel) break;
+                    if (candidate.State is ExecutionStepState.EnAttente or ExecutionStepState.Bloque) break;
+                    if (candidate.RequiresConfirmation && candidate.ConfirmedBy is null) break;
+                    lot.Add(candidate);
+                }
+            }
+
+            // --- Lancement du lot.
+            var enParallele = lot.Count > 1;
+            foreach (var etape in lot)
+            {
+                etape.State = ExecutionStepState.EnCours;
+                etape.StartedAt ??= DateTimeOffset.UtcNow;
+                etape.AttemptCount++;
+                etape.ProgressMessage = enParallele ? "Démarrage de l'étape (en parallèle)." : "Démarrage de l'étape.";
+            }
             await db.SaveChangesAsync(ct);
             Notifier(executionId);
 
-            var etapeId = suivante.Id;
-            var progress = new Progress<string>(message =>
-            {
-                _progression[executionId] = $"[{suivante.Name}] {message}";
-                _ = EnregistrerProgressionAsync(dbFactory, etapeId, message);
-                Notifier(executionId);
-            });
+            if (enParallele)
+                logger.LogInformation(
+                    "[{Correlation}] Lancement en parallèle de {N} étapes : {Etapes}.",
+                    execution.CorrelationId, lot.Count, string.Join(", ", lot.Select(e => e.Name)));
 
-            logger.LogInformation(
-                "[{Correlation}] Étape {Ordre} — {Etape} ({Action}) sur {Composant}.",
-                execution.CorrelationId, suivante.Order, suivante.Name, suivante.Action,
-                suivante.ComponentName ?? "—");
+            var taches = lot.Select(etape => ExecuterUneEtapeAsync(
+                dbFactory, executor, executionId, execution.CorrelationId, execution.IsSimulation, etape, ct));
 
-            var issue = await executor.ExecuteAsync(suivante, execution.IsSimulation, progress, ct);
+            await Task.WhenAll(taches);
 
-            await AppliquerAsync(dbFactory, executionId, etapeId, issue, ct);
             _progression.TryRemove(executionId, out _);
             Notifier(executionId);
         }
+    }
+
+    /// <summary>
+    /// Exécute une étape et applique son issue. Isolé de <see cref="RunAsync"/>
+    /// pour pouvoir être lancé plusieurs fois à la fois via
+    /// <see cref="Task.WhenAll"/> (FR-023) — chaque appel utilise son propre
+    /// contexte EF Core, jamais partagé entre tâches concurrentes.
+    /// </summary>
+    private async Task ExecuterUneEtapeAsync(
+        IDbContextFactory<N4SentinelDbContext> dbFactory, StepExecutor executor, Guid executionId,
+        string correlationId, bool isSimulation, ExecutionStep suivante, CancellationToken ct)
+    {
+        var etapeId = suivante.Id;
+        var progress = new Progress<string>(message =>
+        {
+            var masque = SecretMasker.Masquer(message).Texte;
+            _progression[executionId] = $"[{suivante.Name}] {masque}";
+            _ = EnregistrerProgressionAsync(dbFactory, etapeId, message);
+            Notifier(executionId);
+        });
+
+        logger.LogInformation(
+            "[{Correlation}] Étape {Ordre} — {Etape} ({Action}) sur {Composant}.",
+            correlationId, suivante.Order, suivante.Name, suivante.Action,
+            suivante.ComponentName ?? "—");
+
+        var issue = await executor.ExecuteAsync(suivante, isSimulation, progress, ct);
+
+        await AppliquerAsync(dbFactory, executionId, etapeId, issue, ct);
     }
 
     /// <summary>
@@ -476,11 +542,16 @@ public sealed class OrchestrationEngine(
 
             // Restreint aux etapes qui tournent : un message en retard ne doit
             // pas venir ecraser l'etat d'une etape deja conclue.
+            // Masquage systematique (SEC-005 / FR-021) : ce message de
+            // progression peut porter une ligne de journal N4 lue en direct,
+            // le meme canal par lequel un secret peut fuir (voir StepOutcome).
+            var masque = SecretMasker.Masquer(message).Texte;
+
             await db.ExecutionSteps
                 .Where(s => s.Id == stepId
                             && (s.State == ExecutionStepState.EnCours
                                 || s.State == ExecutionStepState.Verification))
-                .ExecuteUpdateAsync(m => m.SetProperty(s => s.ProgressMessage, Tronquer(message, 1000)));
+                .ExecuteUpdateAsync(m => m.SetProperty(s => s.ProgressMessage, Tronquer(masque, 1000)));
         }
         catch
         {
@@ -492,6 +563,30 @@ public sealed class OrchestrationEngine(
     {
         try { ExecutionChanged?.Invoke(executionId); }
         catch (Exception ex) { logger.LogDebug(ex, "Abonné en erreur lors de la notification."); }
+    }
+
+    /// <summary>
+    /// Bascule d'urgence 1-Click vers le mode Semi-Automatique (Palier 1).
+    /// Interrompt l'enchaînement automatique et remet l'exécution sous contrôle manuel strict.
+    /// </summary>
+    public async Task<bool> ToggleFallbackToSemiAutoAsync(Guid executionId, string actor, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<N4SentinelDbContext>>()
+            .CreateDbContextAsync(ct);
+
+        var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
+        if (execution is null) return false;
+
+        execution.AutomationLevel = AutomationLevel.SemiAutomatique;
+        execution.IsFallbackSemiAutoForced = true;
+
+        await db.SaveChangesAsync(ct);
+        logger.LogWarning("[Urgence Palier 1] {Actor} a basculé l'exécution {CorrelationId} en mode Semi-Automatique.", actor, execution.CorrelationId);
+
+        Notifier(executionId);
+        return true;
     }
 
     private static string Tronquer(string texte, int max = 2000) =>

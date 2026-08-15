@@ -36,13 +36,12 @@ public sealed class DocumentaireTests : IAsyncLifetime
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
                + "TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        _factory = new TestDbContextFactory(
-            new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
         await using var db = _factory.CreateDbContext();
         await db.Database.EnsureCreatedAsync();
 
-        _base = new KnowledgeService(_factory, NullLogger<KnowledgeService>.Instance);
+        _base = new KnowledgeService(_factory, NullLogger<KnowledgeService>.Instance, new AuditWriter(_factory));
     }
 
     public async Task DisposeAsync()
@@ -148,9 +147,29 @@ public sealed class DocumentaireTests : IAsyncLifetime
         await _base.ValidateAsync(r.DocumentId, "m.konate");
         Assert.True((await _base.AskAsync("marqueur de démarrage")).Answered);
 
-        await _base.RevokeAsync(r.DocumentId);
+        await _base.RevokeAsync(r.DocumentId, "test");
 
         Assert.False((await _base.AskAsync("marqueur de démarrage")).Answered);
+    }
+
+    [Fact(DisplayName = "Valider puis revoquer un document laisse une trace d'audit (FR-091)")]
+    public async Task Valider_Et_Revoquer_Sont_Audites()
+    {
+        var r = await IndexerGuideAsync();
+        await _base.ValidateAsync(r.DocumentId, "m.konate");
+        await _base.RevokeAsync(r.DocumentId, "m.konate");
+
+        await using var db = _factory.CreateDbContext();
+        var traces = await db.AuditEntries
+            .Where(a => a.Action == AuditAction.ChangementDeStatut)
+            .Where(a => a.EntityId == r.DocumentId.ToString())
+            .OrderBy(a => a.OccurredAt)
+            .ToListAsync();
+
+        Assert.Equal(2, traces.Count);
+        Assert.All(traces, t => Assert.Equal("m.konate", t.Actor));
+        Assert.Contains("Validé", traces[0].Reason);
+        Assert.Contains("Désactivé", traces[1].Reason);
     }
 
     [Fact]

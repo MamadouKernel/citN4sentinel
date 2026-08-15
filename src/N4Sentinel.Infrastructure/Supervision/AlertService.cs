@@ -98,6 +98,256 @@ public sealed class AlertService(
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// FR-032/033 : Center et Standby actifs simultanément est un split-brain,
+    /// pas une panne de composant — d'où une alerte de portée ENVIRONNEMENT
+    /// (<see cref="Alert.ComponentId"/> nul), distincte du mécanisme par
+    /// composant de <see cref="EvaluateAsync"/>. Ni <paramref name="center"/>
+    /// ni <paramref name="standby"/> ne sont supposés présents : un
+    /// environnement peut ne déclarer que l'un des deux, ou aucun.
+    /// </summary>
+    public async Task EvaluateCenterConflictAsync(
+        Guid environmentId, ComponentHealthSnapshot? center, ComponentHealthSnapshot? standby,
+        CancellationToken ct = default)
+    {
+        var enConflit = center?.HoldsActiveRole == true && standby?.HoldsActiveRole == true;
+        var signature = Alert.BuildSignature(AlertKind.ConflitRoleActifCenter, null);
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var existante = await db.Alerts.FirstOrDefaultAsync(a =>
+            a.EnvironmentId == environmentId && a.Signature == signature
+            && (a.Status == AlertStatus.Ouverte || a.Status == AlertStatus.Acquittee), ct);
+
+        if (enConflit)
+        {
+            var detail = $"{center!.LogicalName} ET {standby!.LogicalName} détiennent tous deux le rôle actif "
+                        + "d'après leurs marqueurs de journal respectifs.";
+
+            if (existante is null)
+            {
+                db.Alerts.Add(new Alert
+                {
+                    Signature = signature,
+                    EnvironmentId = environmentId,
+                    ComponentId = null,
+                    ComponentName = "Center / Standby",
+                    Kind = AlertKind.ConflitRoleActifCenter,
+                    Severity = AlertSeverity.Critique,
+                    Title = "Center et Standby actifs simultanément",
+                    Detail = detail,
+                    Recommendation = "N'intervenez pas avant d'avoir confirmé lequel doit rester actif. "
+                        + "Un split-brain corrompt l'état partagé si les deux continuent à écrire. "
+                        + "Consultez la procédure de bascule Center avant toute action."
+                });
+
+                logger.LogWarning("Alerte ouverte — conflit de rôle Center/Standby sur l'environnement {Env}.", environmentId);
+            }
+            else
+            {
+                existante.LastOccurredAt = DateTimeOffset.UtcNow;
+                existante.OccurrenceCount++;
+                existante.Detail = detail;
+            }
+        }
+        else if (existante is not null)
+        {
+            existante.Status = AlertStatus.Resolue;
+            existante.ResolvedAt = DateTimeOffset.UtcNow;
+
+            logger.LogInformation("Alerte résolue — conflit de rôle Center/Standby sur l'environnement {Env}.", environmentId);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// FR-059I : alertes EDI, dérivées des fichiers suivis par
+    /// <c>EdiTrackingService</c>. Deux conditions, chacune conditionnée à un
+    /// seuil DÉCLARÉ sur le composant — sans seuil, aucune alerte n'est levée
+    /// plutôt que d'en inventer un par défaut.
+    /// </summary>
+    public async Task EvaluateEdiAsync(N4Component composant, List<EdiFile> fichiers, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var existantes = await db.Alerts
+            .Where(a => a.ComponentId == composant.Id
+                        && (a.Kind == AlertKind.FichierEdiNonConsomme
+                            || a.Kind == AlertKind.AucuneIntegrationEdiRecente
+                            || a.Kind == AlertKind.EchecsEdiRepetes)
+                        && (a.Status == AlertStatus.Ouverte || a.Status == AlertStatus.Acquittee))
+            .ToListAsync(ct);
+
+        // --- Fichiers non consommes au-dela du delai declare -----------------
+        var signatureRetard = Alert.BuildSignature(AlertKind.FichierEdiNonConsomme, composant.Id);
+        var ouverteRetard = existantes.FirstOrDefault(a => a.Signature == signatureRetard);
+
+        var enRetard = composant.SharedFolder.MaxPendingAgeHours is { } seuilAge
+            ? fichiers.Where(f => f.Status is EdiFileStatus.EnAttente or EdiFileStatus.Rejete
+                                   && f.Age.TotalHours > seuilAge).ToList()
+            : [];
+
+        if (enRetard.Count > 0)
+        {
+            var detail = $"{enRetard.Count} fichier(s) non consommé(s) depuis plus de "
+                       + $"{composant.SharedFolder.MaxPendingAgeHours} h : "
+                       + string.Join(", ", enRetard.Take(5).Select(f => f.FileName))
+                       + (enRetard.Count > 5 ? "…" : "");
+
+            if (ouverteRetard is null)
+            {
+                db.Alerts.Add(new Alert
+                {
+                    Signature = signatureRetard,
+                    EnvironmentId = composant.EnvironmentId,
+                    ComponentId = composant.Id,
+                    ComponentName = composant.LogicalName,
+                    Kind = AlertKind.FichierEdiNonConsomme,
+                    Severity = AlertSeverity.Avertissement,
+                    Title = $"{composant.LogicalName} : fichier(s) EDI non consommé(s)",
+                    Detail = detail,
+                    Recommendation = "Vérifiez le traitement en attente et la disponibilité du composant "
+                        + "d'intégration en aval avant de rejouer ou de déplacer les fichiers concernés."
+                });
+
+                logger.LogWarning("Alerte ouverte — fichiers EDI non consommés sur {Composant}.", composant.LogicalName);
+            }
+            else
+            {
+                ouverteRetard.LastOccurredAt = DateTimeOffset.UtcNow;
+                ouverteRetard.OccurrenceCount++;
+                ouverteRetard.Detail = detail;
+            }
+        }
+        else if (ouverteRetard is not null)
+        {
+            ouverteRetard.Status = AlertStatus.Resolue;
+            ouverteRetard.ResolvedAt = DateTimeOffset.UtcNow;
+        }
+
+        // --- Aucune integration reussie recente --------------------------------
+        var signatureIntegration = Alert.BuildSignature(AlertKind.AucuneIntegrationEdiRecente, composant.Id);
+        var ouverteIntegration = existantes.FirstOrDefault(a => a.Signature == signatureIntegration);
+
+        var enRetardIntegration = false;
+        string? detailIntegration = null;
+
+        if (composant.SharedFolder.MaxHoursSinceLastIntegration is { } seuilIntegration && fichiers.Count > 0)
+        {
+            var derniereIntegration = fichiers
+                .Where(f => f.IntegratedAt is not null)
+                .Select(f => f.IntegratedAt!.Value)
+                .OrderDescending()
+                .FirstOrDefault();
+
+            if (derniereIntegration == default)
+            {
+                enRetardIntegration = true;
+                detailIntegration = "Aucune intégration réussie n'a jamais été observée pour ce dossier.";
+            }
+            else if ((DateTimeOffset.UtcNow - derniereIntegration).TotalHours > seuilIntegration)
+            {
+                enRetardIntegration = true;
+                detailIntegration = $"Dernière intégration réussie le "
+                    + $"{derniereIntegration.ToLocalTime():dd/MM/yyyy HH:mm}, au-delà du délai déclaré "
+                    + $"({seuilIntegration} h).";
+            }
+        }
+
+        if (enRetardIntegration)
+        {
+            if (ouverteIntegration is null)
+            {
+                db.Alerts.Add(new Alert
+                {
+                    Signature = signatureIntegration,
+                    EnvironmentId = composant.EnvironmentId,
+                    ComponentId = composant.Id,
+                    ComponentName = composant.LogicalName,
+                    Kind = AlertKind.AucuneIntegrationEdiRecente,
+                    Severity = AlertSeverity.Critique,
+                    Title = $"{composant.LogicalName} : aucune intégration EDI récente",
+                    Detail = detailIntegration!,
+                    Recommendation = "Vérifiez que le composant d'intégration fonctionne et qu'il reçoit "
+                        + "réellement des fichiers — une absence totale d'intégration peut aussi bien signaler "
+                        + "un flux tari en amont qu'un composant en panne."
+                });
+
+                logger.LogWarning("Alerte ouverte — aucune intégration EDI récente sur {Composant}.", composant.LogicalName);
+            }
+            else
+            {
+                ouverteIntegration.LastOccurredAt = DateTimeOffset.UtcNow;
+                ouverteIntegration.OccurrenceCount++;
+                ouverteIntegration.Detail = detailIntegration!;
+            }
+        }
+        else if (ouverteIntegration is not null)
+        {
+            ouverteIntegration.Status = AlertStatus.Resolue;
+            ouverteIntegration.ResolvedAt = DateTimeOffset.UtcNow;
+        }
+
+        // --- Fichiers en echec repete (FR-059I) -------------------------------
+        // Distinct du retard : un fichier retraite toutes les heures peut ne
+        // jamais depasser le seuil d'anciennete tout en echouant a chaque
+        // fois, ce qui pointe vers un partenaire ou un format en cause plutot
+        // qu'un simple ralentissement.
+        var signatureEchecs = Alert.BuildSignature(AlertKind.EchecsEdiRepetes, composant.Id);
+        var ouverteEchecs = existantes.FirstOrDefault(a => a.Signature == signatureEchecs);
+
+        var enEchecRepete = fichiers
+            .Where(f => f.ConsecutiveRejections >= SeuilEchecsEdiConsecutifs)
+            .OrderByDescending(f => f.ConsecutiveRejections)
+            .ToList();
+
+        if (enEchecRepete.Count > 0)
+        {
+            var detail = $"{enEchecRepete.Count} fichier(s) EDI en échec {SeuilEchecsEdiConsecutifs} fois ou plus "
+                       + "de suite : "
+                       + string.Join(", ", enEchecRepete.Take(5)
+                             .Select(f => $"{f.FileName} ({f.ConsecutiveRejections}×, partenaire {f.Partner ?? "non classé"})"))
+                       + (enEchecRepete.Count > 5 ? "…" : "");
+
+            if (ouverteEchecs is null)
+            {
+                db.Alerts.Add(new Alert
+                {
+                    Signature = signatureEchecs,
+                    EnvironmentId = composant.EnvironmentId,
+                    ComponentId = composant.Id,
+                    ComponentName = composant.LogicalName,
+                    Kind = AlertKind.EchecsEdiRepetes,
+                    Severity = AlertSeverity.Avertissement,
+                    Title = $"{composant.LogicalName} : fichier(s) EDI en échec répété",
+                    Detail = detail,
+                    Recommendation = "Un échec qui se répète sur le même fichier signale souvent un format ou "
+                        + "un partenaire en cause, pas un incident ponctuel. Consultez le journal du composant "
+                        + "d'intégration avant de rejouer le fichier une nouvelle fois."
+                });
+
+                logger.LogWarning("Alerte ouverte — fichiers EDI en échec répété sur {Composant}.", composant.LogicalName);
+            }
+            else
+            {
+                ouverteEchecs.LastOccurredAt = DateTimeOffset.UtcNow;
+                ouverteEchecs.OccurrenceCount++;
+                ouverteEchecs.Detail = detail;
+            }
+        }
+        else if (ouverteEchecs is not null)
+        {
+            ouverteEchecs.Status = AlertStatus.Resolue;
+            ouverteEchecs.ResolvedAt = DateTimeOffset.UtcNow;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>FR-059I : au-delà, un fichier EDI est considéré en échec répété.</summary>
+    private const int SeuilEchecsEdiConsecutifs = 3;
+
     // -----------------------------------------------------------------------
     // Détection
     // -----------------------------------------------------------------------
@@ -195,7 +445,58 @@ public sealed class AlertService(
                 + "Si la situation persiste au-delà du délai configuré, consultez le journal du composant.",
                 s.ComponentId);
         }
+
+        // 7. Noeud lent (FR-058). Le temps de reponse du premier
+        //    aller-retour d'interrogation est le signal de lenteur le moins
+        //    cher : un noeud sous tension repond mesurablement plus
+        //    lentement avant meme qu'un etat degrade ne se declenche.
+        if (s.ResponseTimeMs is { } tempsReponse && tempsReponse > SeuilLenteurNoeudMs)
+        {
+            yield return new AlertCondition(
+                AlertKind.NoeudLent, AlertSeverity.Avertissement,
+                $"{s.LogicalName} répond lentement",
+                $"Le dernier relevé a mis {tempsReponse:0} ms à répondre, contre un seuil de {SeuilLenteurNoeudMs:0} ms.",
+                "Vérifiez la charge CPU/mémoire du serveur et la latence réseau vers lui avant qu'un état "
+                + "dégradé ne se déclare : une lenteur de réponse précède souvent l'incident, elle ne le suit pas.",
+                s.ComponentId);
+        }
+
+        // 8. Ressource critique (FR-054) : espace disque du serveur qui
+        //    heberge ce composant. Meme seuil que le pre-check (< 10 %
+        //    libre) pour que les deux controles se contredisent jamais.
+        if (s.DiskFreePercentMin is { } libre && libre < 10)
+        {
+            yield return new AlertCondition(
+                AlertKind.RessourceCritique,
+                libre < 5 ? AlertSeverity.Critique : AlertSeverity.Avertissement,
+                $"{s.HostName} : disque {s.DiskCriticalDrive} à {libre:0.0}% libre",
+                $"Le disque {s.DiskCriticalDrive} du serveur hébergeant « {s.LogicalName} » ne dispose plus "
+                + $"que de {libre:0.0}% d'espace libre.",
+                "Un disque saturé bloque l'écriture des journaux applicatifs et des files ActiveMQ/KahaDB "
+                + "avant qu'aucun autre symptôme n'apparaisse. Libérez de l'espace ou étendez le volume avant "
+                + "de lancer toute opération mutative sur ce composant.",
+                s.ComponentId);
+        }
+
+        // 9. Synchronisation N4-XPS en retard (FR-056). Portee composant
+        //    (le Bridge ou le XPS concerne), pas environnement : contraste
+        //    avec le conflit Center/Standby qui, lui, n'impute personne.
+        if (s.SyncDelayed == true)
+        {
+            yield return new AlertCondition(
+                AlertKind.SynchronisationXpsRetardee, AlertSeverity.Critique,
+                $"{s.LogicalName} : synchronisation N4-XPS en retard",
+                s.LastSyncConfirmedAt is { } confirmeLe
+                    ? $"Dernier échange normal confirmé le {confirmeLe.ToLocalTime():dd/MM/yyyy HH:mm:ss}."
+                    : "Aucun échange normal confirmé depuis le début de la supervision de ce composant.",
+                "Retard documenté comme cause de désynchronisation N4/XPS : vérifiez les files Center, le "
+                + "consommateur Bridge, la charge XPS et la base ECI avant d'agir sur le composant lui-même.",
+                s.ComponentId);
+        }
     }
+
+    /// <summary>Au-delà, un nœud est considéré comme répondant lentement (FR-058).</summary>
+    private const double SeuilLenteurNoeudMs = 5000;
 
     private sealed record AlertCondition(
         AlertKind Kind,

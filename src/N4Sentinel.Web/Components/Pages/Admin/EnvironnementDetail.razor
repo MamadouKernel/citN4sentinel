@@ -10,6 +10,8 @@
 @inject ReferentialService Referential
 @inject NavisConfigImporter Importer
 @inject ConnectivityTester Tester
+@inject SupervisionService Supervision
+@inject SupervisionStateCache StateCache
 @inject CurrentEnvironmentState EnvState
 @inject NavigationManager Nav
 
@@ -165,6 +167,25 @@ else
                         {
                             <div class="text-rose-300">@e</div>
                         }
+                    </div>
+                }
+
+                @if (_verificationImportEnCours)
+                {
+                    <div class="p-3 rounded-xl text-xs bg-sky-500/10 border border-sky-500/20 text-sky-200 flex items-center gap-2">
+                        <div class="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+                        Vérification de la joignabilité des serveurs importés…
+                    </div>
+                }
+                @if (_resultatVerificationImport is { } resultatJoignabilite)
+                {
+                    <div class="p-3 rounded-xl text-xs bg-slate-900 border border-slate-800 text-slate-300">
+                        <span class="text-emerald-400 font-bold">@resultatJoignabilite.Joignables joignable(s)</span>
+                        @if (resultatJoignabilite.Injoignables > 0)
+                        {
+                            <text> &middot; <span class="text-slate-400 font-bold">@resultatJoignabilite.Injoignables injoignable(s)</span></text>
+                        }
+                        <text> — voir la cartographie pour le détail par serveur.</text>
                     </div>
                 }
             </div>
@@ -363,6 +384,8 @@ else
     private bool _importOuvert;
     private bool _afficherStructureModele;
     private ImportReport? _rapportImport;
+    private bool _verificationImportEnCours;
+    private (int Joignables, int Injoignables)? _resultatVerificationImport;
 
     private string? _messageStatut;
     private bool _statutEnErreur;
@@ -453,6 +476,7 @@ else
     private async Task ChargerFichier(InputFileChangeEventArgs e)
     {
         _rapportImport = null;
+        _resultatVerificationImport = null;
         var fichier = e.File;
         if (fichier is null) return;
 
@@ -468,5 +492,40 @@ else
 
         _rapportImport = await Importer.ImportAsync(Id, json);
         await Recharger();
+
+        if (_rapportImport.Succeeded && _rapportImport.CreatedComponentIds.Count > 0)
+        {
+            await VerifierJoignabiliteApresImportAsync(_rapportImport.CreatedComponentIds);
+        }
+    }
+
+    /// <summary>
+    /// Interroge immédiatement chaque composant importé, sans attendre le
+    /// balayage de fond (30 s) ni la validation de l'environnement : un
+    /// opérateur qui vient d'importer un fichier veut savoir tout de suite
+    /// quels serveurs répondent. Le résultat alimente le même cache que la
+    /// supervision continue (FR-052) : la cartographie se colore aussitôt —
+    /// vert si l'état est prouvé Disponible, gris si le serveur est injoignable.
+    /// </summary>
+    private async Task VerifierJoignabiliteApresImportAsync(IReadOnlyList<Guid> componentIds)
+    {
+        _verificationImportEnCours = true;
+        StateHasChanged();
+
+        try
+        {
+            var evaluations = await Task.WhenAll(
+                componentIds.Select(id => Supervision.EvaluateComponentAsync(id)));
+
+            foreach (var snapshot in evaluations)
+                StateCache.UpdateSnapshot(snapshot);
+
+            var injoignables = evaluations.Count(s => s.State == ComponentState.Inconnu);
+            _resultatVerificationImport = (evaluations.Length - injoignables, injoignables);
+        }
+        finally
+        {
+            _verificationImportEnCours = false;
+        }
     }
 }

@@ -22,10 +22,16 @@ public class N4Server : AuditableEntity
     public string? OperatingSystem { get; set; }
 
     /// <summary>Port WinRM. 5985 en HTTP, 5986 en HTTPS.</summary>
-    public int WinRmPort { get; set; } = 5985;
+    public int WinRmPort { get; set; } = 5986;
 
-    /// <summary>Impose HTTPS pour la session WinRM (SEC-005).</summary>
-    public bool UseSsl { get; set; }
+    /// <summary>
+    /// Impose HTTPS pour la session WinRM (SEC-004). Vrai par défaut pour
+    /// toute nouvelle déclaration : un serveur en clair est une exception
+    /// assumée, pas le point de départ. Les serveurs déjà déclarés en base
+    /// gardent la valeur qu'ils avaient — ce changement de défaut n'affecte
+    /// que les fiches créées à partir de maintenant.
+    /// </summary>
+    public bool UseSsl { get; set; } = true;
 
     public CriticalityLevel Criticality { get; set; } = CriticalityLevel.Moyenne;
 

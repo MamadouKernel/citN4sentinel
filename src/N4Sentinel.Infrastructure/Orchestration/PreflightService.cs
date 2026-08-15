@@ -28,6 +28,9 @@ public sealed class PreflightService(
     ConnectorTargetFactory targetFactory,
     IN4Connector connector,
     EnvironmentLockService locks,
+    SequenceValidator sequenceValidator,
+    Supervision.SupervisionService supervision,
+    CenterContinuityService continuity,
     ILogger<PreflightService> logger)
 {
     public async Task<PreflightReport> RunAsync(Guid executionId, CancellationToken ct = default)
@@ -52,7 +55,10 @@ public sealed class PreflightService(
         ControlerPilotabilite(execution, composants, controles);
         ControlerMarqueurs(execution, composants, controles);
         await ControlerPrerequisAsync(db, execution, composants, controles, ct);
+        await ControlerSequenceAsync(execution, controles, ct);
         await ControlerServeursAsync(composants, controles, execution.IsSimulation, ct);
+        await ControlerEtatInitialDemarrageCompletAsync(execution, composants, controles, ct);
+        await ControlerContinuiteCenterAsync(execution, controles, ct);
         ControlerImpact(execution, composants, controles);
 
         var rapport = new PreflightReport
@@ -249,6 +255,158 @@ public sealed class PreflightService(
             $"{noms.Count} prérequis ne sont pas démarrés par cette séquence : {string.Join(", ", noms)}. "
             + "S'ils ne sont pas déjà opérationnels, les composants qui en dépendent échoueront.",
             "Ajoutez une étape de contrôle en tête de séquence, ou vérifiez leur état sur l'écran de supervision."));
+    }
+
+    /// <summary>
+    /// Rejoue le garde-fou anti-séquence-invalide (FR-044) sur les étapes
+    /// RÉELLEMENT préparées pour cette exécution — pas seulement au moment où
+    /// le workflow a été édité. Une dépendance ajoutée ou modifiée après la
+    /// dernière validation du workflow ne doit pas pouvoir se glisser dans une
+    /// exécution réelle sans être revue.
+    /// </summary>
+    private async Task ControlerSequenceAsync(
+        WorkflowExecution execution, List<PreflightCheck> controles, CancellationToken ct)
+    {
+        var violations = await sequenceValidator.ValidateAsync(
+            execution.EnvironmentId, execution.Steps.ToList(), ct);
+
+        if (violations.Count == 0)
+        {
+            controles.Add(PreflightCheck.Reussi(
+                "Cohérence de la séquence",
+                "Aucune violation du graphe de dépendances détectée."));
+            return;
+        }
+
+        var bloquantes = violations.Where(v => v.Blocking).ToList();
+        var texte = string.Join(" ; ", violations.Select(v => v.Message));
+
+        controles.Add(bloquantes.Count > 0
+            ? PreflightCheck.Echec(
+                "Cohérence de la séquence",
+                texte,
+                "Cette séquence contredit le graphe de dépendances déclaré au référentiel — "
+                + "typiquement XPS avant Bridge, ou Center avant les Cluster Nodes. "
+                + "Elle ne peut être lancée telle quelle.",
+                bloquant: true)
+            : PreflightCheck.Avertissement(
+                "Cohérence de la séquence", texte,
+                "Ces réserves ne bloquent pas le lancement, mais méritent un contrôle avant de continuer."));
+    }
+
+    /// <summary>
+    /// FR-036/AC-16 : un démarrage complet ne peut commencer que si tous les
+    /// composants ciblés sont confirmés DOWN. En laisser un déjà actif expose
+    /// à une double commande de démarrage — inoffensive au mieux, source
+    /// d'état incohérent au pire.
+    /// </summary>
+    private async Task ControlerEtatInitialDemarrageCompletAsync(
+        WorkflowExecution execution, Dictionary<Guid, N4Component> composants,
+        List<PreflightCheck> controles, CancellationToken ct)
+    {
+        if (execution.Kind != WorkflowKind.DemarrageComplet) return;
+
+        var cibles = execution.Steps
+            .Where(s => s.Action is StepAction.Demarrer or StepAction.Redemarrer && s.ComponentId is not null)
+            .Select(s => s.ComponentId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (cibles.Count == 0) return;
+
+        var encoreActifs = new List<(string Nom, ComponentRole Role)>();
+
+        foreach (var id in cibles)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var etat = await supervision.EvaluateComponentAsync(id, ct);
+            var down = etat.State is ComponentState.Arret or ComponentState.Indisponible
+                                    or ComponentState.NonSupervise or ComponentState.Inconnu;
+
+            if (!down && composants.TryGetValue(id, out var composant))
+                encoreActifs.Add((composant.LogicalName, composant.Role));
+        }
+
+        if (encoreActifs.Count == 0)
+        {
+            controles.Add(PreflightCheck.Reussi(
+                "Composants tous à l'arrêt",
+                $"Les {cibles.Count} composant(s) ciblé(s) sont confirmés DOWN avant ce démarrage complet."));
+            return;
+        }
+
+        // L'ordre d'arret propose reprend EXACTEMENT la table de RangArret
+        // (WorkflowService) : c'est la meme sequence que celle utilisee pour
+        // construire un vrai workflow d'arret, pas une improvisation.
+        var ordre = encoreActifs
+            .OrderBy(c => WorkflowService.RangArret(c.Role))
+            .Select(c => c.Nom)
+            .ToList();
+
+        controles.Add(PreflightCheck.Echec(
+            "Composants tous à l'arrêt",
+            $"{encoreActifs.Count} composant(s) ciblé(s) par ce démarrage complet sont encore actifs : "
+            + $"{string.Join(", ", ordre)}.",
+            "Un démarrage complet exige que tous les composants ciblés soient DOWN au préalable. "
+            + $"Arrêtez-les dans cet ordre avant de relancer : {string.Join(" → ", ordre)}.",
+            bloquant: true));
+    }
+
+    /// <summary>
+    /// FR-046/047 : une action d'arrêt ou de redémarrage sur le Center exige
+    /// un choix explicite de continuité, et une bascule choisie exige un
+    /// Standby réellement apte à prendre le relais — jamais supposé.
+    /// </summary>
+    private async Task ControlerContinuiteCenterAsync(
+        WorkflowExecution execution, List<PreflightCheck> controles, CancellationToken ct)
+    {
+        if (!execution.ContinuityChoiceRequired)
+        {
+            controles.Add(PreflightCheck.NonApplicable(
+                "Continuité Center",
+                "Cette opération n'arrête ni ne redémarre le Center."));
+            return;
+        }
+
+        if (execution.ContinuityChoice is null)
+        {
+            controles.Add(PreflightCheck.Echec(
+                "Continuité Center",
+                "Cette opération arrête ou redémarre le Center, sans qu'un choix de continuité ait été fait.",
+                "Précisez, depuis l'écran de l'opération, si le Center doit rester le nœud actif ou si le "
+                + "rôle actif doit basculer vers le Standby avant de poursuivre.",
+                bloquant: true));
+            return;
+        }
+
+        if (execution.ContinuityChoice == CenterContinuityChoice.ResterActif)
+        {
+            controles.Add(PreflightCheck.Avertissement(
+                "Continuité Center",
+                "Choix fait : le Center reste le nœud actif pendant cette opération.",
+                "Ne démarrez ni ne validez le Standby pendant cette fenêtre : deux nœuds actifs "
+                + "simultanément est un split-brain (FR-032/033)."));
+            return;
+        }
+
+        // Basculer : le Standby doit etre reellement apte, pas suppose l'etre.
+        var evaluation = await continuity.AssessAsync(execution.EnvironmentId, ct);
+
+        if (!evaluation.StandbyIsCapable)
+        {
+            controles.Add(PreflightCheck.Echec(
+                "Continuité Center",
+                $"Bascule choisie, mais {evaluation.StandbyUnavailableReason}",
+                "Rétablissez le Standby, ou choisissez de garder le Center actif, avant de relancer.",
+                bloquant: true));
+            return;
+        }
+
+        controles.Add(PreflightCheck.Reussi(
+            "Continuité Center",
+            $"Bascule choisie : le Standby « {evaluation.Standby!.LogicalName} » est disponible et apte "
+            + "à prendre le rôle actif."));
     }
 
     private async Task ControlerServeursAsync(

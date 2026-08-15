@@ -2,10 +2,13 @@
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Identity
+@using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Identity
+@using N4Sentinel.Infrastructure.Persistence
 
 @inject SignInManager<ApplicationUser> SignInManager
 @inject UserManager<ApplicationUser> UserManager
+@inject IAuditWriter AuditWriter
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<LoginWith2fa> Logger
 
@@ -62,6 +65,9 @@
     private string? message;
     private ApplicationUser user = default!;
 
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = default!;
 
@@ -84,20 +90,29 @@
         var authenticatorCode = Input.TwoFactorCode!.Replace(" ", string.Empty).Replace("-", string.Empty);
         var result = await SignInManager.TwoFactorAuthenticatorSignInAsync(authenticatorCode, RememberMe, Input.RememberMachine);
         var userId = await UserManager.GetUserIdAsync(user);
+        var email = await UserManager.GetEmailAsync(user) ?? userId;
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var correlationId = HttpContext.TraceIdentifier;
 
         if (result.Succeeded)
         {
             Logger.LogInformation("L'utilisateur {UserId} s'est connecté avec le second facteur.", userId);
+            await AuditWriter.WriteAsync(AuditAction.Connexion, AuditOutcome.Succes, email,
+                ip, detail: "Second facteur TOTP verifie.", correlationId: correlationId);
             RedirectManager.RedirectTo(ReturnUrl);
         }
         else if (result.IsLockedOut)
         {
             Logger.LogWarning("Le compte de l'utilisateur {UserId} a été verrouillé.", userId);
+            await AuditWriter.WriteAsync(AuditAction.DeconnexionOuEchecAuthentification, AuditOutcome.Refuse,
+                email, ip, detail: "Compte verrouille apres echecs successifs du second facteur.", correlationId: correlationId);
             RedirectManager.RedirectTo("Account/Lockout");
         }
         else
         {
             Logger.LogWarning("Code d'authentification invalide saisi pour l'utilisateur {UserId}.", userId);
+            await AuditWriter.WriteAsync(AuditAction.DeconnexionOuEchecAuthentification, AuditOutcome.Echec,
+                email, ip, detail: "Code TOTP incorrect.", correlationId: correlationId);
             message = "Erreur : Code d'authentification incorrect. Vérifiez que l'heure de votre téléphone est à jour.";
         }
     }

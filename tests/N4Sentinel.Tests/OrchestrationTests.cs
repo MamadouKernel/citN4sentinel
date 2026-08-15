@@ -6,6 +6,7 @@ using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Orchestration;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Security;
+using N4Sentinel.Infrastructure.Supervision;
 
 namespace N4Sentinel.Tests;
 
@@ -48,12 +49,11 @@ public sealed class OrchestrationTests : IAsyncLifetime
         var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
                + "TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        _factory = new TestDbContextFactory(
-            new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
         _locks = new EnvironmentLockService(_factory, NullLogger<EnvironmentLockService>.Instance);
-        _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance);
-        _executions = new ExecutionService(_factory, _locks, NullLogger<ExecutionService>.Instance);
+        _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance, new AuditWriter(_factory));
+        _executions = new ExecutionService(_factory, _locks, new AuditWriter(_factory), NullLogger<ExecutionService>.Instance);
         _validator = new SequenceValidator(_factory);
         _adhoc = new AdHocOperationService(_factory, NullLogger<AdHocOperationService>.Instance);
         _report = new ExecutionReportService(_factory);
@@ -65,11 +65,19 @@ public sealed class OrchestrationTests : IAsyncLifetime
             DataProtectionProvider.Create(new DirectoryInfo(_keyPath)),
             NullLogger<CredentialStore>.Instance);
 
+        var cibles = new ConnectorTargetFactory(_factory, store, NullLogger<ConnectorTargetFactory>.Instance);
+        var connecteur = new ConnecteurMuet();
+
+        var supervisionService = new SupervisionService(_factory, cibles, connecteur, NullLogger<SupervisionService>.Instance);
+
         _preflight = new PreflightService(
             _factory,
-            new ConnectorTargetFactory(_factory, store, NullLogger<ConnectorTargetFactory>.Instance),
-            new ConnecteurMuet(),
+            cibles,
+            connecteur,
             _locks,
+            _validator,
+            supervisionService,
+            new CenterContinuityService(_factory, supervisionService),
             NullLogger<PreflightService>.Instance);
 
         await using var db = _factory.CreateDbContext();
@@ -138,7 +146,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         var id = await CreerWorkflowAsync("DEM", WorkflowKind.DemarrageComplet);
 
         var r = await _workflows.SaveAsync(id, "Démarrage complet — révisé", null,
-            [EtapeDemarrage("Démarrer le Bridge", _bridgeId, 1)]);
+            [EtapeDemarrage("Démarrer le Bridge", _bridgeId, 1)], false, false);
 
         Assert.True(r.Succeeded, r.Error);
         Assert.False(r.CreatedNewVersion);
@@ -160,7 +168,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         var r = await _workflows.SaveAsync(id, "Démarrage complet v2", null,
             [EtapeDemarrage("Démarrer le Bridge", _bridgeId, 1),
-             EtapeDemarrage("Démarrer XPS", _xpsId, 2)]);
+             EtapeDemarrage("Démarrer XPS", _xpsId, 2)], false, false);
 
         Assert.True(r.Succeeded, r.Error);
         Assert.True(r.CreatedNewVersion);
@@ -182,7 +190,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         var prep = await _executions.PrepareAsync(id, "op1", "Opération de référence", null, isSimulation: true);
         await _workflows.SaveAsync(id, "Nom radicalement différent", null,
-            [EtapeDemarrage("Autre étape", _xpsId, 1)]);
+            [EtapeDemarrage("Autre étape", _xpsId, 1)], false, false);
 
         var execution = await _executions.GetAsync(prep.ExecutionId);
 
@@ -208,7 +216,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
             MaxRetries = 3
         };
 
-        var r = await _workflows.SaveAsync(id, "Arrêt complet", null, [etape]);
+        var r = await _workflows.SaveAsync(id, "Arrêt complet", null, [etape], false, false);
 
         Assert.False(r.Succeeded);
         Assert.Contains("arrêt qui échoue doit être compris", r.Error!);
@@ -220,7 +228,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         var id = await CreerWorkflowAsync("MAN", WorkflowKind.OperationPartielle);
 
         var r = await _workflows.SaveAsync(id, "Opération", null,
-            [new WorkflowStep { Name = "Faire le nécessaire", Action = StepAction.InterventionManuelle, Order = 1 }]);
+            [new WorkflowStep { Name = "Faire le nécessaire", Action = StepAction.InterventionManuelle, Order = 1 }], false, false);
 
         Assert.False(r.Succeeded);
         Assert.Contains("sans dire lequel", r.Error!);
@@ -433,6 +441,43 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Null(accord);
     }
 
+    [Fact(DisplayName = "Une double approbation exige deux approbateurs distincts, ni l'un ni l'autre le demandeur")]
+    public async Task Une_Double_Approbation_Exige_Deux_Approbateurs_Distincts()
+    {
+        var id = await CreerWorkflowAsync("ARR", WorkflowKind.ArretComplet, approbation: true, doubleApprobation: true);
+        await ValiderAsync(id);
+
+        var prep = await _executions.PrepareAsync(id, "m.konate", "Maintenance planifiée", "INC-42", isSimulation: false);
+        Assert.True(prep.RequiresApproval);
+
+        // Le demandeur ne peut approuver ni en premier ni en second.
+        var refusDemandeur = await _executions.ApproveAsync(prep.ExecutionId, "m.konate");
+        Assert.NotNull(refusDemandeur);
+
+        // Premiere approbation : l'execution reste en attente, il en manque une seconde.
+        var premiere = await _executions.ApproveAsync(prep.ExecutionId, "chef.exploitation");
+        Assert.Null(premiere);
+
+        var apresPremiere = await _executions.GetAsync(prep.ExecutionId);
+        Assert.Equal(ExecutionStatus.EnAttenteApprobation, apresPremiere!.Status);
+        Assert.Equal("chef.exploitation", apresPremiere.ApprovedBy);
+        Assert.Null(apresPremiere.SecondApprovedBy);
+
+        // Le premier approbateur ne peut pas se re-approuver lui-meme en second.
+        var refusMemePersonne = await _executions.ApproveAsync(prep.ExecutionId, "chef.exploitation");
+        Assert.NotNull(refusMemePersonne);
+        Assert.Contains("personne différente", refusMemePersonne!);
+
+        // Seconde approbation, par une personne distincte : l'execution est prete.
+        var seconde = await _executions.ApproveAsync(prep.ExecutionId, "responsable.si");
+        Assert.Null(seconde);
+
+        var apresSeconde = await _executions.GetAsync(prep.ExecutionId);
+        Assert.Equal(ExecutionStatus.EnPreparation, apresSeconde!.Status);
+        Assert.Equal("responsable.si", apresSeconde.SecondApprovedBy);
+        Assert.NotNull(apresSeconde.SecondApprovedAt);
+    }
+
     [Fact]
     public async Task Une_Operation_En_Attente_D_Approbation_Ne_Se_Lance_Pas()
     {
@@ -444,6 +489,26 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         Assert.NotNull(erreur);
         Assert.Contains("approbation", erreur!);
+    }
+
+    [Fact(DisplayName = "Une tentative de lancement non approuvee est elle-meme auditee (AC-07)")]
+    public async Task Une_Tentative_Non_Approuvee_Est_Auditee()
+    {
+        var id = await CreerWorkflowAsync("ARR2", WorkflowKind.ArretComplet, approbation: true);
+        await ValiderAsync(id);
+
+        var prep = await _executions.PrepareAsync(id, "op1", "Maintenance", null, isSimulation: false);
+        await _executions.StartAsync(prep.ExecutionId, "op1");
+
+        await using var db = _factory.CreateDbContext();
+        var trace = await db.AuditEntries
+            .Where(a => a.Action == AuditAction.TentativeNonAutorisee)
+            .Where(a => a.EntityId == prep.ExecutionId.ToString())
+            .SingleOrDefaultAsync();
+
+        Assert.NotNull(trace);
+        Assert.Equal(AuditOutcome.Echec, trace!.Outcome);
+        Assert.Equal("op1", trace.Actor);
     }
 
     [Fact]
@@ -494,6 +559,29 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal(ExecutionStepState.Ignore, etape.State);
         Assert.Equal("m.konate", etape.SkippedBy);
         Assert.Contains("déjà arrêté manuellement", etape.SkipReason!);
+    }
+
+    [Fact]
+    public async Task Un_Contournement_Est_Trace_Dans_Le_Journal_Audit()
+    {
+        var executionId = await PreparerExecutionAsync(contournable: true);
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+            etapeId = (await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId)).Id;
+
+        await _executions.SkipStepAsync(etapeId, "m.konate", "Composant déjà arrêté manuellement.");
+
+        await using var relecture = _factory.CreateDbContext();
+        var entree = await relecture.AuditEntries
+            .Where(a => a.Action == AuditAction.Contournement)
+            .OrderByDescending(a => a.OccurredAt)
+            .FirstOrDefaultAsync();
+
+        Assert.NotNull(entree);
+        Assert.Equal("m.konate", entree!.Actor);
+        Assert.Equal(AuditOutcome.Succes, entree.Outcome);
+        Assert.Contains("déjà arrêté manuellement", entree.Reason!);
     }
 
     [Fact]
@@ -736,6 +824,33 @@ public sealed class OrchestrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Un_Lancement_Reussi_Est_Trace_Dans_Le_Journal_Audit()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var execution = await db.Executions.FirstAsync(x => x.Id == executionId);
+            execution.PreflightAt = DateTimeOffset.UtcNow;
+            execution.PreflightBlocked = false;
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _executions.StartAsync(executionId, "op1"));
+
+        await using var relecture = _factory.CreateDbContext();
+        var entree = await relecture.AuditEntries
+            .Where(a => a.Action == AuditAction.ExecutionOperation)
+            .OrderByDescending(a => a.OccurredAt)
+            .FirstOrDefaultAsync();
+
+        Assert.NotNull(entree);
+        Assert.Equal("op1", entree!.Actor);
+        Assert.Equal(AuditOutcome.Succes, entree.Outcome);
+        Assert.Equal(nameof(WorkflowExecution), entree.EntityType);
+    }
+
+    [Fact]
     public async Task Un_Composant_Non_Pilotable_Fait_Echouer_Le_Pre_Check()
     {
         // Le Bridge repasse en brouillon : le referentiel n'autorise plus
@@ -803,6 +918,77 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         var controle = rapport.Checks.First(c => c.Name == "Verrou d'environnement");
         Assert.Equal(PreflightOutcome.NonApplicable, controle.Outcome);
+    }
+
+    // =======================================================================
+    // FR-046/047 — Continuité Center
+    // =======================================================================
+    [Fact(DisplayName = "Une operation qui n'arrete ni ne redemarre le Center ne requiert aucun choix de continuite")]
+    public async Task Continuite_Center_Non_Applicable_Hors_Center()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        await using var db = _factory.CreateDbContext();
+        var execution = await db.Executions.AsNoTracking().FirstAsync(x => x.Id == executionId);
+        Assert.False(execution.ContinuityChoiceRequired);
+
+        var rapport = await _preflight.RunAsync(executionId);
+        var controle = rapport.Checks.First(c => c.Name == "Continuité Center");
+        Assert.Equal(PreflightOutcome.NonApplicable, controle.Outcome);
+    }
+
+    [Fact(DisplayName = "Arreter le Center sans choix de continuite est bloquant")]
+    public async Task Continuite_Center_Sans_Choix_Est_Bloquante()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+
+        await using var db = _factory.CreateDbContext();
+        var execution = await db.Executions.AsNoTracking().FirstAsync(x => x.Id == executionId);
+        Assert.True(execution.ContinuityChoiceRequired);
+
+        var rapport = await _preflight.RunAsync(executionId);
+        var controle = rapport.Checks.First(c => c.Name == "Continuité Center");
+        Assert.Equal(PreflightOutcome.Echec, controle.Outcome);
+        Assert.True(controle.IsBlocking);
+        Assert.True(rapport.HasBlockingFailure);
+    }
+
+    [Fact(DisplayName = "Choisir de rester actif leve le blocage sans exiger l'aptitude du Standby")]
+    public async Task Continuite_Center_Rester_Actif_Leve_Le_Blocage()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.ResterActif, "op1"));
+
+        var rapport = await _preflight.RunAsync(executionId);
+        var controle = rapport.Checks.First(c => c.Name == "Continuité Center");
+        Assert.Equal(PreflightOutcome.Avertissement, controle.Outcome);
+        Assert.False(controle.IsBlocking);
+    }
+
+    [Fact(DisplayName = "Basculer sans Standby apte reste bloquant, meme le choix fait")]
+    public async Task Continuite_Center_Basculer_Sans_Standby_Apte_Reste_Bloquante()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.Basculer, "op1"));
+
+        var rapport = await _preflight.RunAsync(executionId);
+        var controle = rapport.Checks.First(c => c.Name == "Continuité Center");
+        Assert.Equal(PreflightOutcome.Echec, controle.Outcome);
+        Assert.True(controle.IsBlocking);
+        Assert.Contains("Standby", controle.Detail);
+    }
+
+    [Fact(DisplayName = "Le demandeur ne peut pas relancer un choix de continuite sur une execution deja lancee")]
+    public async Task Continuite_Center_Ne_Se_Modifie_Plus_Apres_Lancement()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.ResterActif, "op1"));
+        await LancerAsync(executionId);
+
+        var erreur = await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.Basculer, "op1");
+        Assert.NotNull(erreur);
     }
 
     // =======================================================================
@@ -957,7 +1143,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     };
 
     private async Task<Guid> CreerWorkflowAsync(
-        string code, WorkflowKind nature, bool approbation = false)
+        string code, WorkflowKind nature, bool approbation = false, bool doubleApprobation = false)
     {
         var workflow = new Workflow
         {
@@ -965,7 +1151,8 @@ public sealed class OrchestrationTests : IAsyncLifetime
             Code = code,
             Name = nature == WorkflowKind.ArretComplet ? "Arrêt complet" : "Démarrage complet",
             Kind = nature,
-            RequiresApproval = approbation
+            RequiresApproval = approbation,
+            RequiresDoubleApproval = doubleApprobation
         };
 
         var id = await _workflows.CreateAsync(workflow);
@@ -1002,8 +1189,25 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
     private async Task ValiderAsync(Guid workflowId)
     {
-        var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide);
+        var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test");
         Assert.Null(erreur);
+    }
+
+    [Fact(DisplayName = "Valider un workflow laisse une trace d'audit (FR-091)")]
+    public async Task Valider_Un_Workflow_Est_Audite()
+    {
+        var id = await CreerWorkflowAsync("AUD", WorkflowKind.DemarrageComplet);
+        await ValiderAsync(id);
+
+        await using var db = _factory.CreateDbContext();
+        var trace = await db.AuditEntries
+            .Where(a => a.Action == AuditAction.ChangementDeStatut)
+            .Where(a => a.EntityId == id.ToString())
+            .SingleOrDefaultAsync();
+
+        Assert.NotNull(trace);
+        Assert.Equal("test", trace!.Actor);
+        Assert.Contains("Valide", trace.Reason);
     }
 
     private async Task<Guid> PreparerExecutionAsync(bool contournable = false)
@@ -1021,6 +1225,52 @@ public sealed class OrchestrationTests : IAsyncLifetime
         await ValiderAsync(id);
 
         var prep = await _executions.PrepareAsync(id, "op1", "Test", null, isSimulation: false);
+        Assert.True(prep.Succeeded, prep.Error);
+        return prep.ExecutionId;
+    }
+
+    /// <summary>
+    /// Workflow d'arrêt visant le Center, avec un Standby déclaré dans le
+    /// même environnement — de quoi exercer le garde-fou de continuité
+    /// (FR-046/047) sans dépendre d'un serveur joignable.
+    /// </summary>
+    private async Task<Guid> PreparerExecutionCenterAsync()
+    {
+        Guid centerId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var center = Composant(db, "Center Node", ComponentRole.CenterNode, 40);
+            var standby = Composant(db, "Standby Center Node", ComponentRole.StandbyCenterNode, 41);
+            db.Components.AddRange(center, standby);
+            await db.SaveChangesAsync();
+            centerId = center.Id;
+        }
+
+        var workflow = new Workflow
+        {
+            EnvironmentId = _envId,
+            Code = $"CTR{Guid.NewGuid():N}"[..8],
+            Name = "Arrêt Center",
+            Kind = WorkflowKind.ArretComplet
+        };
+        var id = await _workflows.CreateAsync(workflow);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = id,
+                Name = "Arrêter le Center",
+                Action = StepAction.Arreter,
+                ComponentId = centerId,
+                Order = 1
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await ValiderAsync(id);
+
+        var prep = await _executions.PrepareAsync(id, "op1", "Test continuité", null, isSimulation: false);
         Assert.True(prep.Succeeded, prep.Error);
         return prep.ExecutionId;
     }
@@ -1073,6 +1323,12 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         public Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(ConnectorTarget t, CancellationToken ct = default) =>
             Task.FromResult(Injoignable<UpdateSnapshot>());
+
+        public Task<ConnectorResult<FolderSnapshot>> ListFilesAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<FolderSnapshot>());
+
+        public Task<ConnectorResult<WriteProbeResult>> ProbeWriteAsync(ConnectorTarget t, string p, CancellationToken ct = default) =>
+            Task.FromResult(Injoignable<WriteProbeResult>());
     }
 
     /// <summary>

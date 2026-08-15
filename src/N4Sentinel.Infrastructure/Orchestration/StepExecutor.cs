@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectors;
+using N4Sentinel.Infrastructure.Diagnostic;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Supervision;
 
@@ -579,7 +580,18 @@ public sealed class StepExecutor(
     private readonly record struct StatusWait(bool Reached, string LastStatus);
 }
 
-/// <summary>Issue d'une étape, avec sa preuve ou sa cause d'échec.</summary>
+/// <summary>
+/// Issue d'une étape, avec sa preuve ou sa cause d'échec.
+///
+/// MASQUAGE SYSTÉMATIQUE À LA CONSTRUCTION (SEC-005 / FR-021 / AC-11). Le
+/// message peut provenir d'une ligne de journal N4 lue en direct par
+/// <see cref="StepExecutor"/> — exactement le canal par lequel le guide
+/// éditeur documente qu'un mot de passe de base ECI peut fuir en clair
+/// (com.navis.control.esb en DEBUG). <see cref="SecretMasker"/> protège déjà
+/// ce risque côté Diagnostic ; le passer ici, au seul point de construction
+/// d'un <see cref="StepOutcome"/>, ferme la même faille côté Orchestration
+/// sans dépendre de la discipline de chaque appelant.
+/// </summary>
 public sealed record StepOutcome
 {
     public ExecutionStepState State { get; init; }
@@ -589,18 +601,18 @@ public sealed record StepOutcome
     public bool WaitsForOperator => State == ExecutionStepState.EnAttente;
 
     public static StepOutcome Succeeded(string preuve) =>
-        new() { State = ExecutionStepState.Reussi, Message = preuve };
+        new() { State = ExecutionStepState.Reussi, Message = SecretMasker.Masquer(preuve).Texte };
 
     /// <summary>
     /// Résultat atteint, mais non prouvé. Ce n'est pas un succès dégradé qu'on
     /// masque : c'est un « à confirmer » qui reste visible dans le rapport.
     /// </summary>
     public static StepOutcome Warned(string reserve) =>
-        new() { State = ExecutionStepState.Avertissement, Message = reserve };
+        new() { State = ExecutionStepState.Avertissement, Message = SecretMasker.Masquer(reserve).Texte };
 
     public static StepOutcome Failed(string cause) =>
-        new() { State = ExecutionStepState.Echec, Message = cause };
+        new() { State = ExecutionStepState.Echec, Message = SecretMasker.Masquer(cause).Texte };
 
     public static StepOutcome AttenteOperateur(string consigne) =>
-        new() { State = ExecutionStepState.EnAttente, Message = consigne };
+        new() { State = ExecutionStepState.EnAttente, Message = SecretMasker.Masquer(consigne).Texte };
 }

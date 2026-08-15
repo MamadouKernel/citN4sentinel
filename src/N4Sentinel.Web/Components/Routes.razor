@@ -2,8 +2,18 @@
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
-            <NotAuthorized>
-                <RedirectToLogin />
+            <NotAuthorized Context="authState">
+                @* Un visiteur non authentifie doit se connecter ; un utilisateur
+                   authentifie mais sans l'habilitation requise fait l'objet
+                   d'une tentative non autorisee, tracee (SEC-008, FR-091). *@
+                @if (authState.User.Identity?.IsAuthenticated == true)
+                {
+                    <AccesRefuseAudite Utilisateur="@authState.User.Identity.Name" />
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />

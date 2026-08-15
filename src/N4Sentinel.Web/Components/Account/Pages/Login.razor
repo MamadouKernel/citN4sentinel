@@ -3,10 +3,13 @@
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
+@using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Identity
+@using N4Sentinel.Infrastructure.Persistence
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
+@inject IAuditWriter AuditWriter
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
@@ -66,6 +69,12 @@
         </button>
 
         <div class="pt-3 border-t border-slate-800 space-y-2">
+            <!-- SSO Azure AD Button (SEC-001 V2 / Lot 4) -->
+            <a href="/Account/Login" class="w-full py-2.5 px-4 bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/40 rounded-xl text-xs font-bold text-indigo-200 hover:text-white transition flex items-center justify-center gap-2 shadow-md">
+                <i class="bi bi-microsoft text-sky-400"></i>
+                Se connecter avec Azure AD (SSO CIT)
+            </a>
+
             <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-300 hover:text-white transition flex items-center justify-center gap-2">
                 <i class="bi bi-key-fill text-theme-primary"></i>
                 Connexion par clé de sécurité (Passkey)
@@ -119,16 +128,24 @@
                 return;
             }
 
-            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: true);
         }
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var correlationId = HttpContext.TraceIdentifier;
 
         if (result.Succeeded)
         {
             Logger.LogInformation("Utilisateur connecté.");
+            await AuditWriter.WriteAsync(AuditAction.Connexion, AuditOutcome.Succes, Input.Email,
+                ip, correlationId: correlationId);
             RedirectManager.RedirectTo(ReturnUrl);
         }
         else if (result.RequiresTwoFactor)
         {
+            // La connexion n'est pas encore etablie : le second facteur peut
+            // encore echouer. L'entree d'audit se pose a l'issue reelle, dans
+            // LoginWith2fa.razor.
             RedirectManager.RedirectTo(
                 "Account/LoginWith2fa",
                 new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
@@ -136,10 +153,14 @@
         else if (result.IsLockedOut)
         {
             Logger.LogWarning("Compte utilisateur verrouillé.");
+            await AuditWriter.WriteAsync(AuditAction.DeconnexionOuEchecAuthentification, AuditOutcome.Refuse,
+                Input.Email, ip, detail: "Compte verrouille apres echecs successifs.", correlationId: correlationId);
             RedirectManager.RedirectTo("Account/Lockout");
         }
         else
         {
+            await AuditWriter.WriteAsync(AuditAction.DeconnexionOuEchecAuthentification, AuditOutcome.Echec,
+                Input.Email, ip, detail: "Identifiants incorrects.", correlationId: correlationId);
             errorMessage = "Erreur : Identifiants incorrects.";
         }
     }

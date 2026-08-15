@@ -757,6 +757,125 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         return ConnectorResult<ServiceSnapshot>.Ok(snapshot, result.Duration);
     }
 
+    public async Task<ConnectorResult<FolderSnapshot>> ListFilesAsync(
+        ConnectorTarget target, string path, CancellationToken ct = default)
+    {
+        const string script = """
+            param([string]$Chemin)
+
+            if ([string]::IsNullOrWhiteSpace($Chemin) -or -not (Test-Path -LiteralPath $Chemin -PathType Container)) {
+                [PSCustomObject]@{ Existe = $false; Fichiers = @() }
+                return
+            }
+
+            $fichiers = @()
+            foreach ($f in (Get-ChildItem -LiteralPath $Chemin -File -ErrorAction SilentlyContinue)) {
+                $verrouille = $false
+                try {
+                    $flux = [System.IO.File]::Open(
+                        $f.FullName, [System.IO.FileMode]::Open,
+                        [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+                    $flux.Close()
+                } catch {
+                    $verrouille = $true
+                }
+
+                $fichiers += [PSCustomObject]@{
+                    Nom = $f.Name; Taille = $f.Length
+                    DerniereEcriture = $f.LastWriteTimeUtc; Verrouille = $verrouille
+                }
+            }
+
+            [PSCustomObject]@{ Existe = $true; Fichiers = $fichiers }
+            """;
+
+        var result = await ExecuteAsync(target, script, new Dictionary<string, object?> { ["Chemin"] = path }, ct);
+        if (!result.Succeeded)
+            return ConnectorResult<FolderSnapshot>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<FolderSnapshot>.Fail(
+                ConnectorFailure.ErreurDistante, "Aucune donnée retournée.", result.Duration);
+
+        var fichiers = new List<RemoteFileInfo>();
+        if (o.Properties["Fichiers"]?.Value is IEnumerable<object> bruts)
+        {
+            foreach (var brut in bruts)
+            {
+                var pso = brut as PSObject ?? PSObject.AsPSObject(brut);
+                var nom = Get<string>(pso, "Nom");
+                if (nom is null) continue;
+
+                fichiers.Add(new RemoteFileInfo
+                {
+                    Name = nom,
+                    SizeBytes = GetNullableLong(pso, "Taille") ?? 0,
+                    LastWriteTime = GetNullableDate(pso, "DerniereEcriture") ?? DateTimeOffset.MinValue,
+                    IsLocked = GetNullableBool(pso, "Verrouille") ?? false
+                });
+            }
+        }
+
+        var snapshot = new FolderSnapshot
+        {
+            Path = path,
+            Exists = GetNullableBool(o, "Existe") ?? false,
+            Files = fichiers
+        };
+
+        return ConnectorResult<FolderSnapshot>.Ok(snapshot, result.Duration);
+    }
+
+    public async Task<ConnectorResult<WriteProbeResult>> ProbeWriteAsync(
+        ConnectorTarget target, string path, CancellationToken ct = default)
+    {
+        // Marqueur au nom unique : jamais de collision avec un fichier
+        // existant, jamais rien touché d'autre que ce que ce test a créé.
+        const string script = """
+            param([string]$Chemin)
+
+            if ([string]::IsNullOrWhiteSpace($Chemin) -or -not (Test-Path -LiteralPath $Chemin -PathType Container)) {
+                [PSCustomObject]@{ Reussi = $false; Message = "Dossier introuvable." }
+                return
+            }
+
+            $marqueur = Join-Path $Chemin (".n4sentinel-probe-" + [Guid]::NewGuid().ToString("N"))
+            try {
+                $contenu = [Guid]::NewGuid().ToString("N")
+                [System.IO.File]::WriteAllText($marqueur, $contenu)
+                $relu = [System.IO.File]::ReadAllText($marqueur)
+                Remove-Item -LiteralPath $marqueur -Force -ErrorAction Stop
+
+                if ($relu -ne $contenu) {
+                    [PSCustomObject]@{ Reussi = $false; Message = "Contenu relu différent de celui écrit." }
+                } else {
+                    [PSCustomObject]@{ Reussi = $true; Message = $null }
+                }
+            } catch {
+                try { Remove-Item -LiteralPath $marqueur -Force -ErrorAction SilentlyContinue } catch { }
+                [PSCustomObject]@{ Reussi = $false; Message = $_.Exception.Message }
+            }
+            """;
+
+        var result = await ExecuteAsync(target, script, new Dictionary<string, object?> { ["Chemin"] = path }, ct);
+        if (!result.Succeeded)
+            return ConnectorResult<WriteProbeResult>.Fail(result.Failure, result.Error!, result.Duration);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<WriteProbeResult>.Fail(
+                ConnectorFailure.ErreurDistante, "Aucune donnée retournée.", result.Duration);
+
+        var probe = new WriteProbeResult
+        {
+            CanWrite = GetNullableBool(o, "Reussi") ?? false,
+            Error = Get<string>(o, "Message")
+        };
+
+        return ConnectorResult<WriteProbeResult>.Ok(probe, result.Duration);
+    }
+
     // -----------------------------------------------------------------------
     // Execution
     // -----------------------------------------------------------------------

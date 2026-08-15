@@ -26,7 +26,8 @@
         </div>
 
         <div class="flex items-center gap-3">
-            <select class="bg-slate-900/80 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+            <label for="rapports-env" class="sr-only">Environnement</label>
+            <select id="rapports-env" class="bg-slate-900/80 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     @bind="_envId" @bind:after="Recharger">
                 <option value="@Guid.Empty">Sélectionner un environnement…</option>
                 @foreach (var e in _environnements)
@@ -35,7 +36,8 @@
                 }
             </select>
 
-            <select class="bg-slate-900/80 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+            <label for="rapports-periode" class="sr-only">Période</label>
+            <select id="rapports-periode" class="bg-slate-900/80 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     @bind="_periodeJours" @bind:after="Recharger">
                 <option value="1">Dernières 24 heures</option>
                 <option value="7">7 derniers jours</option>
@@ -198,6 +200,13 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+    }
+    else
+    {
+        <div class="glass-card p-12 rounded-2xl border border-slate-800/80 text-center text-slate-400 text-xs space-y-2">
+            <i class="bi bi-bar-chart-line text-3xl text-slate-600"></i>
+            <p>Choisissez un environnement pour calculer ses indicateurs SLA.</p>
         </div>
     }
 </div>

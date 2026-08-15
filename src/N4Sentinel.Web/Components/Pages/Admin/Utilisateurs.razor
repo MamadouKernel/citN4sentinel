@@ -1,0 +1,162 @@
+@page "/admin/utilisateurs"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Identity
+@attribute [Authorize(Policy = N4Policies.PeutAuditer)]
+@rendermode InteractiveServer
+@inject UserManager<ApplicationUser> Users
+@inject RoleManager<IdentityRole> Roles
+
+<PageTitle>Comptes et droits — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Comptes et droits</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Revue périodique des accès (SEC-010) : qui a un compte, quel(s) rôle(s) il porte, et l'état de
+                son second facteur. Désactiver un compte ne le supprime pas — l'historique des opérations qu'il
+                a menées reste exact.
+            </p>
+        </div>
+        <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition"
+                @onclick="() => _exportVisible = !_exportVisible">
+            <i class="bi bi-download text-sm"></i>
+            <span>@(_exportVisible ? "Masquer l'export" : "Exporter")</span>
+        </button>
+    </div>
+
+    @if (_exportVisible)
+    {
+        <div class="glass-card p-4 rounded-2xl border border-slate-800">
+            <p class="text-[11px] text-slate-500 mb-2">
+                Format tabulaire (TSV) — sélectionnez le bloc ci-dessous et copiez-le dans un tableur.
+            </p>
+            <textarea readonly rows="8" onclick="this.select()"
+                      class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] font-mono text-slate-300">@TexteExport()</textarea>
+        </div>
+    }
+
+    @if (_comptes.Count == 0)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            Aucun compte trouvé.
+        </div>
+    }
+    else
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-4 border-b border-slate-800">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-people text-sky-400"></i> @_comptes.Count compte(s)
+                </h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <tr>
+                            <th class="py-2 px-4 font-bold">Compte</th>
+                            <th class="py-2 px-4 font-bold">Service</th>
+                            <th class="py-2 px-4 font-bold">Rôle(s)</th>
+                            <th class="py-2 px-4 font-bold">Second facteur</th>
+                            <th class="py-2 px-4 font-bold">Statut</th>
+                            <th class="py-2 px-4 font-bold">Dernière connexion</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        @foreach (var c in _comptes)
+                        {
+                            <tr class="@(c.User.IsDisabled ? "opacity-50" : "")">
+                                <td class="py-2.5 px-4">
+                                    <div class="font-bold text-white">@(c.User.DisplayName ?? c.User.Email)</div>
+                                    <div class="text-slate-500 font-mono text-[11px]">@c.User.Email</div>
+                                </td>
+                                <td class="py-2.5 px-4 text-slate-400">@(c.User.Department ?? "—")</td>
+                                <td class="py-2.5 px-4">
+                                    @if (c.Roles.Count == 0)
+                                    {
+                                        <span class="text-rose-400 text-[11px]">Aucun rôle</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var r in c.Roles)
+                                        {
+                                            <span class="inline-block px-2 py-0.5 mr-1 mb-1 rounded-md text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">@r</span>
+                                        }
+                                    }
+                                </td>
+                                <td class="py-2.5 px-4">
+                                    @if (c.User.TwoFactorEnabled)
+                                    {
+                                        <span class="text-emerald-400 text-[11px]"><i class="bi bi-shield-check"></i> Activé</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-amber-400 text-[11px]"><i class="bi bi-shield-exclamation"></i> Non activé</span>
+                                    }
+                                </td>
+                                <td class="py-2.5 px-4">
+                                    @if (c.User.IsDisabled)
+                                    {
+                                        <span class="text-slate-500 text-[11px]">Désactivé</span>
+                                    }
+                                    else if (c.User.LockoutEnd is { } fin && fin > DateTimeOffset.UtcNow)
+                                    {
+                                        <span class="text-rose-400 text-[11px]">Verrouillé jusqu'au @fin.ToLocalTime().ToString("dd/MM HH:mm")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-emerald-400 text-[11px]">Actif</span>
+                                    }
+                                </td>
+                                <td class="py-2.5 px-4 font-mono text-slate-400">
+                                    @(c.User.LastLoginAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Jamais")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private sealed record Compte(ApplicationUser User, List<string> Roles);
+
+    private List<Compte> _comptes = [];
+    private bool _exportVisible;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var tous = Users.Users.OrderBy(u => u.Email).ToList();
+
+        var resultats = new List<Compte>();
+        foreach (var u in tous)
+            resultats.Add(new Compte(u, [.. await Users.GetRolesAsync(u)]));
+
+        _comptes = resultats;
+    }
+
+    private string TexteExport()
+    {
+        var lignes = new List<string> { "Compte\tEmail\tService\tRôles\tSecond facteur\tStatut\tDernière connexion" };
+        foreach (var c in _comptes)
+        {
+            var statut = c.User.IsDisabled ? "Désactivé"
+                       : c.User.LockoutEnd is { } fin && fin > DateTimeOffset.UtcNow ? "Verrouillé"
+                       : "Actif";
+
+            lignes.Add(string.Join('\t',
+                c.User.DisplayName ?? "",
+                c.User.Email ?? "",
+                c.User.Department ?? "",
+                string.Join(", ", c.Roles),
+                c.User.TwoFactorEnabled ? "Activé" : "Non activé",
+                statut,
+                c.User.LastLoginAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Jamais"));
+        }
+        return string.Join('\n', lignes);
+    }
+}

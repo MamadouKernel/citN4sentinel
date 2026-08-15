@@ -97,6 +97,14 @@ public sealed class LogAnalysisService(
         source.SizeBytes = delta.Value.Length;
         source.Truncated = delta.Value.Length > TailleMaximale;
 
+        // FR-061 : l'ecart d'horloge du serveur source, mesure au moment ou
+        // ce journal est lu — sans lui, la chronologie multi-sources ne
+        // pourrait jamais signaler l'incertitude qu'un decalage introduit.
+        // Un echec de mesure n'empeche pas la collecte : l'ecart reste
+        // simplement inconnu, ce qui est dit tel quel plus loin.
+        var systeme = await connector.GetSystemAsync(resolution.Target!, ct);
+        source.ClockSkewSecondsAtCollection = systeme.Succeeded ? systeme.Value?.ClockSkewSeconds : null;
+
         return await IngererAsync(db, session, source, delta.Value.Text, composant.Role, ct);
     }
 
@@ -117,10 +125,23 @@ public sealed class LogAnalysisService(
             return SourceResult.Failed("Le fichier versé est vide.");
 
         N4Component? composant = null;
+        var detecteAutomatiquement = false;
+
         if (componentId is not null)
+        {
             composant = await db.Components.AsNoTracking()
                 .Include(c => c.Server)
                 .FirstOrDefaultAsync(c => c.Id == componentId, ct);
+        }
+        else
+        {
+            // FR-071 : l'operateur n'a pas precise de composant — tenter de
+            // l'identifier depuis le nom de fichier, jamais depuis une
+            // supposition sur le contenu qui pourrait se tromper de composant
+            // en confondant deux journaux qui se ressemblent.
+            composant = await IdentifierComposantAsync(db, session.EnvironmentId, fileName, ct);
+            detecteAutomatiquement = composant is not null;
+        }
 
         var source = new LogSource
         {
@@ -128,6 +149,7 @@ public sealed class LogAnalysisService(
             ComponentId = composant?.Id,
             ComponentName = composant?.LogicalName,
             ComponentRole = composant?.Role,
+            ComponentAutoDetected = detecteAutomatiquement,
             HostName = composant?.Server?.HostName,
             Origin = LogOriginKind.ImportManuel,
             FileName = fileName,
@@ -158,6 +180,10 @@ public sealed class LogAnalysisService(
         var lignes = contenu.Split('\n');
         source.LineCount = lignes.Length;
 
+        // FR-073 : periode couverte, volumes par niveau et version — sur
+        // TOUT le fichier, pas seulement les lignes retenues comme anomalies.
+        CalculerResume(lignes, source);
+
         db.Sources.Add(source);
         await db.SaveChangesAsync(ct);
 
@@ -178,6 +204,125 @@ public sealed class LogAnalysisService(
             source.FileName, source.LineCount, constats.Count, masques);
 
         return SourceResult.Ok(source.Id, source.LineCount, constats.Count, masques);
+    }
+
+    // -----------------------------------------------------------------------
+    // Identification automatique (FR-071)
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Cherche d'abord le nom exact d'un composant déclaré dans le nom du
+    /// fichier — le seul signal assez fiable pour être affirmé. À défaut, un
+    /// motif de nom de fichier non ambigu, mais seulement si un unique
+    /// composant de ce rôle existe dans l'environnement : une identification
+    /// hasardeuse ferait pire que pas d'identification du tout.
+    /// </summary>
+    private static async Task<N4Component?> IdentifierComposantAsync(
+        N4SentinelDbContext db, Guid environmentId, string fileName, CancellationToken ct)
+    {
+        var composants = await db.Components.AsNoTracking()
+            .Include(c => c.Server)
+            .Where(c => c.EnvironmentId == environmentId)
+            .ToListAsync(ct);
+
+        // Correspondance par "unite" (bornes non alphanumeriques) et, a egalite,
+        // le nom le plus long l'emporte : un nom court (ex. "ECN4") est parfois
+        // un prefixe d'un nom plus specifique (ex. "ECN4Web") present dans le
+        // meme fichier, et prendre le premier trouve attribuerait le journal
+        // au mauvais composant sans jamais le signaler comme incertain.
+        var parServiceName = composants
+            .Where(c => !string.IsNullOrWhiteSpace(c.WindowsServiceName)
+                && ContientCommeUnite(fileName, c.WindowsServiceName))
+            .OrderByDescending(c => c.WindowsServiceName!.Length)
+            .ToList();
+        if (parServiceName.Count > 0) return parServiceName[0];
+
+        var parLogicalName = composants
+            .Where(c => ContientCommeUnite(fileName, c.LogicalName))
+            .OrderByDescending(c => c.LogicalName.Length)
+            .ToList();
+        if (parLogicalName.Count > 0) return parLogicalName[0];
+
+        var role = DeviserRoleParNomFichier(fileName);
+        if (role is null) return null;
+
+        var candidats = composants.Where(c => c.Role == role.Value).ToList();
+        return candidats.Count == 1 ? candidats[0] : null;
+    }
+
+    /// <summary>
+    /// Vrai si <paramref name="needle"/> apparaît dans <paramref name="haystack"/>
+    /// sans être le prefixe/suffixe d'un mot plus long — évite qu'"ECN4" ne
+    /// s'attribue à tort un fichier "ecn4web-...".
+    /// </summary>
+    private static bool ContientCommeUnite(string haystack, string needle)
+    {
+        if (string.IsNullOrEmpty(needle)) return false;
+        var idx = haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return false;
+
+        var avant = idx > 0 ? haystack[idx - 1] : '\0';
+        var finIdx = idx + needle.Length;
+        var apres = finIdx < haystack.Length ? haystack[finIdx] : '\0';
+        return !char.IsLetterOrDigit(avant) && !char.IsLetterOrDigit(apres);
+    }
+
+    private static ComponentRole? DeviserRoleParNomFichier(string fileName)
+    {
+        var n = fileName.ToLowerInvariant();
+        if (n.Contains("bridge")) return ComponentRole.BridgeDaemon;
+        if (n.Contains("ecn4web") || n.Contains("ecn4-web") || n.Contains("ecn4_web")) return ComponentRole.Ecn4Web;
+        if (n.Contains("ecn4")) return ComponentRole.Ecn4;
+        if (n.Contains("xps")) return ComponentRole.Xps;
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Résumé (FR-073)
+    // -----------------------------------------------------------------------
+    private static readonly Regex MotifNiveau = new(
+        @"\b(INFO|WARN(?:ING)?|ERROR|DEBUG|FATAL|SEVERE)\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex MotifVersion = new(
+        @"\bversion[\s:=]+v?(\d+\.\d+(?:\.\d+){0,2})\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Période couverte et volumes par niveau, calculés sur TOUT le fichier
+    /// — pas seulement les lignes retenues comme anomalies, sans quoi la
+    /// période afficherait celle des erreurs plutôt que celle du journal.
+    /// </summary>
+    private static void CalculerResume(string[] lignes, LogSource source)
+    {
+        foreach (var ligneBrute in lignes)
+        {
+            var ligne = ligneBrute.TrimEnd('\r');
+            if (ligne.Length == 0) continue;
+
+            var horodatage = ExtraireHorodatage(ligne);
+            if (horodatage is not null)
+            {
+                if (source.EarliestEntryAt is null || horodatage < source.EarliestEntryAt)
+                    source.EarliestEntryAt = horodatage;
+                if (source.LatestEntryAt is null || horodatage > source.LatestEntryAt)
+                    source.LatestEntryAt = horodatage;
+            }
+
+            var niveau = MotifNiveau.Match(ligne);
+            if (niveau.Success)
+            {
+                var valeur = niveau.Value.ToUpperInvariant();
+                if (valeur == "INFO") source.InfoCount++;
+                else if (valeur.StartsWith("WARN", StringComparison.Ordinal)) source.WarningCount++;
+                else if (valeur is "ERROR" or "FATAL" or "SEVERE") source.ErrorCount++;
+            }
+
+            if (source.DetectedVersion is null)
+            {
+                var version = MotifVersion.Match(ligne);
+                if (version.Success) source.DetectedVersion = version.Groups[1].Value;
+            }
+        }
     }
 
     private static async Task<SourceResult> EchouerAsync(

@@ -10,12 +10,12 @@
     <!-- Left Section: Brand Emblem & Environment Badge -->
     <div class="flex items-center gap-4 shrink-0">
         <a href="" class="flex items-center gap-3 group">
-            <div class="w-10 h-10 rounded-2xl bg-theme-gradient text-white flex items-center justify-center shadow-lg glow-theme text-lg font-black group-hover:scale-105 transition-transform duration-200">
-                <i class="bi bi-shield-check"></i>
+            <div class="bg-white rounded-xl px-2.5 py-1.5 shadow-lg group-hover:scale-105 transition-transform duration-200">
+                <img src="images/logo_cit.jpeg" alt="Côte d'Ivoire Terminal" class="h-6 sm:h-7 w-auto block" />
             </div>
             <div class="hidden sm:block">
                 <h2 class="text-base font-black text-white tracking-tight leading-none mb-0.5">N4 Sentinel</h2>
-                <span class="text-[10px] text-slate-400 font-medium">CIT Supervision N4</span>
+                <span class="text-[10px] text-slate-400 font-medium">Supervision N4</span>
             </div>
         </a>
 
@@ -55,14 +55,14 @@
         
         <!-- DROPDOWN 1: SUPERVISION -->
         <div class="relative group">
-            <button class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 focus:outline-none shadow-sm">
+            <button aria-haspopup="true" class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 shadow-sm">
                 <i class="bi bi-activity text-theme-primary text-sm"></i>
                 <span>Supervision</span>
                 <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
             </button>
 
             <!-- Dropdown Menu Box -->
-            <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block z-50 min-w-[270px] animate-fadeIn">
+            <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block group-focus-within:block z-50 min-w-[270px] animate-fadeIn">
                 <div class="p-2.5 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1.5">
                     <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="" Match="NavLinkMatch.All">
                         <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
@@ -120,14 +120,14 @@
         <!-- DROPDOWN 2: EXPLOITATION -->
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
             <div class="relative group">
-                <button class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 focus:outline-none shadow-sm">
+                <button aria-haspopup="true" class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 shadow-sm">
                     <i class="bi bi-hdd-stack-fill text-theme-primary text-sm"></i>
                     <span>Exploitation</span>
                     <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
                 </button>
 
                 <!-- Dropdown Menu Box -->
-                <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block z-50 min-w-[270px] animate-fadeIn">
+                <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block group-focus-within:block z-50 min-w-[270px] animate-fadeIn">
                     <div class="p-2.5 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1.5">
                         <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/environnements">
                             <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
@@ -155,11 +155,31 @@
                                     <i class="bi bi-diagram-3-fill"></i>
                                 </div>
                                 <div>
-                                    <div class="font-bold text-white text-xs">Workflows &amp; Procédures</div>
+                                    <div class="font-bold text-white text-xs">Workflows</div>
                                     <div class="text-[10px] text-slate-400 font-normal">Séquences de démarrage automatisées</div>
                                 </div>
                             </NavLink>
                         </AuthorizeView>
+
+                        <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="sop">
+                            <div class="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-300 flex items-center justify-center shrink-0">
+                                <i class="bi bi-journal-check"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">SOP</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Procédures suivies à la main, tracées</div>
+                            </div>
+                        </NavLink>
+
+                        <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="edi">
+                            <div class="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-300 flex items-center justify-center shrink-0">
+                                <i class="bi bi-arrow-left-right"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">EDI</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Fichiers reçus, intégrés, rejetés</div>
+                            </div>
+                        </NavLink>
 
                         <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="diagCtx">
                             <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="diagnostics">
@@ -202,14 +222,14 @@
         <!-- DROPDOWN 3: AUDIT & SÉCURITÉ -->
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
             <div class="relative group">
-                <button class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 focus:outline-none shadow-sm">
+                <button aria-haspopup="true" class="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 text-slate-300 hover:text-white transition-all duration-200 shadow-sm">
                     <i class="bi bi-shield-lock-fill text-theme-primary text-sm"></i>
                     <span>Audit &amp; Sécurité</span>
                     <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
                 </button>
 
                 <!-- Dropdown Menu Box -->
-                <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block z-50 min-w-[270px] animate-fadeIn">
+                <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block group-focus-within:block z-50 min-w-[270px] animate-fadeIn">
                     <div class="p-2.5 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1.5">
                         <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="historique">
                             <div class="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-300 flex items-center justify-center shrink-0">
@@ -228,6 +248,16 @@
                             <div>
                                 <div class="font-bold text-white text-xs">Journal d'audit</div>
                                 <div class="text-[10px] text-slate-400 font-normal">Traçabilité SEC-008 &amp; Preuves</div>
+                            </div>
+                        </NavLink>
+
+                        <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/utilisateurs">
+                            <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
+                                <i class="bi bi-people"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-white text-xs">Comptes &amp; droits</div>
+                                <div class="text-[10px] text-slate-400 font-normal">Revue périodique des accès (SEC-010)</div>
                             </div>
                         </NavLink>
 
@@ -267,7 +297,7 @@
                     </button>
 
                     <!-- User Profile Dropdown Card -->
-                    <div class="absolute right-0 top-full pt-2.5 hidden group-hover:block z-50 min-w-[220px] animate-fadeIn">
+                    <div class="absolute right-0 top-full pt-2.5 hidden group-hover:block group-focus-within:block z-50 min-w-[220px] animate-fadeIn">
                         <div class="p-3 rounded-2xl bg-slate-900/95 border border-slate-800/80 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2">
                             <!-- Profile Header -->
                             <div class="px-2 border-b border-slate-800/80 pb-2">
@@ -314,7 +344,7 @@
 <!-- Mobile Drawer Categorized Accordion Dropdown -->
 @if (_mobileMenuOpen)
 {
-    <div class="lg:hidden px-4 py-3 bg-slate-950/95 border-b border-slate-800 space-y-4 text-xs font-bold animate-fadeIn">
+    <nav aria-label="Menu de navigation mobile" class="lg:hidden px-4 py-3 bg-slate-950/95 border-b border-slate-800 space-y-4 text-xs font-bold animate-fadeIn">
         <!-- Group 1 -->
         <div class="space-y-1">
             <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Supervision</div>
@@ -354,6 +384,14 @@
                         <span>Workflows</span>
                     </NavLink>
                 </AuthorizeView>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="sop" @onclick="CloseMobileMenu">
+                    <i class="bi bi-journal-check text-teal-300 text-base"></i>
+                    <span>SOP</span>
+                </NavLink>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="edi" @onclick="CloseMobileMenu">
+                    <i class="bi bi-arrow-left-right text-orange-300 text-base"></i>
+                    <span>EDI</span>
+                </NavLink>
                 <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="mobileDiagCtx">
                     <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="diagnostics" @onclick="CloseMobileMenu">
                         <i class="bi bi-search text-theme-primary text-base"></i>
@@ -385,6 +423,10 @@
                     <i class="bi bi-journal-text text-theme-primary text-base"></i>
                     <span>Journal d'audit</span>
                 </NavLink>
+                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/utilisateurs" @onclick="CloseMobileMenu">
+                    <i class="bi bi-people text-indigo-400 text-base"></i>
+                    <span>Comptes &amp; droits</span>
+                </NavLink>
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerConnecteurs" Context="mobileSauvCtx">
                     <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/sauvegarde" @onclick="CloseMobileMenu">
                         <i class="bi bi-hdd-fill text-emerald-400 text-base"></i>
@@ -411,7 +453,7 @@
                 </div>
             </Authorized>
         </AuthorizeView>
-    </div>
+    </nav>
 }
 
 @code {

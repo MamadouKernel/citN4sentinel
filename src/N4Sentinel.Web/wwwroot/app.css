@@ -111,10 +111,24 @@
     --bg-card-hover: #ffffff;
 }
 
-[data-theme="light"] .text-slate-100,
-[data-theme="light"] .text-slate-200,
-[data-theme="light"] .text-slate-300 {
+/*
+ * L'échelle slate-100 -> slate-500 code une hiérarchie de texte en mode
+ * sombre : plus le chiffre est bas, plus le texte est proche du blanc et
+ * porte d'emphase. Une bascule qui écraserait ces cinq niveaux sur une seule
+ * teinte en mode clair effacerait cette hiérarchie (un sous-titre en
+ * slate-300 deviendrait indiscernable d'un titre en slate-100). Chaque
+ * niveau reçoit donc son propre équivalent clair, dans le même ordre.
+ */
+[data-theme="light"] .text-slate-100 {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .text-slate-200 {
     color: #1e293b !important;
+}
+
+[data-theme="light"] .text-slate-300 {
+    color: #334155 !important;
 }
 
 [data-theme="light"] .text-slate-400 {
@@ -129,14 +143,43 @@
     color: #0f172a !important;
 }
 
+/*
+ * Les cartes de l'appli utilisent presque toutes une opacite Tailwind
+ * (bg-slate-900/60, /80...) plutot que la classe pleine. Tailwind compile
+ * chaque opacite en une classe distincte (.bg-slate-900\/60) : une regle qui
+ * ne cible QUE .bg-slate-900 laisse ces cartes en fond sombre au milieu d'une
+ * page devenue claire. La liste ci-dessous reprend explicitement toutes les
+ * opacites reellement utilisees dans les pages (verifie par recherche dans
+ * les fichiers .razor) - a completer si une nouvelle opacite est introduite.
+ */
 [data-theme="light"] .bg-slate-950,
-[data-theme="light"] .bg-slate-900 {
+[data-theme="light"] .bg-slate-950\/60,
+[data-theme="light"] .bg-slate-950\/80,
+[data-theme="light"] .bg-slate-950\/90,
+[data-theme="light"] .bg-slate-950\/95,
+[data-theme="light"] .bg-slate-900,
+[data-theme="light"] .bg-slate-900\/30,
+[data-theme="light"] .bg-slate-900\/40,
+[data-theme="light"] .bg-slate-900\/50,
+[data-theme="light"] .bg-slate-900\/60,
+[data-theme="light"] .bg-slate-900\/80,
+[data-theme="light"] .bg-slate-900\/95,
+[data-theme="light"] .bg-slate-800\/20,
+[data-theme="light"] .bg-slate-800\/40,
+[data-theme="light"] .bg-slate-800\/60,
+[data-theme="light"] .bg-slate-800\/80 {
     background-color: #ffffff !important;
     border-color: #e2e8f0 !important;
 }
 
 [data-theme="light"] .border-slate-800,
-[data-theme="light"] .border-slate-700 {
+[data-theme="light"] .border-slate-800\/60,
+[data-theme="light"] .border-slate-800\/80,
+[data-theme="light"] .border-slate-800\/90,
+[data-theme="light"] .border-slate-700,
+[data-theme="light"] .border-slate-700\/50,
+[data-theme="light"] .border-slate-700\/60,
+[data-theme="light"] .border-slate-700\/80 {
     border-color: #cbd5e1 !important;
 }
 
@@ -243,6 +286,25 @@
 
 .nav-item-link.active i {
     color: #ffffff !important;
+}
+
+/*
+ * Contour de focus clavier, visible partout ou Tailwind le supprime
+ * (focus:outline-none, tres present dans la barre de navigation et ses
+ * menus). Sans lui, un operateur qui navigue au clavier - la seule methode
+ * fiable quand la souris ou le trackpad d'un poste d'exploitation lache -
+ * ne voit jamais ou il se trouve. :focus-visible ne se declenche qu'a la
+ * navigation clavier : un clic souris ne montre pas cet anneau.
+ */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--brand-primary) !important;
+    outline-offset: 2px;
+    border-radius: 0.5rem;
 }
 
 /* Form Controls & Inputs */

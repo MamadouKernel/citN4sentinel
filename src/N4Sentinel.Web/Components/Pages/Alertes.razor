@@ -1,13 +1,16 @@
 @page "/alertes"
 @using Microsoft.AspNetCore.Authorization
 @using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Diagnostic
 @using N4Sentinel.Infrastructure.Referential
 @using N4Sentinel.Infrastructure.Supervision
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject AlertService Alerts
+@inject DiagnosticSessionService Sessions
 @inject ReferentialService Referential
 @inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
 
 <PageTitle>Alertes — N4 Sentinel</PageTitle>
 
@@ -128,15 +131,25 @@
                             }
                         </div>
 
-                        @if (a.Status == AlertStatus.Ouverte)
-                        {
-                            <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="acquittement">
-                                <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition whitespace-nowrap flex-shrink-0"
-                                        @onclick="() => Ouvrir(a)">
-                                    Acquitter
+                        <div class="flex flex-col gap-1.5 flex-shrink-0">
+                            @if (a.Status == AlertStatus.Ouverte)
+                            {
+                                <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="acquittement">
+                                    <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition whitespace-nowrap"
+                                            @onclick="() => Ouvrir(a)">
+                                        Acquitter
+                                    </button>
+                                </AuthorizeView>
+                            }
+                            <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="diagnostic">
+                                <button class="px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/25 font-semibold text-xs transition whitespace-nowrap disabled:opacity-50"
+                                        disabled="@(_idEnCoursDeDiagnostic == a.Id)"
+                                        @onclick="() => DiagnostiquerAsync(a)">
+                                    <i class="bi bi-search"></i>
+                                    @(_idEnCoursDeDiagnostic == a.Id ? "Ouverture…" : "Diagnostiquer")
                                 </button>
                             </AuthorizeView>
-                        }
+                        </div>
                     </div>
                 </div>
             }
@@ -219,6 +232,7 @@
     private Alert? _aAcquitter;
     private string _motif = "";
     private string? _message;
+    private Guid? _idEnCoursDeDiagnostic;
 
     protected override async Task OnInitializedAsync()
     {
@@ -255,6 +269,30 @@
         await Recharger();
     }
 
+    /// <summary>FR-068 : ouvre un diagnostic pré-rempli et déjà collecté depuis cette alerte.</summary>
+    private async Task DiagnostiquerAsync(Alert a)
+    {
+        _idEnCoursDeDiagnostic = a.Id;
+        try
+        {
+            var etat = await AuthProvider.GetAuthenticationStateAsync();
+            var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+            var resultat = await Sessions.CreateFromAlertAsync(a.Id, acteur);
+            if (!resultat.Succeeded)
+            {
+                _message = resultat.Error;
+                return;
+            }
+
+            Nav.NavigateTo($"/diagnostics/{resultat.SessionId}");
+        }
+        finally
+        {
+            _idEnCoursDeDiagnostic = null;
+        }
+    }
+
     private static string Duree(TimeSpan d) => d.TotalHours >= 1
         ? $"{(int)d.TotalHours} h {d.Minutes:00}"
         : d.TotalMinutes >= 1 ? $"{(int)d.TotalMinutes} min" : $"{d.Seconds} s";
@@ -281,6 +319,11 @@
         AlertKind.PreuveIndisponible => "bi-file-earmark-x-fill",
         AlertKind.EcartHorloge => "bi-clock-history",
         AlertKind.RessourceCritique => "bi-hdd-fill",
+        AlertKind.ConflitRoleActifCenter => "bi-front",
+        AlertKind.NoeudLent => "bi-speedometer2",
+        AlertKind.SynchronisationXpsRetardee => "bi-arrow-repeat",
+        AlertKind.FichierEdiNonConsomme => "bi-file-earmark-arrow-up-fill",
+        AlertKind.AucuneIntegrationEdiRecente => "bi-arrow-left-right",
         _ => "bi-hourglass-split"
     };
 }

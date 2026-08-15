@@ -32,6 +32,15 @@ public class N4Environment : AuditableEntity
     /// </summary>
     public string TimeZoneId { get; set; } = "W. Central Africa Standard Time";
 
+    /// <summary>Niveau d'automatisation de cet environnement (Palier 1 ou Palier 2).</summary>
+    public AutomationLevel AutomationLevel { get; set; } = AutomationLevel.SemiAutomatique;
+
+    /// <summary>Identifiant du responsable DSI ayant approuvé le Palier 2 pour cet environnement.</summary>
+    public string? Palier2ApprovedBy { get; set; }
+
+    /// <summary>Date d'approbation du Palier 2 pour cet environnement.</summary>
+    public DateTime? Palier2ApprovedAt { get; set; }
+
     public string? Description { get; set; }
 
     /// <summary>Responsable technique de l'environnement.</summary>

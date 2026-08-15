@@ -38,8 +38,7 @@ public sealed class MarqueursTests : IAsyncLifetime
         _connectionString =
             $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
 
-        _factory = new TestDbContextFactory(new DbContextOptionsBuilder<N4SentinelDbContext>()
-            .UseSqlServer(_connectionString).Options);
+        _factory = new TestDbContextFactory(TestDbContextOptions.Builder(_connectionString).Options);
 
         // Journal realiste : demarrage, marqueur unique, puis des battements
         // de coeur repetes - ce sont eux qu'il ne faut PAS retenir.

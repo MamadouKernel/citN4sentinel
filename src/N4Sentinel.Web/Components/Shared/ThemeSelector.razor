@@ -5,7 +5,8 @@
 <div class="relative inline-block text-left">
     <!-- Icon-Only Theme Selector Button -->
     <button type="button" @onclick="ToggleDropdown"
-            class="w-9 h-9 rounded-full bg-slate-900/60 border border-slate-800/60 hover:border-theme-primary text-slate-300 hover:text-white flex items-center justify-center transition-all duration-200 shadow-sm focus:outline-none"
+            aria-haspopup="true" aria-expanded="@(_isOpen ? "true" : "false")"
+            class="w-9 h-9 rounded-full bg-slate-900/60 border border-slate-800/60 hover:border-theme-primary text-slate-300 hover:text-white flex items-center justify-center transition-all duration-200 shadow-sm"
             title="Changer la palette de couleurs">
         <i class="bi bi-palette-fill text-theme-primary text-sm"></i>
     </button>

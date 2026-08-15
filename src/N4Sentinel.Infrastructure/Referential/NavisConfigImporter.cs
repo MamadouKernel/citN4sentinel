@@ -140,7 +140,7 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
         // pas vocation a demarrer ou arreter un serveur SQL.
         if (!string.IsNullOrWhiteSpace(config.DatabaseHost) && !known.Contains("Base de donnees N4"))
         {
-            db.Components.Add(new N4Component
+            var dbComponent = new N4Component
             {
                 EnvironmentId = environmentId,
                 LogicalName = "Base de donnees N4",
@@ -151,13 +151,15 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
                 Port = config.DatabasePort,
                 StartOrder = 0,
                 Description = $"{config.DatabaseEngine} sur {config.DatabaseHost}. Supervision uniquement - toute investigation approfondie reste du ressort du DBA."
-            });
+            };
+            db.Components.Add(dbComponent);
+            report.CreatedComponentIds.Add(dbComponent.Id);
             report.ComponentsCreated++;
         }
 
         if (!string.IsNullOrWhiteSpace(config.SharedFolder) && !known.Contains("Dossier partage N4"))
         {
-            db.Components.Add(new N4Component
+            var shareComponent = new N4Component
             {
                 EnvironmentId = environmentId,
                 LogicalName = "Dossier partage N4",
@@ -168,7 +170,9 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
                 StartOrder = 0,
                 Endpoint = config.SharedFolder,
                 Description = "Contient amq et conf. Une corruption ici empeche le demarrage du Center."
-            });
+            };
+            db.Components.Add(shareComponent);
+            report.CreatedComponentIds.Add(shareComponent.Id);
             report.ComponentsCreated++;
         }
 
@@ -197,7 +201,7 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
 
             var defaults = config.Readiness?.Defaults;
 
-            db.Components.Add(new N4Component
+            var component = new N4Component
             {
                 EnvironmentId = environmentId,
                 ServerId = serversByHost.TryGetValue(host, out var srv) ? srv.Id : null,
@@ -230,7 +234,9 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
                     PostReadySettleSeconds = readiness?.PostReadySettleSeconds
                                               ?? defaults?.PostReadySettleSeconds ?? 0
                 }
-            });
+            };
+            db.Components.Add(component);
+            report.CreatedComponentIds.Add(component.Id);
 
             if (readiness?.ReadyPatterns is null || readiness.ReadyPatterns.Count == 0)
                 report.Warnings.Add($"{name} : aucun marqueur de demarrage dans le fichier. " +
@@ -250,6 +256,16 @@ public sealed class ImportReport
     public List<string> Warnings { get; } = [];
     public List<string> Errors { get; } = [];
     public bool Succeeded => Errors.Count == 0;
+
+    /// <summary>
+    /// Identifiants des composants nouvellement créés par cet import.
+    ///
+    /// Permet à l'appelant de lancer une vérification de joignabilité
+    /// immédiate (FR-007), sans attendre le balayage de fond (30 s) ni la
+    /// validation de l'environnement : un opérateur qui vient d'importer un
+    /// fichier veut savoir tout de suite quels serveurs répondent.
+    /// </summary>
+    public List<Guid> CreatedComponentIds { get; } = [];
 }
 
 // ---------------------------------------------------------------------------

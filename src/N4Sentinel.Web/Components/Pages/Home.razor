@@ -2,9 +2,12 @@
 @using Microsoft.AspNetCore.Authorization
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Supervision
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject ReferentialService Referential
+@inject SupervisionStateCache SupervisionCache
+@inject AlertService Alerts
 @inject NavigationManager Nav
 
 <PageTitle>Tableau de bord — N4 Sentinel</PageTitle>
@@ -36,26 +39,36 @@
         </div>
     </div>
 
-    <!-- Smart AI Health & Operational Insights Banner -->
+    <!-- Health & Operational Insights Banner — valeurs mesurées, pas d'estimation -->
     <div class="p-5 rounded-3xl bg-slate-900/80 border border-slate-800/90 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
         <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-2xl font-black shrink-0 shadow-inner">
+            <div class="w-12 h-12 rounded-2xl @SanteIconClasses border flex items-center justify-center text-2xl font-black shrink-0 shadow-inner">
                 <i class="bi bi-shield-check"></i>
             </div>
             <div>
                 <div class="flex items-center gap-2">
-                    <h3 class="text-base font-extrabold text-white">Score de Santé Écosystème : <span class="text-emerald-400 font-mono">99.4%</span></h3>
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Opérationnel</span>
+                    <h3 class="text-base font-extrabold text-white">
+                        Score de Santé Écosystème :
+                        @if (_santeCalculee)
+                        {
+                            <span class="@SanteTextClasses font-mono">@_santePercent %</span>
+                        }
+                        else
+                        {
+                            <span class="text-slate-500 font-mono">— %</span>
+                        }
+                    </h3>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase @SanteBadgeClasses border">@_santeLabel</span>
                 </div>
-                <p class="text-xs text-slate-400 mt-0.5">Tous les services critiques Navis N4, Cluster DB, XPS &amp; GOS fonctionnent nominalement.</p>
+                <p class="text-xs text-slate-400 mt-0.5">@SantePhrase</p>
             </div>
         </div>
 
-        <!-- Smart Insight Pills -->
+        <!-- Insight Pills : comptages réels, pas de constat statique -->
         <div class="flex items-center gap-3 flex-wrap">
             <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2">
-                <i class="bi bi-check-circle-fill text-emerald-400"></i>
-                <span>NTP Synchronisé (Domaine OK)</span>
+                <i class="bi @(_alertesOuvertesCount > 0 ? "bi-exclamation-triangle-fill text-amber-400" : "bi-check-circle-fill text-emerald-400")"></i>
+                <span>@(_alertesOuvertesCount > 0 ? $"{_alertesOuvertesCount} alerte(s) active(s)" : "Aucune alerte active")</span>
             </div>
             <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2">
                 <i class="bi bi-lock-fill text-purple-400"></i>
@@ -63,7 +76,7 @@
             </div>
             <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2">
                 <i class="bi bi-file-earmark-check-fill text-sky-400"></i>
-                <span>Traçabilité SEC-008</span>
+                <span>@_totalAuditEntries entrée(s) au journal d'audit</span>
             </div>
         </div>
     </div>
@@ -109,8 +122,8 @@
                 <i class="bi bi-shield-check"></i>
             </div>
             <div>
-                <div class="text-2xl font-black text-white tracking-tight">100%</div>
-                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Audit SEC-008</div>
+                <div class="text-2xl font-black text-white tracking-tight">@_totalAuditEntries</div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Entrées d'audit</div>
             </div>
         </div>
     </div>
@@ -271,6 +284,14 @@
     private List<AuditEntry>? _auditRecent;
     private int _totalServeurs = 0;
     private int _totalComposants = 0;
+    private int _totalAuditEntries = 0;
+    private int _alertesOuvertesCount = 0;
+
+    private bool _santeCalculee;
+    private int _santePercent;
+    private int _santeDisponible;
+    private int _santeSuperviseTotal;
+    private string _santeLabel = "Aucune donnée";
 
     protected override async Task OnInitializedAsync()
     {
@@ -293,7 +314,66 @@
         }
 
         _auditRecent = await Referential.GetAuditEntriesAsync(null, 5);
+        _totalAuditEntries = await Referential.CountAuditEntriesAsync();
+        _alertesOuvertesCount = (await Alerts.GetOpenAsync()).Count;
+
+        CalculerSante();
     }
+
+    /// <summary>
+    /// Score de santé calculé à partir du dernier instantané de supervision
+    /// réellement collecté (SupervisionStateCache) — jamais une valeur fixe.
+    /// Tant qu'aucun composant supervisé n'a été évalué, l'écran affiche
+    /// « Aucune donnée » plutôt que d'inventer un pourcentage.
+    /// </summary>
+    private void CalculerSante()
+    {
+        var resume = SupervisionCache.GetSummary();
+        _santeSuperviseTotal = resume.Total - resume.NonSupervise;
+        _santeDisponible = resume.Disponible;
+
+        if (_santeSuperviseTotal <= 0)
+        {
+            _santeCalculee = false;
+            _santeLabel = "Aucune donnée";
+            return;
+        }
+
+        _santeCalculee = true;
+        _santePercent = (int)Math.Round(_santeDisponible / (double)_santeSuperviseTotal * 100);
+
+        _santeLabel = resume.Indisponible > 0 ? "Attention requise"
+                    : _alertesOuvertesCount > 0 || _santePercent < 100 ? "Dégradé"
+                    : "Opérationnel";
+    }
+
+    private string SanteIconClasses => _santeLabel switch
+    {
+        "Opérationnel" => "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+        "Dégradé" => "bg-amber-500/10 text-amber-400 border-amber-500/30",
+        "Attention requise" => "bg-rose-500/10 text-rose-400 border-rose-500/30",
+        _ => "bg-slate-500/10 text-slate-400 border-slate-500/30"
+    };
+
+    private string SanteTextClasses => _santeLabel switch
+    {
+        "Opérationnel" => "text-emerald-400",
+        "Dégradé" => "text-amber-400",
+        "Attention requise" => "text-rose-400",
+        _ => "text-slate-400"
+    };
+
+    private string SanteBadgeClasses => _santeLabel switch
+    {
+        "Opérationnel" => "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        "Dégradé" => "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        "Attention requise" => "bg-rose-500/20 text-rose-300 border-rose-500/30",
+        _ => "bg-slate-500/20 text-slate-300 border-slate-500/30"
+    };
+
+    private string SantePhrase => _santeCalculee
+        ? $"{_santeDisponible} composant(s) disponible(s) sur {_santeSuperviseTotal} supervisé(s)."
+        : "Aucun composant supervisé n'a encore été évalué — le relevé démarre quelques secondes après le lancement de l'application.";
 
     private List<N4Environment> GetFilteredEnvironments()
     {

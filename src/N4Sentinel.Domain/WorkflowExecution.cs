@@ -69,6 +69,12 @@ public class WorkflowExecution : AuditableEntity
     /// <summary>Simulation : aucune commande n'est émise (FR-005).</summary>
     public bool IsSimulation { get; set; }
 
+    /// <summary>Niveau d'automatisation de cette exécution (Palier 1 ou Palier 2).</summary>
+    public AutomationLevel AutomationLevel { get; set; } = AutomationLevel.SemiAutomatique;
+
+    /// <summary>Vrai si le basculement d'urgence au mode semi-automatique (Palier 1) a été déclenché.</summary>
+    public bool IsFallbackSemiAutoForced { get; set; }
+
     // --- Motif et rattachement (FR-011) ---------------------------------
     public string RequestedBy { get; set; } = string.Empty;
     public string? Reason { get; set; }
@@ -78,6 +84,34 @@ public class WorkflowExecution : AuditableEntity
     // --- Approbation (FR-013) -------------------------------------------
     public string? ApprovedBy { get; set; }
     public DateTimeOffset? ApprovedAt { get; set; }
+
+    /// <summary>
+    /// Recopié du workflow au moment de la préparation, pour que l'exigence
+    /// reste exacte même si le workflow évolue avant que l'approbation ait
+    /// lieu.
+    /// </summary>
+    public bool RequiresDoubleApproval { get; set; }
+
+    /// <summary>Second approbateur, distinct du demandeur ET du premier approbateur.</summary>
+    public string? SecondApprovedBy { get; set; }
+    public DateTimeOffset? SecondApprovedAt { get; set; }
+
+    // --- Continuite Center (FR-046/047) ----------------------------------
+    /// <summary>
+    /// Recopié au moment de la préparation : vrai si cette exécution comporte
+    /// une action d'arrêt ou de redémarrage visant le Center. Évite de
+    /// redériver la même condition à chaque écran ou contrôle.
+    /// </summary>
+    public bool ContinuityChoiceRequired { get; set; }
+
+    /// <summary>
+    /// Null tant qu'un choix n'a pas été fait explicitement. Le pré-check
+    /// bloque le lancement en son absence quand ContinuityChoiceRequired est
+    /// vrai.
+    /// </summary>
+    public CenterContinuityChoice? ContinuityChoice { get; set; }
+    public string? ContinuityChoiceBy { get; set; }
+    public DateTimeOffset? ContinuityChoiceAt { get; set; }
 
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
@@ -182,6 +216,12 @@ public class ExecutionStep : AuditableEntity
     public int ExpectedSeconds { get; set; } = 60;
     public bool IsSkippable { get; set; }
     public bool RequiresConfirmation { get; set; }
+
+    /// <summary>
+    /// Recopié du modèle (FR-023). Le moteur ne parallélise que ce que le
+    /// validateur de séquence a jugé indépendant ; voir <c>OrchestrationEngine</c>.
+    /// </summary>
+    public bool CanRunInParallel { get; set; }
     public StepFailurePolicy FailurePolicy { get; set; } = StepFailurePolicy.Bloquer;
     public string? Instruction { get; set; }
 

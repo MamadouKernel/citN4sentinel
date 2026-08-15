@@ -115,7 +115,14 @@
         </div>
     }
 
-    @if (_sessions.Count == 0)
+    @if (_sessions is null)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs space-y-2">
+            <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+            <p>Chargement...</p>
+        </div>
+    }
+    else if (_sessions.Count == 0)
     {
         <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs space-y-2">
             <i class="bi bi-search text-2xl text-slate-600"></i>
@@ -182,7 +189,7 @@
 
 @code {
     private List<N4Environment> _environnements = [];
-    private List<DiagnosticSession> _sessions = [];
+    private List<DiagnosticSession>? _sessions;
     private Guid _envId;
 
     private bool _creation;

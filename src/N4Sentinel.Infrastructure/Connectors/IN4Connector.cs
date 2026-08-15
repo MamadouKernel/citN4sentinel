@@ -97,6 +97,23 @@ public interface IN4Connector
     Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
         ConnectorTarget target, string serviceName, ServiceControlAction action,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Enumere les fichiers d'un dossier — nom, taille, derniere ecriture, et
+    /// si le fichier est actuellement verrouille par un autre processus
+    /// (ouverture d'essai en partage nul, refermee aussitot). LECTURE SEULE,
+    /// jamais recursif. Sert la supervision des dossiers partages (FR-059B/C).
+    /// </summary>
+    Task<ConnectorResult<FolderSnapshot>> ListFilesAsync(
+        ConnectorTarget target, string path, CancellationToken ct = default);
+
+    /// <summary>
+    /// Verifie la capacite d'ecriture d'un dossier de maniere NON DESTRUCTIVE
+    /// (FR-059B) : cree un fichier marqueur au nom unique, verifie son
+    /// contenu, puis le supprime. Ne touche a rien d'existant.
+    /// </summary>
+    Task<ConnectorResult<WriteProbeResult>> ProbeWriteAsync(
+        ConnectorTarget target, string path, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -373,4 +390,32 @@ public sealed record UpdateSnapshot
     public DateTimeOffset? LastInstallationDate { get; init; }
 
     public DateTimeOffset MeasuredAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>Contenu d'un dossier, relevé en lecture seule (FR-059B/C).</summary>
+public sealed record FolderSnapshot
+{
+    public required string Path { get; init; }
+    public bool Exists { get; init; }
+    public IReadOnlyList<RemoteFileInfo> Files { get; init; } = [];
+}
+
+public sealed record RemoteFileInfo
+{
+    public required string Name { get; init; }
+    public long SizeBytes { get; init; }
+    public DateTimeOffset LastWriteTime { get; init; }
+
+    /// <summary>
+    /// Verrouillé par un autre processus au moment du relevé — un indice,
+    /// pas une preuve : l'état a pu changer juste après.
+    /// </summary>
+    public bool IsLocked { get; init; }
+}
+
+/// <summary>Résultat d'un test d'écriture non destructif (FR-059B).</summary>
+public sealed record WriteProbeResult
+{
+    public bool CanWrite { get; init; }
+    public string? Error { get; init; }
 }

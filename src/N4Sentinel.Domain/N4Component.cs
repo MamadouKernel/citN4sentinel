@@ -56,6 +56,12 @@ public class N4Component : AuditableEntity
     /// </summary>
     public ReadinessProfile Readiness { get; set; } = new();
 
+    /// <summary>
+    /// Déclaration de dossier partagé supervisé (FR-059A/B/C). Non renseignée
+    /// pour tout composant qui n'en est pas un.
+    /// </summary>
+    public SharedFolderProfile SharedFolder { get; set; } = new();
+
     public ICollection<ComponentDependency> Dependencies { get; set; } = [];
     public ICollection<ComponentHealthCheck> HealthChecks { get; set; } = [];
 
@@ -122,6 +128,33 @@ public class ReadinessProfile
     /// <summary>Lignes ecartees avant evaluation (erreurs connues et benignes).</summary>
     public List<string> IgnorePatterns { get; set; } = [];
 
+    /// <summary>
+    /// FR-032/033 : marqueurs distinguant un Center/Standby dont le SERVICE a
+    /// demarre d'un Center/Standby qui detient REELLEMENT le role actif. Un
+    /// service Windows "Running" ne le prouve pas plus qu'il ne prouve
+    /// l'initialisation applicative : sur un cluster N4, le role actif peut se
+    /// trouver sur l'un ou l'autre noeud independamment de qui est demarre en
+    /// premier. Reserve aux composants de role CenterNode/StandbyCenterNode ;
+    /// non renseigne, l'etat du role reste "a confirmer", jamais suppose.
+    /// </summary>
+    public List<string> ActiveRolePatterns { get; set; } = [];
+
+    /// <summary>
+    /// FR-056 : marqueurs d'un échange N4-XPS normal, réservés aux
+    /// composants Bridge/XPS. Même principe que les autres marqueurs — non
+    /// renseigné, l'état de synchronisation reste "à confirmer", jamais
+    /// supposé sain par défaut.
+    /// </summary>
+    public List<string> SyncPatterns { get; set; } = [];
+
+    /// <summary>
+    /// Délai sans confirmation au-delà duquel la synchronisation est jugée
+    /// en retard. Le tableau des règles de diagnostic du cahier des charges
+    /// cite des symptômes (files qui augmentent, SocketTimeoutException)
+    /// qui se manifestent en quelques minutes, pas en heures.
+    /// </summary>
+    public int SyncDelayThresholdMinutes { get; set; } = 15;
+
     /// <summary>Delai laisse au service Windows pour atteindre Running.</summary>
     public int ServiceRunningTimeoutSeconds { get; set; } = 300;
 
@@ -154,6 +187,51 @@ public class ReadinessProfile
     /// l'operateur - ce qui est le comportement voulu, pas un defaut.
     /// </summary>
     public bool IsProvable => !string.IsNullOrWhiteSpace(LogPath) && ReadyPatterns.Count > 0;
+}
+
+/// <summary>
+/// Déclaration d'un dossier partagé supervisé (FR-059A/B/C).
+///
+/// RootPath VIDE = « ce composant n'est pas un dossier partagé supervisé » :
+/// c'est le cas par défaut, y compris pour un composant de rôle
+/// <see cref="ComponentRole.DossierPartage"/> pas encore configuré.
+///
+/// La classification par sous-dossier (en attente/consommé/bloqué/erreur)
+/// N'EST PAS DÉDUITE : aucune convention de nommage n'est documentée par
+/// l'éditeur au-delà du dossier « amq » pour ActiveMQ/KahaDB. Un sous-dossier
+/// non déclaré reste "non classifié" dans le relevé plutôt que supposé vide.
+/// </summary>
+public class SharedFolderProfile
+{
+    /// <summary>Chemin racine, tel que vu par le serveur qui exécute les contrôles (UNC ou local).</summary>
+    public string? RootPath { get; set; }
+
+    public SharedFolderCategory Category { get; set; } = SharedFolderCategory.Autre;
+
+    public string? PendingSubfolder { get; set; }
+    public string? ConsumedSubfolder { get; set; }
+    public string? BlockedSubfolder { get; set; }
+    public string? ErrorSubfolder { get; set; }
+
+    /// <summary>Ancienneté au-delà de laquelle un fichier en attente est signalé (FR-059B).</summary>
+    public int? MaxPendingAgeHours { get; set; }
+
+    /// <summary>
+    /// FR-059H : expression régulière optionnelle, avec groupes nommés
+    /// <c>partner</c> et/ou <c>type</c>, pour extraire le partenaire et le
+    /// type de message d'un nom de fichier EDI. Non renseignée, ces deux
+    /// informations restent non classifiées — aucune convention de nommage
+    /// des partenaires CIT n'étant documentée, rien n'est deviné.
+    /// </summary>
+    public string? EdiFileNamingPattern { get; set; }
+
+    /// <summary>
+    /// FR-059I : durée au-delà de laquelle l'absence de toute intégration
+    /// réussie sur ce dossier devient une alerte.
+    /// </summary>
+    public int? MaxHoursSinceLastIntegration { get; set; }
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(RootPath);
 }
 
 /// <summary>
