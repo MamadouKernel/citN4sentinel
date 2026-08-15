@@ -30,9 +30,9 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             {
                 RecognizedIntent = "RUN_SIMULATION",
                 SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "Mode simulation activé. Affichage des étapes de pré-check sans exécution mutative.",
-                TargetRoute = "/operations/nouvelle",
-                ActionSummary = "Redirection vers le mode simulation."
+                SpeechSynthesisText = "Ouverture du Flight Simulator N4. Affichage des scénarios de crise et simulation.",
+                TargetRoute = "/flight-simulator",
+                ActionSummary = "Redirection vers le Flight Simulator N4."
             };
         }
         if (lower.Contains("edi") || lower.Contains("baplie"))
@@ -52,8 +52,8 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             RecognizedIntent = "ASSISTANT_QUERY",
             SpokenTranscript = spokenTranscript,
             SpeechSynthesisText = $"D'accord, je recherche '{spokenTranscript}' dans le guide Navis et la base de connaissances.",
-            TargetRoute = "/assistant",
-            ActionSummary = "Requête transmise à l'assistant IA N4."
+            TargetRoute = "/documentation",
+            ActionSummary = "Requête transmise à la base documentaire N4."
         };
     }
 }
