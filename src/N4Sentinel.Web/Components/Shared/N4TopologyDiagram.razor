@@ -1,7 +1,4 @@
 @using N4Sentinel.Domain
-@using N4Sentinel.Infrastructure.Connectors
-@using N4Sentinel.Infrastructure.Referential
-@using N4Sentinel.Infrastructure.Supervision
 @using N4Sentinel.Web.State
 
 @inject ReferentialService Referential
@@ -457,9 +454,8 @@
                             {
                                 <p class="text-[11px] text-rose-300 leading-relaxed">@vitals.Updates.Error</p>
                             }
-                            else
+                            else if (vitals.Updates.Snapshot is { } maj)
                             {
-                                var maj = vitals.Updates.Snapshot!;
                                 <div class="font-bold text-white text-xs">
                                     <span class="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
                                         @maj.PendingCount patch(s) en attente
