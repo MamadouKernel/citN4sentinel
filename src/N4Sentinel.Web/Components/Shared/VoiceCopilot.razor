@@ -4,27 +4,47 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
-<div class="fixed bottom-6 right-6 z-50">
-    <div class="glass-card p-3 rounded-2xl border border-purple-500/40 shadow-2xl bg-slate-950/90 backdrop-blur-md flex items-center gap-3">
-        <button @onclick="ToggleListen" class="p-3.5 rounded-xl transition flex items-center justify-center shadow-lg @(_isListening ? "bg-rose-600 text-white animate-pulse" : "bg-purple-600 hover:bg-purple-500 text-white")">
-            <i class="bi @(_isListening ? "bi-mic-fill text-lg" : "bi-mic text-lg")"></i>
+<div class="fixed bottom-6 right-6 z-50 select-none">
+    @if (_isMinimized)
+    {
+        <button @onclick="ToggleMinimize" title="Ouvrir Sentinel Copilot Vocale" class="w-13 h-13 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white shadow-2xl shadow-purple-950/80 border border-purple-400/40 flex items-center justify-center transition-transform hover:scale-105 active:scale-95">
+            <i class="bi bi-mic-fill text-xl"></i>
         </button>
+    }
+    else
+    {
+        <div class="glass-card p-3 rounded-2xl border border-purple-500/40 shadow-2xl bg-slate-950/95 backdrop-blur-xl flex items-center gap-3 animate-fadeIn">
+            <button @onclick="ToggleListen" class="p-3 rounded-xl transition flex items-center justify-center shadow-lg @(_isListening ? "bg-rose-600 text-white animate-pulse" : "bg-purple-600 hover:bg-purple-500 text-white")">
+                <i class="bi @(_isListening ? "bi-mic-fill text-lg" : "bi-mic text-lg")"></i>
+            </button>
 
-        <div class="pr-2 hidden sm:block">
-            <div class="text-xs font-bold text-white flex items-center gap-1.5">
-                <span>Sentinel Copilot Vocale</span>
-                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-            </div>
-            <div class="text-[11px] text-slate-400 max-w-[200px] truncate">
-                @(_transcript ?? "Dites 'Vérifier la santé' ou 'EDI'")
+            <div class="pr-2 hidden sm:block max-w-[240px]">
+                <div class="text-xs font-bold text-white flex items-center justify-between gap-2">
+                    <span class="flex items-center gap-1.5">
+                        Sentinel Copilot
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    </span>
+                    <button @onclick="ToggleMinimize" class="text-slate-400 hover:text-white transition text-xs p-0.5">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="text-[11px] text-slate-300 truncate mt-0.5 font-medium">
+                    @(_transcript ?? "Dites 'Vérifier la santé' ou 'EDI'")
+                </div>
             </div>
         </div>
-    </div>
+    }
 </div>
 
 @code {
     private bool _isListening;
+    private bool _isMinimized = false;
     private string? _transcript;
+
+    private void ToggleMinimize()
+    {
+        _isMinimized = !_isMinimized;
+    }
 
     private async Task ToggleListen()
     {
@@ -33,8 +53,7 @@
         if (_isListening)
         {
             _transcript = "Écoute en cours…";
-            // Simulation après 2 sec
-            await Task.Delay(2000);
+            await Task.Delay(1800);
             _transcript = "Vérifier la santé du cluster N4";
             _isListening = false;
 
