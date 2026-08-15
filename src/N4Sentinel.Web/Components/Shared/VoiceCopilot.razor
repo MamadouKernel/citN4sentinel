@@ -3,6 +3,7 @@
 @inject VoiceCopilotService VoiceService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@implements IDisposable
 
 <div class="fixed bottom-6 right-6 z-50 select-none">
     @if (_isMinimized)
@@ -13,23 +14,23 @@
     }
     else
     {
-        <div class="glass-card p-3 rounded-2xl border border-purple-500/40 shadow-2xl bg-slate-950/95 backdrop-blur-xl flex items-center gap-3 animate-fadeIn">
-            <button @onclick="ToggleListen" class="p-3 rounded-xl transition flex items-center justify-center shadow-lg @(_isListening ? "bg-rose-600 text-white animate-pulse" : "bg-purple-600 hover:bg-purple-500 text-white")">
-                <i class="bi @(_isListening ? "bi-mic-fill text-lg" : "bi-mic text-lg")"></i>
+        <div class="glass-card p-3.5 rounded-2xl border border-purple-500/40 shadow-2xl bg-slate-950/95 backdrop-blur-xl flex items-center gap-3 animate-fadeIn">
+            <button @onclick="ToggleListen" class="p-3.5 rounded-xl transition flex items-center justify-center shadow-lg @(_isListening ? "bg-rose-600 text-white animate-pulse" : "bg-purple-600 hover:bg-purple-500 text-white")">
+                <i class="bi @(_isListening ? "bi-mic-fill text-xl" : "bi-mic text-xl")"></i>
             </button>
 
-            <div class="pr-2 hidden sm:block max-w-[240px]">
+            <div class="pr-2 hidden sm:block max-w-[260px]">
                 <div class="text-xs font-bold text-white flex items-center justify-between gap-2">
                     <span class="flex items-center gap-1.5">
-                        Sentinel Copilot
-                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                        Sentinel Voice Copilot
+                        <span class="w-2 h-2 rounded-full @(_isListening ? "bg-rose-500 animate-ping" : "bg-emerald-400")"></span>
                     </span>
                     <button @onclick="ToggleMinimize" class="text-slate-400 hover:text-white transition text-xs p-0.5">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
                 <div class="text-[11px] text-slate-300 truncate mt-0.5 font-medium">
-                    @(_transcript ?? "Dites 'Vérifier la santé' ou 'EDI'")
+                    @(_transcript ?? "Cliquez sur le micro et parlez...")
                 </div>
             </div>
         </div>
@@ -40,6 +41,12 @@
     private bool _isListening;
     private bool _isMinimized = false;
     private string? _transcript;
+    private DotNetObjectReference<VoiceCopilot>? _objRef;
+
+    protected override void OnInitialized()
+    {
+        _objRef = DotNetObjectReference.Create(this);
+    }
 
     private void ToggleMinimize()
     {
@@ -48,22 +55,71 @@
 
     private async Task ToggleListen()
     {
-        _isListening = !_isListening;
-
         if (_isListening)
         {
-            _transcript = "Écoute en cours…";
-            await Task.Delay(1800);
-            _transcript = "Vérifier la santé du cluster N4";
             _isListening = false;
-
-            var res = VoiceService.ProcessVoiceCommand(_transcript);
-            _transcript = res.SpeechSynthesisText;
-
-            if (res.TargetRoute != Nav.Uri)
+            try
             {
-                Nav.NavigateTo(res.TargetRoute);
+                await JS.InvokeVoidAsync("n4VoiceCopilot.stopListening");
+            }
+            catch { }
+        }
+        else
+        {
+            _isListening = true;
+            _transcript = "Microphone actif, parlez maintenant…";
+            try
+            {
+                await JS.InvokeVoidAsync("n4VoiceCopilot.startListening", _objRef);
+            }
+            catch (Exception ex)
+            {
+                _isListening = false;
+                _transcript = "Recherche vocale : " + ex.Message;
             }
         }
+    }
+
+    [JSInvokable]
+    public async Task OnVoiceTranscriptReceived(string spokenText)
+    {
+        _isListening = false;
+        _transcript = spokenText;
+        StateHasChanged();
+
+        var response = VoiceService.ProcessVoiceCommand(spokenText);
+        _transcript = response.SpeechSynthesisText;
+        StateHasChanged();
+
+        try
+        {
+            await JS.InvokeVoidAsync("n4VoiceCopilot.speak", response.SpeechSynthesisText);
+        }
+        catch { }
+
+        if (!string.IsNullOrEmpty(response.TargetRoute) && !Nav.Uri.EndsWith(response.TargetRoute))
+        {
+            Nav.NavigateTo(response.TargetRoute);
+        }
+    }
+
+    [JSInvokable]
+    public void OnVoiceError(string errorMessage)
+    {
+        _isListening = false;
+        _transcript = errorMessage;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnVoiceListeningEnded()
+    {
+        _isListening = false;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _objRef?.Dispose();
     }
 }
