@@ -1,0 +1,175 @@
+@page "/flight-simulator"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Procedures
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject FlightSimulatorService SimulatorService
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Flight Simulator — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold mb-2">
+                <i class="bi bi-controller"></i> CRISIS SIMULATOR & GAMIFIED SANDBOX V2.5
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                Flight Simulator — Entraînement IT N1/N2
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">
+                Simulateur d'entraînement aux situations de crise majeures sur l'écosystème Navis N4 en environnement virtuel sécurisé.
+            </p>
+        </div>
+    </div>
+
+    @if (_session is null)
+    {
+        <!-- Sélection du Scénario -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            @foreach (var s in _scenarios)
+            {
+                <div class="glass-card p-6 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition">
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="px-2.5 py-1 rounded-lg text-[10px] font-black tracking-wider @PastilleDifficulte(s.Difficulty)">
+                                @s.Difficulty
+                            </span>
+                            <span class="text-xs font-mono text-slate-400">~@s.EstimatedDurationMinutes min</span>
+                        </div>
+                        <h3 class="text-base font-bold text-white leading-tight">@s.Title</h3>
+                        <p class="text-xs text-slate-300 leading-relaxed">@s.Description</p>
+                        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-amber-300">
+                            <strong>Symptômes :</strong> @s.InitialSymptoms
+                        </div>
+                    </div>
+
+                    <button @onclick="() => DemarrerScenario(s.Id)" class="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-amber-950/40">
+                        <i class="bi bi-play-fill text-base"></i> Démarrer la Simulation
+                    </button>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <!-- Session Active du Simulateur -->
+        <div class="glass-card p-6 rounded-2xl border border-amber-500/30 space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                    <span class="text-[10px] uppercase font-bold tracking-wider text-amber-400">Session de Crise Active</span>
+                    <h2 class="text-xl font-bold text-white">@_session.ScenarioId — @_session.TraineeName</h2>
+                </div>
+
+                <button @onclick="QuitterSession" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition">
+                    Quitter la Simulation
+                </button>
+            </div>
+
+            <!-- Score & Niveau de Stress -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                    <div class="text-slate-400">Score Conformité SOP</div>
+                    <div class="text-2xl font-bold font-mono text-emerald-400">@_session.ScorePercent.ToString("F0") / 100</div>
+                </div>
+                <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                    <div class="text-slate-400">Niveau de Stress Virtuel</div>
+                    <div class="text-2xl font-bold font-mono text-amber-400">@_session.StressLevelPercent.ToString("F0") %</div>
+                </div>
+                <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                    <div class="text-slate-400">Progression</div>
+                    <div class="text-2xl font-bold font-mono text-sky-400">Étape @_session.CurrentStepIndex / @_session.TotalSteps</div>
+                </div>
+            </div>
+
+            <!-- Instructions & Choix d'Actions -->
+            <div class="p-5 rounded-xl bg-amber-950/20 border border-amber-500/30 text-xs space-y-3">
+                <div class="font-bold text-amber-300 text-sm flex items-center gap-2">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Consignes de Sécurité Opérationnelle :
+                </div>
+                <div class="text-slate-200 text-xs leading-relaxed font-semibold">
+                    @_session.CurrentStepInstructions
+                </div>
+            </div>
+
+            @if (_lastResult is not null)
+            {
+                <div class="p-4 rounded-xl text-xs font-bold border @(_lastResult.IsSuccess ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-rose-500/10 border-rose-500/30 text-rose-300")">
+                    @_lastResult.FeedbackMessage
+                </div>
+            }
+
+            <div class="space-y-3">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Sélectionnez la prochaine action :</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button @onclick='() => ChoisirAction("Preflight Check & Vérification Standby")' class="p-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 hover:text-white transition text-left">
+                        1. Exécuter un Pré-check complet du Standby avant interruption
+                    </button>
+                    <button @onclick='() => ChoisirAction("Arrêt Forcé Immédiat sans vérification")' class="p-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 hover:text-white transition text-left">
+                        2. Lancer immédiatement l'arrêt forcé du composant
+                    </button>
+                </div>
+            </div>
+
+            <!-- Journal des événements du simulateur -->
+            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1 font-mono">
+                <div class="text-slate-500 font-bold mb-2 uppercase text-[10px]">Journal de Simulation :</div>
+                @foreach (var log in _session.LogEvents)
+                {
+                    <div class="text-slate-400">@log</div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<SimulatorScenario> _scenarios = [];
+    private SimulatorSession? _session;
+    private SimulatorStepResult? _lastResult;
+
+    protected override void OnInitialized()
+    {
+        _scenarios = SimulatorService.GetAvailableScenarios();
+    }
+
+    private async Task DemarrerScenario(string scenarioId)
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var user = auth.User.Identity?.Name ?? "Operateur N4";
+
+        _session = SimulatorService.StartSession(scenarioId, user);
+        _lastResult = null;
+    }
+
+    private void ChoisirAction(string action)
+    {
+        if (_session is null) return;
+
+        _lastResult = SimulatorService.ExecuteAction(_session.SessionId, action);
+        _session.ScorePercent = Math.Max(0, Math.Min(100, _session.ScorePercent + _lastResult.ScoreDelta));
+        _session.StressLevelPercent = _lastResult.UpdatedStressPercent;
+        _session.LogEvents.Add($"{DateTime.Now:HH:mm:ss} — Action sélectionnée : '{action}'. Result: {(_lastResult.IsSuccess ? "OK" : "KO")}");
+
+        if (_session.CurrentStepIndex < _session.TotalSteps)
+        {
+            _session.CurrentStepIndex++;
+            _session.CurrentStepInstructions = $"Étape {_session.CurrentStepIndex}/4 : Réaliser la bascule et contrôler la synchronisation Hazelcast.";
+        }
+    }
+
+    private void QuitterSession()
+    {
+        _session = null;
+        _lastResult = null;
+    }
+
+    private static string PastilleDifficulte(string diff) => diff switch
+    {
+        "EXPERT" => "bg-rose-500/20 text-rose-300 border border-rose-500/40",
+        "AVANCÉ" => "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+        _ => "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+    };
+}

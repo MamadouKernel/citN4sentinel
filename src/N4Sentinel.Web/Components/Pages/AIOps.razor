@@ -1,0 +1,156 @@
+@page "/aiops"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Ai
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject PredictiveAiService AiService
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>AIOps Prédictif — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-bold mb-2">
+                <i class="bi bi-cpu-fill"></i> SENSORS & AI PREDICTIVE ENGINE V2.5
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                AIOps & Auto-Guérison Prédictive
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">
+                Détection d'anomalies 45 minutes avant incident & Auto-Healing supervisé sur l'écosystème Navis N4.
+            </p>
+        </div>
+
+        <button @onclick="LancerAnalyse" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-purple-950/40">
+            <i class="bi bi-arrow-repeat"></i> Actualiser l'Analyse Télémétrique
+        </button>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-4 rounded-xl text-xs font-semibold border bg-emerald-500/10 border-emerald-500/30 text-emerald-300 flex items-center gap-2">
+            <i class="bi bi-check-circle-fill text-base"></i>
+            <span>@_message</span>
+        </div>
+    }
+
+    <!-- Statut Global & Score de Santé -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-1">
+            <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Score Global de Santé Prédictive</div>
+            <div class="text-3xl font-extrabold text-purple-400">@_snapshot.OverallSystemHealthScore.ToString("F1") / 100</div>
+            <div class="text-[11px] text-slate-500">Basé sur @_snapshot.TotalTrackedMetrics métriques en temps réel</div>
+        </div>
+
+        <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-1">
+            <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Horizon de Détection Précoce</div>
+            <div class="text-3xl font-extrabold text-sky-400">45 Minutes</div>
+            <div class="text-[11px] text-slate-500">Fenêtre de prédiction des dérives temporelles</div>
+        </div>
+
+        <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-1">
+            <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Prédictions en Cours</div>
+            <div class="text-3xl font-extrabold text-amber-400">@_snapshot.ActivePredictions.Count Anomalies</div>
+            <div class="text-[11px] text-slate-500">Actions correctives Self-Healing prêtes</div>
+        </div>
+    </div>
+
+    <!-- Liste des alertes prédictives -->
+    <div class="space-y-4">
+        <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <i class="bi bi-graph-up-arrow text-purple-400"></i> Alertes Prédictives & Actions de Guérison Recommandées
+        </h2>
+
+        <div class="grid grid-cols-1 gap-4">
+            @foreach (var p in _snapshot.ActivePredictions)
+            {
+                <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                        <div class="flex items-center gap-3">
+                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-black tracking-wider @PastilleRisque(p.RiskLevel)">
+                                @p.RiskLevel
+                            </span>
+                            <span class="font-mono text-sm font-bold text-white">@p.TargetComponent</span>
+                            <span class="text-xs text-slate-400">&middot; @p.MetricName</span>
+                        </div>
+                        <div class="text-xs font-mono text-amber-300 font-bold flex items-center gap-1">
+                            <i class="bi bi-clock-history"></i> Rupture probable dans ~@p.EstimatedTimeToFailureMinutes min
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        <div>
+                            <div class="text-slate-500 font-semibold uppercase text-[10px]">Valeur Actuelle</div>
+                            <div class="text-slate-200 font-mono font-bold mt-0.5">@p.CurrentValue</div>
+                        </div>
+                        <div>
+                            <div class="text-slate-500 font-semibold uppercase text-[10px]">Prédiction à +45 min</div>
+                            <div class="text-rose-300 font-mono font-bold mt-0.5">@p.PredictedValueIn45Min</div>
+                        </div>
+                        <div>
+                            <div class="text-slate-500 font-semibold uppercase text-[10px]">Score d'Anomalie IA</div>
+                            <div class="text-purple-300 font-mono font-bold mt-0.5">@p.AnomalyScorePercent.ToString("F1") %</div>
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                        <div class="font-bold text-slate-400 mb-1">Analyse Synthétique :</div>
+                        @p.DiagnosticSummary
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                        <div class="text-xs text-slate-400 flex items-center gap-2">
+                            <i class="bi bi-magic text-purple-400"></i>
+                            <span>Action Self-Healing : <strong class="text-slate-200">@p.ProposedSelfHealingAction</strong></span>
+                        </div>
+
+                        @if (p.IsHealingExecutable)
+                        {
+                            <button @onclick="() => ExecuterSelfHealing(p)" class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold transition flex items-center gap-1.5 self-start sm:self-auto">
+                                <i class="bi bi-play-fill text-emerald-400"></i> Executer Self-Healing
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private PredictiveAnalysisSnapshot _snapshot = null!;
+    private string? _message;
+
+    protected override void OnInitialized()
+    {
+        LancerAnalyse();
+    }
+
+    private void LancerAnalyse()
+    {
+        _snapshot = AiService.RunPredictiveAnalysis("PROD");
+    }
+
+    private async Task ExecuterSelfHealing(PredictiveAlert alert)
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var user = auth.User.Identity?.Name ?? "Operateur";
+
+        var ok = await AiService.ExecuteSelfHealingActionAsync(alert.Id, user);
+        if (ok)
+        {
+            _message = $"Action de guérison automatique exécutée avec succès sur {alert.TargetComponent} ({alert.ProposedSelfHealingAction}).";
+            LancerAnalyse();
+        }
+    }
+
+    private static string PastilleRisque(string level) => level switch
+    {
+        "CRITIQUE" => "bg-rose-500/20 text-rose-300 border border-rose-500/40",
+        "AVERTISSEMENT" => "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+        _ => "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+    };
+}

@@ -116,6 +116,14 @@ public static class DependencyInjection
         services.AddSingleton<SupervisionStateCache>();
         services.AddSingleton<JmxMonitoringService>();
         services.AddSingleton<AzureAdAuthProvider>();
+
+        // Sentinel Intelligence Suite V2.5
+        services.AddSingleton<Ai.PredictiveAiService>();
+        services.AddSingleton<Diagnostic.IncidentReplayService>();
+        services.AddSingleton<Procedures.FlightSimulatorService>();
+        services.AddSingleton<Supervision.DigitalTwinService>();
+        services.AddSingleton<Ai.VoiceCopilotService>();
+
         services.AddHostedService<SupervisionBackgroundService>();
 
         // Orchestration (sprint 4). Le moteur est un SINGLETON : il pilote des

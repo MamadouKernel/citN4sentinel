@@ -1,0 +1,170 @@
+@page "/incident-replay"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Diagnostic
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject IncidentReplayService ReplayService
+
+<PageTitle>Incident Replay — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold mb-2">
+                <i class="bi bi-film"></i> TIME-TRAVEL DEBUGGING ENGINE V2.5
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                Boîte Noire TOS & Incident Replay
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">
+                Rebobinage temporel minute par minute de l'état système et identification automatisée du composant "Patient Zéro".
+            </p>
+        </div>
+    </div>
+
+    <!-- Incident Sélectionné -->
+    <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+                <span class="text-[10px] uppercase font-bold tracking-wider text-rose-400">Incident Sélectionné pour Replay</span>
+                <h2 class="text-lg font-bold text-white">@_timeline.IncidentTitle</h2>
+            </div>
+            <div class="text-xs font-mono text-slate-400">
+                Horodatage d'enregistrement : <span class="text-slate-200">@_timeline.RecordedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</span>
+            </div>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/30 text-xs space-y-1">
+            <div class="font-bold text-rose-300 flex items-center gap-2">
+                <i class="bi bi-bullseye"></i> COMPOSANT PATIENT ZÉRO IDENTIFIÉ :
+                <span class="font-mono text-white bg-rose-900/60 px-2 py-0.5 rounded">@_timeline.PatientZeroComponent</span>
+            </div>
+            <div class="text-slate-300 text-[11px] leading-relaxed pt-1">
+                L'algorithme de corrélation temporelle a isolé ce composant comme étant la source originelle de l'effet domino.
+            </div>
+        </div>
+    </div>
+
+    <!-- Scrubber Temporel & Contrôles Video-Style -->
+    <div class="glass-card p-6 rounded-2xl border border-slate-800 space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <button @onclick="TogglePlay" class="p-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold transition shadow-lg">
+                    <i class="bi @(_isPlaying ? "bi-pause-fill" : "bi-play-fill")"></i>
+                </button>
+                <button @onclick="ResetToStart" class="p-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition">
+                    <i class="bi bi-skip-backward-fill"></i>
+                </button>
+                <div class="text-xs">
+                    <div class="text-slate-400 font-semibold">Temps Relatif Replay :</div>
+                    <div class="font-mono text-sky-400 font-extrabold text-sm">T+@_currentFrameIndex min (@CurrentFrame.Timestamp.ToString("HH:mm:ss"))</div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400 font-semibold">Statut du Cluster au T+@_currentFrameIndex min :</span>
+                <span class="px-3 py-1 rounded-full text-xs font-bold @PastilleEtat(CurrentFrame.OverallHealthStatus)">
+                    @CurrentFrame.OverallHealthStatus
+                </span>
+            </div>
+        </div>
+
+        <!-- Slider Scrubber -->
+        <div class="space-y-2">
+            <input type="range" min="0" max="@(_timeline.Frames.Count - 1)" @bind="_currentFrameIndex" @bind:event="oninput" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500" />
+            <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                <span>T+0 min (Nominal)</span>
+                <span class="text-rose-400 font-bold">T+18 min (Patient Zéro)</span>
+                <span class="text-rose-500 font-bold">T+25 min (Crash)</span>
+                <span>T+30 min (Fin)</span>
+            </div>
+        </div>
+
+        <!-- Métriques instantanées de la frame sélectionnée -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                <div class="text-slate-400">Nœuds Cluster Actifs</div>
+                <div class="text-xl font-bold font-mono text-white">@CurrentFrame.ActiveNodeCount / 4</div>
+            </div>
+            <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                <div class="text-slate-400">Pression Queue ActiveMQ</div>
+                <div class="text-xl font-bold font-mono text-sky-400">@CurrentFrame.ActiveMqQueuePressurePercent.ToString("F1") %</div>
+            </div>
+            <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                <div class="text-slate-400">Verrous SQL Server</div>
+                <div class="text-xl font-bold font-mono text-amber-400">@CurrentFrame.SqlLockCount verrous</div>
+            </div>
+            <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                <div class="text-slate-400">JVM Heap Usage</div>
+                <div class="text-xl font-bold font-mono text-purple-400">@CurrentFrame.JvmHeapUsagePercent.ToString("F1") %</div>
+            </div>
+        </div>
+
+        <!-- Note et journal de la frame -->
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-xs space-y-2">
+            <div class="font-bold text-slate-300 flex items-center gap-2">
+                <i class="bi bi-journal-text text-sky-400"></i> Événement télémétrique au minute-index @_currentFrameIndex :
+            </div>
+            <div class="text-slate-200 leading-relaxed font-mono">
+                @CurrentFrame.SummaryNote
+            </div>
+            @if (CurrentFrame.PatientZeroComponent is not null)
+            {
+                <div class="mt-2 p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-rose-300 font-bold flex items-center gap-2">
+                    <i class="bi bi-exclamation-octagon-fill text-rose-400"></i>
+                    <span>DÉCLENCHEMENT DE L'INCIDENT IDENTIFIÉ EN T+@_currentFrameIndex MIN !</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Graphe d'effet domino -->
+    <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="bi bi-diagram-3 text-purple-400"></i> Chaîne Causalité & Effet Domino Détecté
+        </h3>
+        <div class="space-y-2 text-xs">
+            @foreach (var c in _timeline.CausalChain)
+            {
+                <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-300 font-mono flex items-center gap-2">
+                    <i class="bi bi-arrow-right-circle text-purple-400"></i>
+                    <span>@c</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private IncidentReplayTimeline _timeline = null!;
+    private int _currentFrameIndex;
+    private bool _isPlaying;
+
+    protected override void OnInitialized()
+    {
+        _timeline = ReplayService.GetTimeline(Guid.NewGuid());
+        _currentFrameIndex = 0;
+    }
+
+    private SystemStateFrame CurrentFrame => _timeline.Frames[_currentFrameIndex];
+
+    private void TogglePlay()
+    {
+        _isPlaying = !_isPlaying;
+    }
+
+    private void ResetToStart()
+    {
+        _currentFrameIndex = 0;
+        _isPlaying = false;
+    }
+
+    private static string PastilleEtat(string status) => status switch
+    {
+        "NORMAL" => "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
+        "DEGRADE" => "bg-amber-500/20 text-amber-400 border border-amber-500/40",
+        _ => "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+    };
+}

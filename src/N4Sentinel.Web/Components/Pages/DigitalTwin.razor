@@ -1,0 +1,94 @@
+@page "/digital-twin"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Supervision
+@attribute [Authorize(Policy = N4Policies.PeutConsulter)]
+@rendermode InteractiveServer
+@inject DigitalTwinService TwinService
+
+<PageTitle>Digital Twin 3D — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold mb-2">
+                <i class="bi bi-box-seam-fill"></i> PORT & IT DIGITAL TWIN V2.5
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                Jumeau Numérique 3D — Côte d'Ivoire Terminal
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">
+                Visualisation interactive reliant les équipements portuaires physiques (Portiques STS, RTG, Guérites) aux nœuds logiciels Navis N4.
+            </p>
+        </div>
+    </div>
+
+    <!-- Canvas Isometric Digital Twin -->
+    <div class="glass-card p-6 rounded-2xl border border-slate-800 space-y-6 overflow-hidden">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-layers-half text-emerald-400"></i> Carte Isométrique Côte d'Ivoire Terminal (CIT Abidjan)
+            </h2>
+            <div class="text-xs font-mono text-slate-400">
+                Horodatage temps réel : <span class="text-slate-200">@_snapshot.GeneratedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+            </div>
+        </div>
+
+        <!-- Schéma interactif des équipements physiques et logiciels rattachés -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            @foreach (var asset in _snapshot.PhysicalAssets)
+            {
+                <div class="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-emerald-500/40 transition space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="px-2.5 py-1 rounded-lg text-[10px] font-black tracking-wider @PastilleStatut(asset.Status)">
+                            @asset.Status
+                        </span>
+                        <span class="text-xs font-mono text-slate-400">@asset.Zone</span>
+                    </div>
+
+                    <div>
+                        <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider">@asset.Category</div>
+                        <h3 class="text-base font-bold text-white leading-tight">@asset.Name</h3>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+                        <div class="text-slate-400 font-semibold flex items-center justify-between">
+                            <span>Nœuds N4 Rattachés :</span>
+                            <span class="font-mono text-emerald-400 font-bold">@asset.AssociatedSoftwareNodes.Count nœuds</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            @foreach (var node in asset.AssociatedSoftwareNodes)
+                            {
+                                <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[11px] font-mono text-slate-200">
+                                    @node
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between text-xs text-slate-400 pt-1">
+                        <span>Instructions de Travail en Cours :</span>
+                        <span class="font-mono text-sky-400 font-bold">@asset.ActiveWorkInstructionCount WI</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private DigitalTwinSnapshot _snapshot = null!;
+
+    protected override void OnInitialized()
+    {
+        _snapshot = TwinService.GetTerminalSnapshot();
+    }
+
+    private static string PastilleStatut(string status) => status switch
+    {
+        "OPERATIONNEL" => "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+        "ATTENTION" => "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+        _ => "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+    };
+}

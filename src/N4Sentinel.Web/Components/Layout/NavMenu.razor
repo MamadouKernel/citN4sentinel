@@ -117,6 +117,60 @@
             </div>
         </div>
 
+        <!-- DROPDOWN: INTELLIGENCE SUITE V2.5 -->
+        <div class="relative group">
+            <button aria-haspopup="true" class="flex items-center gap-2 px-4 py-2 rounded-full bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/40 text-purple-200 hover:text-white transition-all duration-200 shadow-sm">
+                <i class="bi bi-cpu-fill text-purple-400 text-sm animate-pulse"></i>
+                <span>Intelligence Suite V2.5</span>
+                <i class="bi bi-chevron-down text-[10px] text-purple-300 group-hover:rotate-180 transition-transform duration-200"></i>
+            </button>
+
+            <!-- Dropdown Menu Box -->
+            <div class="absolute left-0 top-full pt-2.5 hidden group-hover:block group-focus-within:block z-50 min-w-[290px] animate-fadeIn">
+                <div class="p-2.5 rounded-2xl bg-slate-900/95 border border-purple-500/30 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-1.5">
+                    <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="aiops">
+                        <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-graph-up-arrow"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">AIOps &amp; Auto-Healing</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Détection prédictive 45 min avant incident</div>
+                        </div>
+                    </NavLink>
+
+                    <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="incident-replay">
+                        <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-film"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Boîte Noire &amp; Incident Replay</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Time-Travel Debugging &amp; Patient Zéro</div>
+                        </div>
+                    </NavLink>
+
+                    <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="flight-simulator">
+                        <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-controller"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Flight Simulator N4</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Entraînement de crise gamifié IT N1/N2</div>
+                        </div>
+                    </NavLink>
+
+                    <NavLink class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="digital-twin">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+                            <i class="bi bi-box-seam-fill"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-white text-xs">Jumeau Numérique 3D</div>
+                            <div class="text-[10px] text-slate-400 font-normal">Mapping Portiques STS &amp; Serveurs CIT</div>
+                        </div>
+                    </NavLink>
+                </div>
+            </div>
+        </div>
+
         <!-- DROPDOWN 2: EXPLOITATION -->
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
             <div class="relative group">
@@ -455,6 +509,8 @@
         </AuthorizeView>
     </nav>
 }
+
+<VoiceCopilot />
 
 @code {
     private string? currentUrl;
