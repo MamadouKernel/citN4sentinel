@@ -236,6 +236,12 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
             var readiness = db.Entry(existing).Reference(c => c.Readiness).TargetEntry;
             if (readiness is not null)
                 readiness.CurrentValues.SetValues(component.Readiness);
+
+            // Meme raison que Readiness ci-dessus : type possede, sa mise a
+            // jour ne se propage pas via SetValues(component) seul.
+            var sharedFolder = db.Entry(existing).Reference(c => c.SharedFolder).TargetEntry;
+            if (sharedFolder is not null)
+                sharedFolder.CurrentValues.SetValues(component.SharedFolder);
         }
 
         await db.SaveChangesAsync(ct);

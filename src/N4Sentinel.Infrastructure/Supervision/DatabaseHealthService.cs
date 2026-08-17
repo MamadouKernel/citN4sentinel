@@ -30,8 +30,12 @@ public sealed class DatabaseHealthService(ILogger<DatabaseHealthService> logger)
         var serveur = composant.Port is { } port
             ? $"{composant.Server.HostName},{port}"
             : composant.Server.HostName;
+        // SEC-005 : Encrypt force le chiffrement du canal quel que soit le
+        // pilote ; TrustServerCertificate reste a True par defaut faute de
+        // certificat signe par une autorite de confiance sur chaque serveur
+        // SQL supervise (voir appsettings.json, meme decision documentee).
         var connectionString =
-            $"Server={serveur};Trusted_Connection=True;"
+            $"Server={serveur};Trusted_Connection=True;Encrypt=True;"
             + "TrustServerCertificate=True;Connect Timeout=5;MultipleActiveResultSets=True";
 
         var chrono = Stopwatch.StartNew();

@@ -41,6 +41,15 @@ public class N4Component : AuditableEntity
     public LifecycleStatus Status { get; set; } = LifecycleStatus.Brouillon;
 
     /// <summary>
+    /// Déclaré en maintenance par un administrateur (FR-052) : la supervision
+    /// affiche l'état Maintenance sans relever d'échec, le temps d'une
+    /// intervention planifiée. Distinct de ControlMode : un composant reste
+    /// pilotable, on suspend seulement le jugement porté sur son état.
+    /// </summary>
+    public bool MaintenanceMode { get; set; }
+    public string? MaintenanceNote { get; set; }
+
+    /// <summary>
     /// Rang dans la sequence de demarrage. L'arret ne se deduit PAS en
     /// inversant ce rang : il suit sa propre sequence, definie au workflow.
     /// </summary>
@@ -63,7 +72,6 @@ public class N4Component : AuditableEntity
     public SharedFolderProfile SharedFolder { get; set; } = new();
 
     public ICollection<ComponentDependency> Dependencies { get; set; } = [];
-    public ICollection<ComponentHealthCheck> HealthChecks { get; set; } = [];
 
     /// <summary>
     /// Un composant n'est pilotable que s'il est declare comme tel ET valide.
@@ -216,6 +224,12 @@ public class SharedFolderProfile
     /// <summary>Ancienneté au-delà de laquelle un fichier en attente est signalé (FR-059B).</summary>
     public int? MaxPendingAgeHours { get; set; }
 
+    /// <summary>FR-059B : temps de réponse du test d'écriture au-delà duquel une latence est signalée. Null = non surveillé.</summary>
+    public int? MaxWriteLatencyMs { get; set; }
+
+    /// <summary>FR-059B : vitesse de croissance au-delà de laquelle elle est signalée comme anormale. Null = non surveillé.</summary>
+    public long? MaxGrowthBytesPerHour { get; set; }
+
     /// <summary>
     /// FR-059H : expression régulière optionnelle, avec groupes nommés
     /// <c>partner</c> et/ou <c>type</c>, pour extraire le partenaire et le
@@ -230,6 +244,17 @@ public class SharedFolderProfile
     /// réussie sur ce dossier devient une alerte.
     /// </summary>
     public int? MaxHoursSinceLastIntegration { get; set; }
+
+    /// <summary>
+    /// FR-059G/§3.18 : dernière sauvegarde connue de ce dossier partagé —
+    /// DÉCLARÉE par un opérateur, jamais déduite. La sauvegarde d'un dossier
+    /// partagé se fait hors application (script, copie, outil de sauvegarde
+    /// du site) ; ce champ n'enregistre qu'une attestation humaine, sur le
+    /// même principe que <see cref="ExternalActionDeclaration"/>.
+    /// </summary>
+    public DateTimeOffset? LastBackupAt { get; set; }
+    public string? LastBackupBy { get; set; }
+    public string? LastBackupNote { get; set; }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(RootPath);
 }
@@ -251,35 +276,4 @@ public class ComponentDependency : AuditableEntity
     public DependencyKind Kind { get; set; } = DependencyKind.RequisAuDemarrage;
 
     public string? Notes { get; set; }
-}
-
-/// <summary>
-/// Controle de sante attache a un composant. Plusieurs controles de nature
-/// differente concourent a un meme etat consolide : c'est le principe de
-/// preuve technique du cahier des charges.
-/// </summary>
-public class ComponentHealthCheck : AuditableEntity
-{
-    public Guid ComponentId { get; set; }
-    public N4Component? Component { get; set; }
-
-    public HealthCheckKind Kind { get; set; }
-
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>Cible du controle : nom de service, port, URL, chemin, selon la nature.</summary>
-    public string? Target { get; set; }
-
-    /// <summary>Valeur attendue ou seuil, interprete selon la nature du controle.</summary>
-    public string? ExpectedValue { get; set; }
-
-    /// <summary>
-    /// Un controle bloquant en echec interdit l'execution, sauf contournement
-    /// explicitement prevu, autorise et audite (FR-012).
-    /// </summary>
-    public bool IsBlocking { get; set; }
-
-    public bool IsEnabled { get; set; } = true;
-
-    public int TimeoutSeconds { get; set; } = 30;
 }

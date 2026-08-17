@@ -76,8 +76,19 @@ else
                             @if (_env.Status == LifecycleStatus.Brouillon)
                             {
                                 <button class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition"
+                                        @onclick="() => ChangerStatut(LifecycleStatus.AValider)">
+                                    Soumettre à validation
+                                </button>
+                            }
+                            @if (_env.Status == LifecycleStatus.AValider)
+                            {
+                                <button class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition"
                                         @onclick="() => ChangerStatut(LifecycleStatus.Valide)">
                                     Passer en Validé
+                                </button>
+                                <button class="px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs transition"
+                                        @onclick="() => ChangerStatut(LifecycleStatus.Brouillon)">
+                                    Renvoyer en Brouillon
                                 </button>
                             }
                             @if (_env.Status == LifecycleStatus.Valide)

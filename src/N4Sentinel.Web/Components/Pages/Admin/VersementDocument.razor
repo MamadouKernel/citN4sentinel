@@ -3,9 +3,11 @@
 @using Microsoft.AspNetCore.Components.Forms
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Knowledge
+@using N4Sentinel.Infrastructure.Security
 @attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
 @rendermode InteractiveServer
 @inject KnowledgeService Base
+@inject DocumentAntivirusScanner Antivirus
 @inject NavigationManager Nav
 
 <PageTitle>Verser un document — N4 Sentinel</PageTitle>
@@ -147,6 +149,14 @@
             await using (var source = fichier.OpenReadStream(TailleMaximale))
                 await source.CopyToAsync(tampon);
 
+            var scan = await Antivirus.ScanAsync(tampon.ToArray());
+            if (scan.Verdict == ScanVerdict.Infecte)
+            {
+                Signaler($"Versement refusé : menace détectée par l'antivirus"
+                       + (scan.ThreatName is { Length: > 0 } m ? $" ({m})" : ".") + ".", false);
+                return;
+            }
+
             tampon.Position = 0;
 
             var fragments = DocumentExtractor.Extraire(fichier.Name, tampon);
@@ -174,9 +184,13 @@
                 ? $" {vides} page(s) n'ont donné aucun texte — probablement numérisées."
                 : string.Empty;
 
+            var avisAntivirus = scan.Verdict == ScanVerdict.Indisponible
+                ? " Non scanné : moteur antivirus indisponible sur ce serveur (SEC-007)."
+                : string.Empty;
+
             Signaler($"Document indexé : {resultat.SectionCount} section(s)"
                    + (resultat.PageCount > 0 ? $", {resultat.PageCount} page(s)" : string.Empty)
-                   + $".{complement} Il est en brouillon : validez-le pour qu'il alimente les réponses.", true);
+                   + $".{complement}{avisAntivirus} Il est en brouillon : validez-le pour qu'il alimente les réponses.", true);
 
             Nav.NavigateTo($"/documentation/{resultat.DocumentId}");
         }

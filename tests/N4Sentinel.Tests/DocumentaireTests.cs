@@ -138,6 +138,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.False(reponse.Answered);
         Assert.Empty(reponse.Passages);
         Assert.Contains("Aucun document validé", reponse.Explanation!);
+        Assert.Contains("Versez et validez", reponse.EscalationRecommendation!);
     }
 
     [Fact]
@@ -185,6 +186,19 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.False(reponse.Answered);
         Assert.Empty(reponse.Passages);
         Assert.Contains("n'a pas de connaissance propre", reponse.Explanation!);
+    }
+
+    [Fact(DisplayName = "FR-085 : sans réponse fondée, une recommandation explicite d'escalade accompagne l'aveu d'absence")]
+    public async Task Sans_Passage_Correspondant_Une_Escalade_Est_Recommandee()
+    {
+        var r = await IndexerGuideAsync();
+        await _base.ValidateAsync(r.DocumentId, "m.konate");
+
+        var reponse = await _base.AskAsync("procédure de dédouanement des conteneurs frigorifiques");
+
+        Assert.False(reponse.Answered);
+        Assert.NotNull(reponse.EscalationRecommendation);
+        Assert.Contains("escaladez", reponse.EscalationRecommendation!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

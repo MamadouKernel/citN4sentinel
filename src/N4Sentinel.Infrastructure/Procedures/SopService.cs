@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Diagnostic;
 using N4Sentinel.Infrastructure.Knowledge;
 using N4Sentinel.Infrastructure.Persistence;
 
@@ -104,12 +105,15 @@ public sealed class SopService(
 
     /// <summary>
     /// Historique d'utilisation d'un SOP (FR-089D, AC-23) : nombre
-    /// d'exécutions terminées et abandonnées. DÉLIBÉRÉMENT PAS UN « TAUX DE
-    /// RÉUSSITE » — un SOP est un geste humain guidé, pas une commande
-    /// automatique dont l'issue est binaire ; « Terminé » signifie que
-    /// l'opérateur est allé au bout, pas que le résultat a été jugé bon.
-    /// Inventer un taux de succès à partir de ça serait précisément le genre
-    /// d'affirmation non prouvée que ce projet refuse de produire.
+    /// d'exécutions terminées, abandonnées, et taux de réussite historique.
+    ///
+    /// « Terminé » signifie que l'opérateur est allé au bout des étapes, pas
+    /// que le résultat a été jugé bon — un taux calculé sur cette seule base
+    /// serait une affirmation non prouvée. Le taux de réussite renvoyé ici
+    /// vient donc EXCLUSIVEMENT des résultats explicitement attestés par un
+    /// opérateur via <see cref="SopExecutionService.DeclareOutcomeAsync"/>
+    /// (<see cref="SopExecution.Outcome"/>). Tant qu'aucune exécution n'a été
+    /// attestée, le taux reste <c>null</c> — jamais 0 % ni 100 % par défaut.
     /// </summary>
     public async Task<SopUsageStats> GetUsageStatsAsync(Guid sopId, CancellationToken ct = default)
     {
@@ -121,11 +125,20 @@ public sealed class SopService(
             .Select(g => new { g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
+        var attestees = await db.SopExecutions
+            .Where(e => e.SopId == sopId && e.Outcome != null)
+            .Select(e => e.Outcome!.Value)
+            .ToListAsync(ct);
+
         return new SopUsageStats
         {
             Termine = comptes.FirstOrDefault(c => c.Key == SopExecutionStatus.Termine)?.Count ?? 0,
             Abandonne = comptes.FirstOrDefault(c => c.Key == SopExecutionStatus.Abandonne)?.Count ?? 0,
-            EnCours = comptes.FirstOrDefault(c => c.Key == SopExecutionStatus.EnCours)?.Count ?? 0
+            EnCours = comptes.FirstOrDefault(c => c.Key == SopExecutionStatus.EnCours)?.Count ?? 0,
+            OutcomesAttestes = attestees.Count,
+            SuccessRatePercent = attestees.Count == 0
+                ? null
+                : (int)Math.Round(100.0 * attestees.Count(o => o == SopOutcome.ProblemeResolu) / attestees.Count)
         };
     }
 
@@ -194,6 +207,7 @@ public sealed class SopService(
             Version = derniereVersion + 1,
             Status = LifecycleStatus.Brouillon,
             HasBeenExecuted = false,
+            RequiresElevatedRole = existant.RequiresElevatedRole,
             SourceDocumentId = existant.SourceDocumentId,
             SourceExecutionId = existant.SourceExecutionId
         };
@@ -349,6 +363,84 @@ public sealed class SopService(
         return GenerateSopResult.Ok(sop.Id);
     }
 
+    // -----------------------------------------------------------------------
+    // FR-097 — Génération d'un brouillon à partir d'un incident clos
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Construit un brouillon de SOP à partir des actions RÉELLEMENT
+    /// déclarées pendant une <see cref="DiagnosticSession"/> CLÔTURÉE.
+    ///
+    /// Contrairement à <see cref="GenerateFromExecutionAsync"/>, un incident
+    /// n'a pas d'étapes de workflow : sa trace des gestes réellement faits est
+    /// <see cref="ExternalActionDeclaration"/> (§3.10.1, « action manuelle hors
+    /// application »). Sans au moins une déclaration, il n'y a rien à
+    /// capitaliser — un incident résolu sans qu'aucun geste n'ait été tracé ne
+    /// produit aucun brouillon plutôt qu'un brouillon vide et trompeur.
+    /// </summary>
+    public async Task<GenerateSopResult> GenerateFromDiagnosticSessionAsync(
+        Guid diagnosticSessionId, string code, string title, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var session = await db.Sessions
+            .Include(s => s.ExternalActions.OrderBy(a => a.OccurredAt))
+            .FirstOrDefaultAsync(s => s.Id == diagnosticSessionId, ct);
+
+        if (session is null) return GenerateSopResult.Failed("Session de diagnostic introuvable.");
+
+        if (session.Phase != DiagnosticPhase.ClotureEtCapitalisation)
+            return GenerateSopResult.Failed(
+                "Seule une session de diagnostic CLÔTURÉE peut servir de base à un SOP : "
+                + $"celle-ci en est à la phase « {DiagnosticSessionService.LibellePhase(session.Phase)} ».");
+
+        if (session.ExternalActions.Count == 0)
+            return GenerateSopResult.Failed(
+                "Aucune action n'a été déclarée pendant cet incident (« Actions manuelles hors N4 Sentinel ») : "
+                + "il n'y a rien de tracé à reprendre dans un SOP.");
+
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(title))
+            return GenerateSopResult.Failed("Le code et le titre du SOP sont obligatoires.");
+
+        var sop = new Domain.Sop
+        {
+            EnvironmentId = session.EnvironmentId,
+            Code = code.Trim(),
+            Title = title.Trim(),
+            Version = 1,
+            Status = LifecycleStatus.Brouillon,
+            HasBeenExecuted = false,
+            SourceDiagnosticSessionId = session.Id,
+            Objective = $"Rejouer, à la main, les actions qui ont permis de clore l'incident « {session.Title} » "
+                      + $"le {session.PhaseTransitions.OrderByDescending(t => t.EnteredAt).FirstOrDefault(t => t.Phase == DiagnosticPhase.ClotureEtCapitalisation)?.EnteredAt:dd/MM/yyyy}.",
+            ExpectedOutcome = "Chaque étape ci-dessous reprend une action réellement déclarée pendant l'incident "
+                             + "d'origine. À RELIRE ET AJUSTER avant validation : une action qui a fonctionné une "
+                             + "fois n'est pas une garantie pour la prochaine, et le contexte peut avoir changé."
+        };
+
+        db.Sops.Add(sop);
+        await db.SaveChangesAsync(ct);
+
+        var ordre = 1;
+        foreach (var action in session.ExternalActions)
+        {
+            db.SopSteps.Add(new SopStep
+            {
+                SopId = sop.Id,
+                Order = ordre++,
+                Title = action.ComponentName is { Length: > 0 } nom ? $"Action sur {nom}" : "Action déclarée",
+                Instruction = action.Description,
+                ComponentId = action.ComponentId
+            });
+        }
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "SOP {Code} généré en brouillon à partir de l'incident « {Titre} » ({N} action(s) déclarée(s)).",
+            sop.Code, session.Title, session.ExternalActions.Count);
+
+        return GenerateSopResult.Ok(sop.Id);
+    }
+
     /// <summary>
     /// Pour une étape automatisée, l'instruction n'existe pas telle quelle
     /// (elle a été une commande, pas un texte) : on la reconstitue à partir de
@@ -408,7 +500,11 @@ public sealed class SopService(
         {
             EnvironmentId = environmentId,
             Code = code,
-            Title = titre
+            Title = titre,
+            // Reconstitution ActiveMQ/KahaDB : suppression de données sur
+            // confirmation humaine (FR-059E/G) — reservee a l'Administrateur
+            // N4, pas a tout Operateur N4 habilite a executer un SOP ordinaire.
+            RequiresElevatedRole = true
         }, ct);
 
         var gabarit = new SopTemplateFields
@@ -652,6 +748,58 @@ public sealed class SopService(
         return null;
     }
 
+    /// <summary>
+    /// Restitution complète d'un SOP validé, exportable en PDF/DOCX (SEC-010).
+    ///
+    /// Une panne de N4 Sentinel ne doit jamais rendre une procédure d'urgence
+    /// validée inaccessible : c'est exactement ce que cet export prépare —
+    /// une copie autonome, à conserver hors application, du gabarit complet
+    /// (FR-088) et de chaque étape.
+    /// </summary>
+    public static string BuildEmergencyMarkdown(Domain.Sop sop)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# {sop.Title} — {sop.Code} v{sop.Version}");
+        sb.AppendLine();
+        sb.AppendLine($"Statut : {sop.Status} · Environnement : {sop.Environment?.Code ?? "—"}");
+        if (sop.AppliesToVersion is { Length: > 0 })
+            sb.AppendLine($"Applicable à N4 {sop.AppliesToVersion}");
+        sb.AppendLine();
+        sb.AppendLine("> Copie autonome à conserver hors application (SEC-010) : exploitable même si "
+                     + "N4 Sentinel est indisponible.");
+        sb.AppendLine();
+
+        void Section(string titre, string? contenu)
+        {
+            if (string.IsNullOrWhiteSpace(contenu)) return;
+            sb.AppendLine($"## {titre}");
+            sb.AppendLine(contenu);
+            sb.AppendLine();
+        }
+
+        Section("Objectif", sop.Objective);
+        Section("Périmètre", sop.Scope);
+        Section("Prérequis", sop.Prerequisites);
+        Section("Risques", sop.Risks);
+        Section("Contrôles", sop.Controls);
+
+        sb.AppendLine("## Étapes");
+        sb.AppendLine();
+        foreach (var etape in sop.Steps.OrderBy(s => s.Order))
+        {
+            sb.AppendLine($"{etape.Order}. **{etape.Title}** — {etape.Instruction}");
+            if (etape.ExpectedResult is { Length: > 0 })
+                sb.AppendLine($"   Résultat attendu : {etape.ExpectedResult}");
+        }
+        sb.AppendLine();
+
+        Section("Résultat attendu", sop.ExpectedOutcome);
+        Section("Retour arrière", sop.RollbackPlan);
+        Section("Escalade", sop.EscalationPath);
+
+        return sb.ToString();
+    }
+
     private static void AppliquerGabarit(Domain.Sop sop, SopTemplateFields gabarit)
     {
         sop.Objective = gabarit.Objective;
@@ -739,6 +887,15 @@ public sealed record SopUsageStats
     public int Termine { get; init; }
     public int Abandonne { get; init; }
     public int EnCours { get; init; }
+
+    /// <summary>Nombre d'exécutions dont le résultat a été explicitement attesté.</summary>
+    public int OutcomesAttestes { get; init; }
+
+    /// <summary>
+    /// Part des exécutions attestées « Problème résolu ». <c>null</c> tant
+    /// qu'aucun opérateur n'a attesté de résultat — jamais fabriqué.
+    /// </summary>
+    public int? SuccessRatePercent { get; init; }
 
     public int Total => Termine + Abandonne + EnCours;
 }

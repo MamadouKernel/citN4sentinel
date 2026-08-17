@@ -135,26 +135,46 @@ public sealed class SequenceValidator(IDbContextFactory<N4SentinelDbContext> dbF
             }
         }
 
-        // --- Regle N4 propre au Cluster : les noeuds se demarrent UN PAR UN.
-        // Deux noeuds Cluster declares parallelisables dans la meme sequence
-        // est une erreur de conception, pas une optimisation.
-        var noeudsParalleles = steps
+        // --- Regle N4 propre au Cluster : les noeuds bougent UN PAR UN, quel
+        // que soit le sens (AC-05). Au demarrage, le premier doit avoir
+        // rejoint le cluster Hazelcast avant que le suivant soit lance. A
+        // l'arret, sortir plusieurs noeuds a la fois expose le cluster a une
+        // perte de quorum — la meme regle protege les deux sens.
+        var noeudsParallelesDemarrage = steps
             .Where(s => s.CanRunInParallel && s.ComponentId is not null
                         && s.Action is StepAction.Demarrer or StepAction.Redemarrer)
             .Where(s => composants.TryGetValue(s.ComponentId!.Value, out var c)
                         && c.Role == ComponentRole.ClusterNode)
             .ToList();
 
-        if (noeudsParalleles.Count > 1)
+        if (noeudsParallelesDemarrage.Count > 1)
             violations.Add(new SequenceViolation
             {
                 Blocking = true,
-                Order = noeudsParalleles[0].Order,
+                Order = noeudsParallelesDemarrage[0].Order,
                 Message =
-                    $"{noeudsParalleles.Count} nœuds Cluster sont déclarés parallélisables au démarrage. "
+                    $"{noeudsParallelesDemarrage.Count} nœuds Cluster sont déclarés parallélisables au démarrage. "
                     + "Les nœuds Cluster N4 se démarrent UN PAR UN : le premier doit avoir rejoint le cluster "
                     + "Hazelcast avant que le suivant soit lancé.",
                 Remedy = "Décocher « parallélisable » sur les étapes de démarrage des nœuds Cluster."
+            });
+
+        var noeudsParallelesArret = steps
+            .Where(s => s.CanRunInParallel && s.ComponentId is not null && s.Action == StepAction.Arreter)
+            .Where(s => composants.TryGetValue(s.ComponentId!.Value, out var c)
+                        && c.Role == ComponentRole.ClusterNode)
+            .ToList();
+
+        if (noeudsParallelesArret.Count > 1)
+            violations.Add(new SequenceViolation
+            {
+                Blocking = true,
+                Order = noeudsParallelesArret[0].Order,
+                Message =
+                    $"{noeudsParallelesArret.Count} nœuds Cluster sont déclarés parallélisables à l'arrêt. "
+                    + "Les nœuds Cluster N4 s'arrêtent UN PAR UN : en sortir plusieurs à la fois expose le "
+                    + "cluster Hazelcast restant à une perte de quorum.",
+                Remedy = "Décocher « parallélisable » sur les étapes d'arrêt des nœuds Cluster."
             });
 
         return violations.OrderBy(v => v.Order).ToList();

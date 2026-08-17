@@ -256,7 +256,10 @@
     /// <summary>
     /// Résume l'ampleur du workflow choisi avant lancement — jamais une
     /// estimation, seulement ce que le workflow décrit réellement (nombre
-    /// d'étapes, composants distincts visés).
+    /// d'étapes, composants distincts visés, durée normale cumulée — FR-014).
+    /// La durée est la SOMME de ce que chaque étape déclare, pas une
+    /// prédiction : un workflow séquentiel qui traîne en longueur le dira
+    /// ici avant le lancement, pas seulement pendant l'attente.
     /// </summary>
     private void ActualiserApercu()
     {
@@ -273,9 +276,12 @@
             .Distinct()
             .Count();
 
+        var dureeNormale = StepExecutor.Formater(
+            TimeSpan.FromSeconds(workflow.Steps.Sum(s => s.ExpectedSeconds)));
+
         _apercu = composants > 0
-            ? $"{workflow.Steps.Count} étape(s), sur {composants} composant(s) distinct(s), dans l'ordre défini par la version {workflow.Version}."
-            : $"{workflow.Steps.Count} étape(s) sans composant applicatif ciblé (contrôles d'infrastructure), version {workflow.Version}.";
+            ? $"{workflow.Steps.Count} étape(s), sur {composants} composant(s) distinct(s), dans l'ordre défini par la version {workflow.Version}. Durée normale cumulée : {dureeNormale}."
+            : $"{workflow.Steps.Count} étape(s) sans composant applicatif ciblé (contrôles d'infrastructure), version {workflow.Version}. Durée normale cumulée : {dureeNormale}.";
     }
 
     private async Task Preparer()

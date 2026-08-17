@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Persistence;
 
 namespace N4Sentinel.Infrastructure.Connectivity;
@@ -13,17 +14,15 @@ namespace N4Sentinel.Infrastructure.Connectivity;
 /// Test de la configuration technique SANS ACTION MUTATIVE (FR-007).
 ///
 /// Verifie ce qui est verifiable depuis le reseau avant qu'un environnement ou
-/// un workflow ne soit active : resolution de nom, joignabilite, ports requis.
-/// Aucun service n'est demarre, arrete ni interroge de maniere intrusive.
-///
-/// PERIMETRE DE CETTE VERSION (S1) : controles reseau uniquement. La
-/// verification de l'etat reel des services Windows, des processus et des
-/// journaux applicatifs passe par le connecteur WinRM, livre au sprint 2.
-/// Les controles correspondants sont donc rapportes "Impossible a verifier",
-/// et non "Satisfait" : on n'affirme pas ce qu'on n'a pas mesure.
+/// un workflow ne soit active : resolution de nom, joignabilite, ports requis,
+/// et - via le connecteur WinRM (FR-007) - l'existence reelle du service
+/// Windows declare. Aucun service n'est demarre, arrete ni interroge de
+/// maniere intrusive : GetServiceAsync ne fait que lire son etat.
 /// </summary>
 public sealed class ConnectivityTester(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
+    ConnectorTargetFactory targetFactory,
+    IN4Connector connector,
     ILogger<ConnectivityTester> logger)
 {
     /// <summary>Teste tous les composants d'un environnement.</summary>
@@ -149,13 +148,14 @@ public sealed class ConnectivityTester(
                 targetLabel: label));
         }
 
-        // Nom de service Windows : on ne peut pas encore l'interroger, mais on
-        // peut verifier qu'il a ete renseigne. Un composant pilotable sans nom
-        // de service ne pourra jamais etre pilote.
+        // Nom de service Windows : au-dela de sa seule presence, on
+        // l'interroge reellement via le connecteur WinRM (FR-007) - une
+        // simple lecture d'etat, aucune action mutative.
         if (component.ControlMode == ControlMode.Pilotable)
         {
-            results.Add(string.IsNullOrWhiteSpace(component.WindowsServiceName)
-                ? new CheckResult
+            if (string.IsNullOrWhiteSpace(component.WindowsServiceName))
+            {
+                results.Add(new CheckResult
                 {
                     Target = label,
                     CheckName = "Service Windows",
@@ -163,15 +163,12 @@ public sealed class ConnectivityTester(
                     Message = "Composant declare pilotable mais sans nom de service Windows.",
                     Recommendation = "Relevez le nom exact sur le serveur : " +
                                      "Get-Service | Where-Object { $_.DisplayName -like '*Navis*' }"
-                }
-                : new CheckResult
-                {
-                    Target = label,
-                    CheckName = "Service Windows",
-                    Outcome = CheckOutcome.ImpossibleAVerifier,
-                    Message = $"'{component.WindowsServiceName}' declare. Etat reel non verifiable sans le connecteur WinRM.",
-                    Recommendation = "Verification effective au sprint 2, avec le connecteur."
                 });
+            }
+            else
+            {
+                results.Add(await TestServiceExistsAsync(component.Server.Id, component.WindowsServiceName, label, ct));
+            }
         }
 
         // Preuve de demarrage : sans elle, l'orchestrateur ne pourra jamais
@@ -198,6 +195,65 @@ public sealed class ConnectivityTester(
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Interroge reellement le service Windows declare via WinRM (FR-007).
+    /// Un service introuvable est bloquant - le nom declare est faux et ne
+    /// marchera jamais. Une connexion WinRM impossible (compte technique
+    /// absent, port ferme, droits insuffisants) reste "Impossible a
+    /// verifier" : on ne sait rien de l'etat reel du service dans ce cas.
+    /// </summary>
+    private async Task<CheckResult> TestServiceExistsAsync(
+        Guid serverId, string serviceName, string label, CancellationToken ct)
+    {
+        var resolution = await targetFactory.CreateAsync(serverId, ct);
+        if (!resolution.Succeeded)
+        {
+            return new CheckResult
+            {
+                Target = label,
+                CheckName = "Service Windows",
+                Outcome = CheckOutcome.ImpossibleAVerifier,
+                Message = $"'{serviceName}' declare. Etat reel non verifiable : {resolution.Error}",
+                Recommendation = "Configurez un compte technique utilisable pour ce serveur ou son environnement."
+            };
+        }
+
+        var svcRes = await connector.GetServiceAsync(resolution.Target!, serviceName, ct);
+
+        if (svcRes.Succeeded && svcRes.Value is not null)
+        {
+            return new CheckResult
+            {
+                Target = label,
+                CheckName = "Service Windows",
+                Outcome = CheckOutcome.Satisfait,
+                Message = $"'{serviceName}' interroge via WinRM ({resolution.IdentityDescription}) : statut {svcRes.Value.Status}."
+            };
+        }
+
+        if (svcRes.Failure == ConnectorFailure.CibleIntrouvable)
+        {
+            return new CheckResult
+            {
+                Target = label,
+                CheckName = "Service Windows",
+                Outcome = CheckOutcome.Bloquant,
+                Message = $"Aucun service nomme '{serviceName}' sur {resolution.Target!.HostName}.",
+                Recommendation = "Relevez le nom exact sur le serveur : " +
+                                 "Get-Service | Where-Object { $_.DisplayName -like '*Navis*' }"
+            };
+        }
+
+        return new CheckResult
+        {
+            Target = label,
+            CheckName = "Service Windows",
+            Outcome = CheckOutcome.ImpossibleAVerifier,
+            Message = $"'{serviceName}' declare, mais interrogation WinRM en echec : {svcRes.Error}",
+            Recommendation = "Verifiez la joignabilite WinRM et les droits du compte technique."
+        };
     }
 
     private async Task<CheckResult> ResolveAsync(string hostName, CancellationToken ct)

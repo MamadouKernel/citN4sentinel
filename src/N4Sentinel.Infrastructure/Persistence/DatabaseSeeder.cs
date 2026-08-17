@@ -108,7 +108,7 @@ public sealed class DatabaseSeeder(
             return;
         }
 
-        await userManager.AddToRolesAsync(user, [N4Roles.AdministrateurSolution, N4Roles.Auditeur]);
+        await userManager.AddToRolesAsync(user, N4Roles.All);
 
         logger.LogWarning(
             "Administrateur d'amorcage cree pour {Email}. Changez son mot de passe des la premiere connexion.", email);

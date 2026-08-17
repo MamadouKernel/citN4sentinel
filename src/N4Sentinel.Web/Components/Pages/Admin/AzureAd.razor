@@ -1,0 +1,95 @@
+@page "/admin/azure-ad"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Security
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject AzureAdSettingsService Settings
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Azure AD / SSO — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Azure AD / SSO</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            SEC-001 — intégration prévue pour la V2. Ces paramètres préparent le futur connecteur OpenID Connect ;
+            ils n'activent aucune connexion SSO fonctionnelle en V1, quelle que soit la valeur ci-dessous.
+        </p>
+    </div>
+
+    <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-xs leading-relaxed">
+        <strong>Aucun connecteur OIDC réel n'est implémenté.</strong> Une intégration Azure AD authentique exige la
+        vérification de signature contre le JWKS du tenant, le contrôle d'audience/émetteur et d'expiration.
+        Tant que ce connecteur n'existe pas, toute tentative de connexion SSO échoue par construction — activer
+        « Enabled » ci-dessous ne fait qu'enregistrer l'intention, pas la fonctionnalité. Le second facteur TOTP
+        (Microsoft/Google Authenticator) reste le mécanisme d'authentification retenu pour la V1 (SEC-001).
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    @if (_parametres is null)
+    {
+        <div class="text-xs text-slate-400">Chargement…</div>
+    }
+    else
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_parametres.Enabled" />
+                <span><strong>Enabled</strong> — intention d'activer le SSO Azure AD (sans effet fonctionnel tant que le connecteur V2 n'existe pas)</span>
+            </label>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Tenant ID</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           placeholder="cotedivoireterminal.onmicrosoft.com" @bind="_parametres.TenantId" />
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Client ID</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           placeholder="(à renseigner lors de l'inscription de l'application)" @bind="_parametres.ClientId" />
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-slate-400 font-semibold mb-1">Authority</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           placeholder="https://login.microsoftonline.com/{tenant}/v2.0" @bind="_parametres.Authority" />
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-slate-400 font-semibold mb-1">URI de redirection post-déconnexion</label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                           placeholder="https://n4sentinel.cotedivoireterminal.com/" @bind="_parametres.PostLogoutRedirectUri" />
+                </div>
+            </div>
+
+            <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition" @onclick="Enregistrer">
+                Enregistrer
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private AzureAdSettings? _parametres;
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync() => _parametres = await Settings.GetAsync();
+
+    private async Task Enregistrer()
+    {
+        if (_parametres is null) return;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        await Settings.SaveAsync(_parametres, acteur);
+
+        _message = "Paramètres enregistrés. Rappel : aucune connexion SSO fonctionnelle n'est active en V1.";
+        _messageClass = "bg-emerald-500/10 border-emerald-500/20 text-emerald-300";
+    }
+}

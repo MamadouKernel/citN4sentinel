@@ -7,6 +7,8 @@
 @rendermode InteractiveServer
 @inject DiagnosticSessionService Sessions
 @inject ReferentialService Referential
+@inject LogAnalysisService Analyse
+@inject SignatureCatalogue Catalogue
 @inject AuthenticationStateProvider AuthProvider
 @inject NavigationManager Nav
 
@@ -54,7 +56,8 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label class="block text-slate-400 font-semibold mb-1">Environnement</label>
-                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_nouvelEnv">
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                            @bind="_nouvelEnv" @bind:after="ChargerComposantsPourCreation">
                         <option value="@Guid.Empty">Choisir…</option>
                         @foreach (var e in _environnements)
                         {
@@ -66,6 +69,38 @@
                     <label class="block text-slate-400 font-semibold mb-1">Intitulé</label>
                     <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
                            placeholder="Incident du 14/08 — Center Node injoignable" @bind="_titre" />
+                </div>
+            </div>
+
+            <!-- FR-060 : points d'entree supplementaires - depuis un composant ou une signature connue -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Depuis un composant (facultatif)</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                            @bind="_composantDepart" disabled="@(_composantsPourCreation.Count == 0)">
+                        <option value="@Guid.Empty">Aucun — journal versé manuellement</option>
+                        @foreach (var c in _composantsPourCreation)
+                        {
+                            <option value="@c.Id">@c.LogicalName</option>
+                        }
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-1">
+                        Collecte automatiquement le dernier journal de ce composant dès la création (FR-079A).
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Depuis une signature connue (facultatif)</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                            @bind="_signatureDepart" @bind:after="PreremplirDepuisSignature">
+                        <option value="@Guid.Empty">Aucune</option>
+                        @foreach (var s in _signaturesDisponibles)
+                        {
+                            <option value="@s.Id">@s.Code — @s.Name</option>
+                        }
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-1">
+                        Pré-remplit le symptôme avec ce que cette signature signifie déjà.
+                    </p>
                 </div>
             </div>
 
@@ -188,6 +223,10 @@
 </div>
 
 @code {
+    /// <summary>FR-040 : point d'entrée direct « Collecter les journaux » depuis l'écran d'un composant.</summary>
+    [SupplyParameterFromQuery(Name = "env")] public Guid? EnvQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "composant")] public Guid? ComposantQuery { get; set; }
+
     private List<N4Environment> _environnements = [];
     private List<DiagnosticSession>? _sessions;
     private Guid _envId;
@@ -200,6 +239,12 @@
     private DateTime? _debut;
     private DateTime? _fin;
 
+    // FR-060 : points d'entree supplementaires - depuis un composant ou une signature connue
+    private List<N4Component> _composantsPourCreation = [];
+    private Guid _composantDepart;
+    private List<DiagnosticSignature> _signaturesDisponibles = [];
+    private Guid _signatureDepart;
+
     private string? _message;
     private string _messageClass = string.Empty;
 
@@ -207,11 +252,51 @@
     {
         _environnements = await Referential.GetEnvironmentsAsync();
         if (_environnements.Count == 1) _nouvelEnv = _environnements[0].Id;
+        _signaturesDisponibles = await Catalogue.GetActiveAsync();
+
+        // FR-040 : arrivée directe depuis « Collecter les journaux » sur la
+        // fiche d'un composant — la création s'ouvre déjà positionnée dessus.
+        if (EnvQuery is { } env && env != Guid.Empty)
+        {
+            _nouvelEnv = env;
+            _envId = env;
+            _creation = true;
+        }
+
+        await ChargerComposantsPourCreation();
+
+        if (ComposantQuery is { } composant && _composantsPourCreation.Any(c => c.Id == composant))
+        {
+            _composantDepart = composant;
+            var nom = _composantsPourCreation.First(c => c.Id == composant).LogicalName;
+            _titre = $"Collecte des journaux — {nom}";
+        }
+
         await Recharger();
     }
 
     private async Task Recharger() =>
         _sessions = await Sessions.GetRecentAsync(_envId == Guid.Empty ? null : _envId);
+
+    private async Task ChargerComposantsPourCreation()
+    {
+        _composantDepart = Guid.Empty;
+        _composantsPourCreation = _nouvelEnv == Guid.Empty
+            ? []
+            : await Referential.GetComponentsAsync(_nouvelEnv);
+    }
+
+    /// <summary>FR-060 : point d'entrée « depuis une signature connue » — pré-remplit le symptôme.</summary>
+    private void PreremplirDepuisSignature()
+    {
+        if (_signatureDepart == Guid.Empty) return;
+
+        var signature = _signaturesDisponibles.FirstOrDefault(s => s.Id == _signatureDepart);
+        if (signature is null) return;
+
+        _objet = $"Signature connue suspectée : {signature.Name} ({signature.Code}). "
+               + (signature.Meaning ?? string.Empty);
+    }
 
     private async Task Creer()
     {
@@ -226,23 +311,32 @@
             _debut is null ? null : new DateTimeOffset(_debut.Value, TimeZoneInfo.Local.GetUtcOffset(_debut.Value)),
             _fin is null ? null : new DateTimeOffset(_fin.Value, TimeZoneInfo.Local.GetUtcOffset(_fin.Value)));
 
+        // FR-060 : point d'entree "depuis un composant" - collecte immediate
+        // du dernier journal disponible, sans etape de telechargement/versement manuel.
+        if (_composantDepart != Guid.Empty)
+            await Analyse.CollectFromServerAsync(id, _composantDepart);
+
         Nav.NavigateTo($"/diagnostics/{id}");
     }
 
     public static string CourtVerdict(DiagnosticVerdict v) => v switch
     {
-        DiagnosticVerdict.CauseCaracterisee => "cause caractérisée",
+        DiagnosticVerdict.CauseConfirmee => "cause confirmée",
+        DiagnosticVerdict.CauseCaracterisee => "cause très probable",
         DiagnosticVerdict.PisteSerieuse => "piste sérieuse",
         DiagnosticVerdict.AnomaliesSansCause => "anomalies, cause inconnue",
         DiagnosticVerdict.RienDeConcluant => "rien de concluant",
+        DiagnosticVerdict.InformationsInsuffisantes => "informations insuffisantes",
         _ => v.ToString()
     };
 
     public static string PastilleVerdict(DiagnosticVerdict v) => v switch
     {
+        DiagnosticVerdict.CauseConfirmee => "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
         DiagnosticVerdict.CauseCaracterisee => "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
         DiagnosticVerdict.PisteSerieuse => "bg-sky-500/10 text-sky-400 border border-sky-500/20",
         DiagnosticVerdict.AnomaliesSansCause => "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+        DiagnosticVerdict.InformationsInsuffisantes => "bg-slate-700/40 text-slate-400 border border-slate-600",
         _ => "bg-slate-800 text-slate-400 border border-slate-700"
     };
 }

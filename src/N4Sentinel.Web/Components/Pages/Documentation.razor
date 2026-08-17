@@ -5,17 +5,18 @@
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject KnowledgeService Base
+@inject AuthenticationStateProvider AuthProvider
 
-<PageTitle>Documentation — N4 Sentinel</PageTitle>
+<PageTitle>Assistant N4 — N4 Sentinel</PageTitle>
 
 <div class="space-y-6">
 
     <div>
-        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Documentation</h1>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Assistant N4</h1>
         <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
-            Recherche dans la documentation versée et validée.
+            Répond en s'appuyant sur la documentation versée et validée.
             <strong class="text-white">Chaque réponse cite son document, sa section et sa page.</strong>
-            S'il n'y a rien, l'application le dit — elle n'invente pas.
+            S'il n'y a rien, l'Assistant N4 le dit — il n'invente pas.
         </p>
     </div>
 
@@ -27,7 +28,7 @@
                    @bind="_question" @bind:event="oninput" @onkeydown="SurTouche" />
             <button class="px-5 py-3 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40 whitespace-nowrap"
                     disabled="@(_enCours || string.IsNullOrWhiteSpace(_question))" @onclick="Chercher">
-                <i class="bi bi-search"></i> @(_enCours ? "Recherche…" : "Chercher")
+                <i class="bi bi-send"></i> @(_enCours ? "L'Assistant N4 cherche…" : "Demander")
             </button>
         </div>
 
@@ -46,9 +47,25 @@
         }
     </div>
 
-    <!-- Réponse -->
-    @if (_reponse is not null)
+    <!-- Conversation -->
+    @if (_historique.Count > 0)
     {
+        <div class="space-y-5">
+            @foreach (var _reponse in _historique)
+            {
+                <!-- Question de l'opérateur -->
+                <div class="flex justify-end">
+                    <div class="max-w-2xl px-4 py-2.5 rounded-2xl rounded-tr-sm bg-sky-600/20 border border-sky-600/30 text-sm text-white">
+                        @_reponse.Question
+                    </div>
+                </div>
+
+                <!-- Réponse de l'Assistant N4 -->
+                <div class="flex items-start gap-2.5">
+                    <div class="w-8 h-8 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300 flex items-center justify-center shrink-0 text-xs font-bold">
+                        N4
+                    </div>
+                    <div class="flex-1 min-w-0">
         @if (!_reponse.Answered)
         {
             <div class="glass-card rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-2">
@@ -57,6 +74,12 @@
                     Aucun passage ne répond à cette question
                 </h3>
                 <p class="text-xs text-slate-200 leading-relaxed">@_reponse.Explanation</p>
+                @if (_reponse.EscalationRecommendation is { Length: > 0 })
+                {
+                    <p class="text-xs text-amber-200 leading-relaxed border-t border-amber-500/20 pt-2 mt-2">
+                        <i class="bi bi-arrow-up-right-circle-fill" aria-hidden="true"></i> @_reponse.EscalationRecommendation
+                    </p>
+                }
             </div>
         }
         else
@@ -68,8 +91,7 @@
                 </div>
 
                 <div class="text-xs text-slate-400">
-                    @_reponse.Passages.Count passage(s) trouvé(s) pour
-                    « <span class="text-white">@_reponse.Question</span> ».
+                    @_reponse.Passages.Count passage(s) trouvé(s).
                 </div>
 
                 @foreach (var p in _reponse.Passages)
@@ -103,10 +125,48 @@
                                 <div class="mt-2 p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">@p.FullContent</div>
                             </details>
                         }
+
+                        <!-- Signalement (FR-087) -->
+                        <div class="px-5 pb-4">
+                            @if (_signalementConfirme == p.SectionId)
+                            {
+                                <p class="text-[11px] text-emerald-400"><i class="bi bi-check2-circle"></i> Signalement transmis, merci.</p>
+                            }
+                            else if (_signalementOuvert == p.SectionId)
+                            {
+                                <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-700 space-y-2">
+                                    <textarea rows="2" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-[11px] text-white"
+                                              placeholder="Ce qui ne va pas dans cette réponse (facultatif)" @bind="_signalementCommentaire"></textarea>
+                                    <textarea rows="2" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-[11px] text-white"
+                                              placeholder="Correction proposée (facultatif) — soumise à validation, jamais appliquée directement" @bind="_signalementCorrection"></textarea>
+                                    <div class="flex items-center gap-2">
+                                        <button class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition"
+                                                @onclick="() => SignalerIncorrect(p, _reponse.Question)">
+                                            Confirmer le signalement
+                                        </button>
+                                        <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] transition"
+                                                @onclick="() => _signalementOuvert = null">
+                                            Annuler
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="text-[11px] text-slate-500 hover:text-rose-400 transition"
+                                        @onclick="() => { _signalementOuvert = p.SectionId; _signalementCommentaire = string.Empty; _signalementCorrection = string.Empty; }">
+                                    <i class="bi bi-flag"></i> Signaler une réponse incorrecte
+                                </button>
+                            }
+                        </div>
                     </div>
                 }
             </div>
         }
+                    </div>
+                </div>
+            }
+        </div>
     }
 
     <!-- Corpus -->
@@ -170,11 +230,33 @@
 
 @code {
     private List<KnowledgeDocument>? _corpus;
-    private KnowledgeAnswer? _reponse;
+
+    /// <summary>Historique de la conversation avec l'Assistant N4, la plus ancienne échange en premier.</summary>
+    private readonly List<KnowledgeAnswer> _historique = [];
     private string _question = string.Empty;
     private bool _enCours;
 
+    private Guid? _signalementOuvert;
+    private Guid? _signalementConfirme;
+    private string _signalementCommentaire = string.Empty;
+    private string _signalementCorrection = string.Empty;
+
     protected override async Task OnInitializedAsync() => _corpus = await Base.GetDocumentsAsync();
+
+    private async Task SignalerIncorrect(KnowledgePassage p, string question)
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        await Base.ReportIncorrectAsync(
+            p.DocumentId, p.SectionId, question,
+            string.IsNullOrWhiteSpace(_signalementCommentaire) ? null : _signalementCommentaire,
+            string.IsNullOrWhiteSpace(_signalementCorrection) ? null : _signalementCorrection,
+            acteur);
+
+        _signalementOuvert = null;
+        _signalementConfirme = p.SectionId;
+    }
 
     private async Task SurTouche(KeyboardEventArgs e)
     {
@@ -184,7 +266,11 @@
     private async Task Chercher()
     {
         _enCours = true;
-        try { _reponse = await Base.AskAsync(_question); }
+        try
+        {
+            _historique.Add(await Base.AskAsync(_question));
+            _question = string.Empty;
+        }
         finally { _enCours = false; }
     }
 

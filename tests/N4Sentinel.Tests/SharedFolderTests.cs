@@ -68,6 +68,7 @@ public sealed class SharedFolderTests : IAsyncLifetime
             _factory,
             new ConnectorTargetFactory(_factory, store, NullLogger<ConnectorTargetFactory>.Instance),
             _connecteur,
+            new AuditWriter(_factory),
             NullLogger<SharedFolderHealthService>.Instance);
     }
 
@@ -99,6 +100,40 @@ public sealed class SharedFolderTests : IAsyncLifetime
 
         Assert.Null(snapshot.Reachable);
         Assert.Contains("Aucun chemin", snapshot.UnreachableReason!);
+    }
+
+    // =======================================================================
+    // §3.18 — Sauvegarde déclarée du dossier partagé
+    // =======================================================================
+    [Fact(DisplayName = "Déclarer une sauvegarde exige un dossier partagé réellement configuré")]
+    public async Task DeclareBackupAsync_Refuse_Sans_Dossier_Configure()
+    {
+        var composant = await CreerComposantAsync(sharedFolder: null);
+
+        var erreur = await _sante.DeclareBackupAsync(composant.Id, "m.konate", null);
+
+        Assert.NotNull(erreur);
+        Assert.Contains("Aucun dossier partagé", erreur!);
+    }
+
+    [Fact(DisplayName = "Déclarer une sauvegarde horodate l'attestation et l'audite, jamais devinée")]
+    public async Task DeclareBackupAsync_Enregistre_L_Attestation()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+
+        var erreur = await _sante.DeclareBackupAsync(composant.Id, "m.konate", "Sauvegarde hebdomadaire.");
+        Assert.Null(erreur);
+
+        await using var db = _factory.CreateDbContext();
+        var relu = await db.Components.FirstAsync(c => c.Id == composant.Id);
+
+        Assert.NotNull(relu.SharedFolder.LastBackupAt);
+        Assert.Equal("m.konate", relu.SharedFolder.LastBackupBy);
+        Assert.Equal("Sauvegarde hebdomadaire.", relu.SharedFolder.LastBackupNote);
+
+        var trace = await db.AuditEntries.FirstOrDefaultAsync(a => a.EntityId == composant.Id.ToString());
+        Assert.NotNull(trace);
+        Assert.Equal("m.konate", trace!.Actor);
     }
 
     // =======================================================================
@@ -154,6 +189,77 @@ public sealed class SharedFolderTests : IAsyncLifetime
 
         Assert.False(snapshot.CanWrite);
         Assert.Contains(snapshot.CorruptionIndicators, i => i.Contains("Accès refusé"));
+    }
+
+    [Fact(DisplayName = "Un test d'écriture réussi mesure sa propre latence")]
+    public async Task EvaluateAsync_Ecriture_Reussie_Mesure_La_Latence()
+    {
+        _connecteur.Reponse = new FolderSnapshot { Path = @"\\srv\partage", Exists = true };
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+
+        var snapshot = await _sante.EvaluateAsync(composant);
+
+        Assert.True(snapshot.CanWrite);
+        Assert.NotNull(snapshot.WriteLatencyMs);
+    }
+
+    [Fact(DisplayName = "FR-059B : une croissance excessive n'est signalée que si un seuil a été DÉCLARÉ sur le composant")]
+    public async Task EvaluateAsync_Signale_La_Croissance_Uniquement_Si_Un_Seuil_Est_Declare()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile
+        {
+            RootPath = @"\\srv\partage",
+            MaxGrowthBytesPerHour = 1024
+        });
+
+        _connecteur.Reponse = new FolderSnapshot
+        {
+            Path = @"\\srv\partage", Exists = true,
+            Files = [new RemoteFileInfo { Name = "a.txt", SizeBytes = 100, LastWriteTime = DateTimeOffset.UtcNow }]
+        };
+        await _sante.EvaluateAsync(composant);
+
+        _connecteur.Reponse = new FolderSnapshot
+        {
+            Path = @"\\srv\partage", Exists = true,
+            Files =
+            [
+                new RemoteFileInfo { Name = "a.txt", SizeBytes = 100, LastWriteTime = DateTimeOffset.UtcNow },
+                new RemoteFileInfo { Name = "b.txt", SizeBytes = 10_000_000, LastWriteTime = DateTimeOffset.UtcNow }
+            ]
+        };
+        var second = await _sante.EvaluateAsync(composant);
+
+        Assert.NotNull(second.GrowthBytesPerHour);
+        Assert.True(second.GrowthBytesPerHour > 0);
+        Assert.Contains(second.HealthWarnings, w => w.Contains("Croissance"));
+    }
+
+    [Fact(DisplayName = "FR-059B : sans seuil de croissance déclaré, aucune limite n'est inventée même si le dossier grossit")]
+    public async Task EvaluateAsync_N_Invente_Pas_De_Seuil_De_Croissance_Sans_Declaration()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+
+        _connecteur.Reponse = new FolderSnapshot
+        {
+            Path = @"\\srv\partage", Exists = true,
+            Files = [new RemoteFileInfo { Name = "a.txt", SizeBytes = 100, LastWriteTime = DateTimeOffset.UtcNow }]
+        };
+        await _sante.EvaluateAsync(composant);
+
+        _connecteur.Reponse = new FolderSnapshot
+        {
+            Path = @"\\srv\partage", Exists = true,
+            Files =
+            [
+                new RemoteFileInfo { Name = "a.txt", SizeBytes = 100, LastWriteTime = DateTimeOffset.UtcNow },
+                new RemoteFileInfo { Name = "b.txt", SizeBytes = 10_000_000, LastWriteTime = DateTimeOffset.UtcNow }
+            ]
+        };
+        var second = await _sante.EvaluateAsync(composant);
+
+        Assert.NotNull(second.GrowthBytesPerHour);
+        Assert.Empty(second.HealthWarnings);
     }
 
     // =======================================================================

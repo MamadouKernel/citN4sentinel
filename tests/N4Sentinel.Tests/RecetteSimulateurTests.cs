@@ -52,6 +52,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     private StepExecutor _executeur = null!;
     private OrchestrationEngine _moteur = null!;
     private ExecutionReportService _rapports = null!;
+    private SupervisionService _supervision = null!;
 
     private Guid _envId;
     private readonly Dictionary<string, Guid> _composants = [];
@@ -90,6 +91,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
 
         var supervision = new SupervisionService(_factory, cibles, _connecteur,
             NullLogger<SupervisionService>.Instance);
+        _supervision = supervision;
 
         _verrous = new EnvironmentLockService(_factory, NullLogger<EnvironmentLockService>.Instance);
         _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance, new AuditWriter(_factory));
@@ -103,11 +105,12 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             new CenterContinuityService(_factory, supervision), NullLogger<PreflightService>.Instance);
 
         _moteur = new OrchestrationEngine(
-            new PorteeDeTest(_factory, _verrous, _executeur),
+            new PorteeDeTest(_factory, _verrous, _executeur, supervision),
+            new N4Sentinel.Infrastructure.Observability.MetricsService(),
             NullLogger<OrchestrationEngine>.Instance);
 
         _executions = new ExecutionService(_factory, _verrous, new AuditWriter(_factory),
-            NullLogger<ExecutionService>.Instance, _moteur);
+            NullLogger<ExecutionService>.Instance, _moteur, supervision: supervision);
     }
 
     /// <summary>
@@ -358,6 +361,91 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
         Assert.Equal(3, arrets.Count);
         Assert.Contains("Bridge", arrets[0]);
         Assert.Contains("Center", arrets[1]);
+    }
+
+    // =======================================================================
+    // FR-025 — Annulation sûre : recollecte de l'état réel
+    // =======================================================================
+    [Fact]
+    public async Task Annulation_Apres_Une_Etape_Executee_Recollecte_L_Etat_Reel()
+    {
+        var workflowId = await CreerWorkflowAsync("SIM-ANN", WorkflowKind.OperationPartielle,
+            [("Bridge", StepAction.Demarrer), ("Center", StepAction.Demarrer)]);
+
+        var executionId = await PreparerEtLancerAsync(workflowId);
+
+        using (var jeton = new CancellationTokenSource(TimeSpan.FromSeconds(60)))
+        {
+            await _moteur.PickUpAsync(jeton.Token);
+
+            while (!jeton.IsCancellationRequested)
+            {
+                var courant = await _executions.GetAsync(executionId, CancellationToken.None);
+                var etapeBridge = courant!.Steps.First(s => s.Name.Contains("Bridge"));
+                if (etapeBridge.State == ExecutionStepState.Reussi) break;
+                await Task.Delay(200, jeton.Token);
+            }
+        }
+
+        Assert.Null(await _executions.RequestCancelAsync(executionId, "recette"));
+
+        await DeroulerAsync(executionId);
+
+        var fin = await _executions.GetAsync(executionId);
+        Assert.Equal(ExecutionStatus.Annule, fin!.Status);
+
+        // FR-025 : l'état réel du composant réellement démarré (Bridge) a été
+        // recollecté — ce n'est pas une phrase générique sur un état
+        // "intermédiaire", c'est un constat nommé.
+        Assert.NotNull(fin.PostCancellationReport);
+        Assert.Contains("Bridge", fin.PostCancellationReport!);
+        Assert.False(fin.RequiresManualInterventionAfterCancel);
+        Assert.Contains("État des composants touchés confirmé stable", fin.Outcome!);
+    }
+
+    // =======================================================================
+    // FR-024 — Nouvelle tentative : recollecte de l'état réel
+    // =======================================================================
+    [Fact]
+    public async Task RetryStepAsync_Annule_La_Reprise_Si_L_Etat_Reel_Montre_Que_L_Action_A_Deja_Reussi()
+    {
+        var marqueur = Journal("Bridge");
+        await File.AppendAllTextAsync(marqueur,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss,fff} INFO  [main] c.n.b.Bridge - bridge is ACTIVE\n");
+        _connecteur.Demarre("N4Sim XPS Bridge Daemon");
+
+        var workflowId = await CreerWorkflowAsync("SIM-RETRY", WorkflowKind.OperationPartielle,
+            [("Bridge", StepAction.Demarrer)]);
+
+        // Préparée mais JAMAIS lancée (pas de StartAsync) : le moteur réel ne
+        // doit jamais toucher cette exécution, pour ne pas entrer en course
+        // avec la falsification manuelle de l'état ci-dessous.
+        var prep = await _executions.PrepareAsync(
+            workflowId, "recette", "Test FR-024", "REC-02", isSimulation: false);
+        Assert.True(prep.Succeeded, prep.Error);
+        var executionId = prep.ExecutionId;
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.State = ExecutionStepState.Bloque;
+            etape.Error = "Erreur de commande rapportée (fausse alerte à vérifier).";
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.RetryStepAsync(etapeId, "recette");
+        Assert.Null(erreur);
+
+        await using var relecture = _factory.CreateDbContext();
+        var apres = await relecture.ExecutionSteps.FirstAsync(s => s.Id == etapeId);
+
+        // L'état réel recollecté montre que le composant est déjà démarré :
+        // la reprise est annulée, pas rejouée aveuglément.
+        Assert.Equal(ExecutionStepState.Avertissement, apres.State);
+        Assert.Contains("déjà Disponible", apres.Evidence!);
+        Assert.DoesNotContain(_connecteur.CommandesEmises, c => c.StartsWith("Demarrer"));
     }
 
     // =======================================================================
@@ -665,7 +753,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     private sealed class PorteeDeTest(
         IDbContextFactory<N4SentinelDbContext> factory,
         EnvironmentLockService verrous,
-        StepExecutor executeur)
+        StepExecutor executeur,
+        SupervisionService supervision)
         : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
         public IServiceScope CreateScope() => this;
@@ -677,6 +766,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             if (type == typeof(IDbContextFactory<N4SentinelDbContext>)) return factory;
             if (type == typeof(EnvironmentLockService)) return verrous;
             if (type == typeof(StepExecutor)) return executeur;
+            if (type == typeof(SupervisionService)) return supervision;
             return null;
         }
     }

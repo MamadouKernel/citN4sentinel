@@ -17,6 +17,7 @@
 @inject SharedFolderHealthService SharedFolders
 @inject ReferentialService Referential
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>Supervision Temps Réel — N4 Sentinel</PageTitle>
 
@@ -40,11 +41,11 @@
             <div class="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs">
                 <button type="button" @onclick='() => _viewMode = "tableau"'
                         class="px-3 py-1.5 rounded-lg font-semibold transition @(_viewMode == "tableau" ? "bg-theme-gradient text-white shadow-sm" : "text-slate-400 hover:text-white")">
-                    <i class="bi bi-table"></i> Tableau
+                    <i class="bi bi-table" aria-hidden="true"></i> Tableau
                 </button>
                 <button type="button" @onclick='() => _viewMode = "topologie"'
                         class="px-3 py-1.5 rounded-lg font-semibold transition @(_viewMode == "topologie" ? "bg-theme-gradient text-white shadow-sm" : "text-slate-400 hover:text-white")">
-                    <i class="bi bi-diagram-3-fill"></i> Schéma Topologique N4
+                    <i class="bi bi-diagram-3-fill" aria-hidden="true"></i> Schéma Topologique N4
                 </button>
             </div>
 
@@ -63,25 +64,25 @@
 
             <button @onclick="RefreshAllAsync" disabled="@_isRefreshing"
                     class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-50">
-                <i class="bi bi-arrow-clockwise text-sm @(_isRefreshing ? "animate-spin" : "")"></i>
+                <i class="bi bi-arrow-clockwise text-sm @(_isRefreshing ? "animate-spin" : "")" aria-hidden="true"></i>
                 <span>Rafraîchir</span>
             </button>
 
             <button @onclick="OpenScanPanelAsync" disabled="@_isScanning"
                     class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-bold text-xs transition disabled:opacity-50">
-                <i class="bi bi-search text-sm @(_isScanning ? "animate-spin" : "")"></i>
+                <i class="bi bi-search text-sm @(_isScanning ? "animate-spin" : "")" aria-hidden="true"></i>
                 <span>Composants non déclarés</span>
             </button>
 
             <button @onclick="OpenReseauBasePanelAsync" disabled="@_dbEnCours"
                     class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-bold text-xs transition disabled:opacity-50">
-                <i class="bi bi-hdd-network text-sm @(_dbEnCours ? "animate-spin" : "")"></i>
+                <i class="bi bi-hdd-network text-sm @(_dbEnCours ? "animate-spin" : "")" aria-hidden="true"></i>
                 <span>Réseau &amp; Base</span>
             </button>
 
             <button @onclick="OpenDossiersPanelAsync" disabled="@_dossiersEnCours"
                     class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-bold text-xs transition disabled:opacity-50">
-                <i class="bi bi-folder2-open text-sm @(_dossiersEnCours ? "animate-spin" : "")"></i>
+                <i class="bi bi-folder2-open text-sm @(_dossiersEnCours ? "animate-spin" : "")" aria-hidden="true"></i>
                 <span>Dossiers partagés</span>
             </button>
         </div>
@@ -93,11 +94,11 @@
         <div class="glass-card rounded-2xl border border-amber-500/30 overflow-hidden">
             <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-search text-amber-400"></i>
+                    <i class="bi bi-search text-amber-400" aria-hidden="true"></i>
                     Composants non déclarés
                 </h3>
-                <button @onclick="() => _scanPanelOpen = false" class="text-slate-400 hover:text-white text-xs">
-                    <i class="bi bi-x-lg"></i>
+                <button @onclick="() => _scanPanelOpen = false" aria-label="Fermer" class="text-slate-400 hover:text-white text-xs">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
                 </button>
             </div>
 
@@ -112,7 +113,7 @@
                 else if (_isScanning)
                 {
                     <div class="text-xs text-slate-400 flex items-center gap-2">
-                        <i class="bi bi-arrow-clockwise animate-spin"></i> Recherche en cours sur les serveurs de @_selectedEnvCode…
+                        <i class="bi bi-arrow-clockwise animate-spin" aria-hidden="true"></i> Recherche en cours sur les serveurs de @_selectedEnvCode…
                     </div>
                 }
                 else if (_scanResult is not null)
@@ -130,7 +131,7 @@
                         <div class="text-[11px] text-rose-400 space-y-1">
                             @foreach (var u in _scanResult.Unreachable)
                             {
-                                <div><i class="bi bi-exclamation-triangle-fill"></i> @u.HostName : @u.Reason</div>
+                                <div><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> @u.HostName : @u.Reason</div>
                             }
                         </div>
                     }
@@ -140,13 +141,13 @@
                         @if (_scanResult.IsComplete)
                         {
                             <div class="text-xs text-emerald-400 flex items-center gap-2">
-                                <i class="bi bi-check-circle-fill"></i> Aucun composant non déclaré détecté.
+                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Aucun composant non déclaré détecté.
                             </div>
                         }
                         else
                         {
                             <div class="text-xs text-amber-400 flex items-center gap-2">
-                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
                                 Aucun composant non déclaré détecté sur les serveurs joignables — mais
                                 @_scanResult.Unreachable.Count serveur(s) n'ont pas pu être interrogés
                                 (ci-dessus) : le résultat est incomplet, pas une confirmation de propreté.
@@ -198,7 +199,7 @@
                                             <td class="py-2.5 pr-3 text-right">
                                                 <button @onclick="() => DeclareAsync(u, cle)"
                                                         class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-semibold text-[11px] transition">
-                                                    <i class="bi bi-plus-circle"></i>
+                                                    <i class="bi bi-plus-circle" aria-hidden="true"></i>
                                                     <span>Déclarer</span>
                                                 </button>
                                             </td>
@@ -219,11 +220,11 @@
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-hdd-network text-sky-400"></i>
+                    <i class="bi bi-hdd-network text-sky-400" aria-hidden="true"></i>
                     Réseau et base
                 </h3>
-                <button @onclick="() => _dbPanelOpen = false" class="text-slate-400 hover:text-white text-xs">
-                    <i class="bi bi-x-lg"></i>
+                <button @onclick="() => _dbPanelOpen = false" aria-label="Fermer" class="text-slate-400 hover:text-white text-xs">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
                 </button>
             </div>
 
@@ -237,7 +238,7 @@
                 else if (_dbEnCours)
                 {
                     <div class="text-xs text-slate-400 flex items-center gap-2">
-                        <i class="bi bi-arrow-clockwise animate-spin"></i> Contrôle en cours…
+                        <i class="bi bi-arrow-clockwise animate-spin" aria-hidden="true"></i> Contrôle en cours…
                     </div>
                 }
                 else if (_dbResultats.Count == 0)
@@ -266,11 +267,11 @@
                                         <td class="py-2.5 pr-3">
                                             @if (r.Reachable)
                                             {
-                                                <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill"></i> Disponible</span>
+                                                <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Disponible</span>
                                             }
                                             else
                                             {
-                                                <span class="text-rose-400 font-semibold" title="@r.Error"><i class="bi bi-x-circle-fill"></i> Indisponible</span>
+                                                <span class="text-rose-400 font-semibold" title="@r.Error"><i class="bi bi-x-circle-fill" aria-hidden="true"></i> Indisponible</span>
                                             }
                                         </td>
                                         <td class="py-2.5 pr-3 font-mono">
@@ -319,11 +320,11 @@
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-folder2-open text-teal-400"></i>
+                    <i class="bi bi-folder2-open text-teal-400" aria-hidden="true"></i>
                     Dossiers partagés
                 </h3>
-                <button @onclick="() => _dossiersPanelOpen = false" class="text-slate-400 hover:text-white text-xs">
-                    <i class="bi bi-x-lg"></i>
+                <button @onclick="() => _dossiersPanelOpen = false" aria-label="Fermer" class="text-slate-400 hover:text-white text-xs">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
                 </button>
             </div>
 
@@ -334,6 +335,13 @@
                     dont les sous-dossiers ont été déclarés sur la fiche du composant.
                 </p>
 
+                @if (_message is not null)
+                {
+                    <div class="p-2.5 rounded-lg text-[11px] font-semibold bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                        @_message
+                    </div>
+                }
+
                 @if (string.IsNullOrWhiteSpace(_selectedEnvCode))
                 {
                     <div class="text-xs text-slate-400">
@@ -343,7 +351,7 @@
                 else if (_dossiersEnCours)
                 {
                     <div class="text-xs text-slate-400 flex items-center gap-2">
-                        <i class="bi bi-arrow-clockwise animate-spin"></i> Contrôle en cours…
+                        <i class="bi bi-arrow-clockwise animate-spin" aria-hidden="true"></i> Contrôle en cours…
                     </div>
                 }
                 else if (_dossiersResultats.Count == 0)
@@ -364,6 +372,7 @@
                                     <th class="py-2 pr-3 font-bold">Fichiers</th>
                                     <th class="py-2 pr-3 font-bold">Écriture</th>
                                     <th class="py-2 pr-3 font-bold">Indices</th>
+                                    <th class="py-2 pr-3 font-bold">Sauvegarde</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-800/60">
@@ -375,11 +384,11 @@
                                         <td class="py-2.5 pr-3">
                                             @if (dossierReleve.Reachable == true)
                                             {
-                                                <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill"></i> Accessible</span>
+                                                <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Accessible</span>
                                             }
                                             else if (dossierReleve.Reachable == false)
                                             {
-                                                <span class="text-rose-400 font-semibold" title="@dossierReleve.UnreachableReason"><i class="bi bi-x-circle-fill"></i> Inaccessible</span>
+                                                <span class="text-rose-400 font-semibold" title="@dossierReleve.UnreachableReason"><i class="bi bi-x-circle-fill" aria-hidden="true"></i> Inaccessible</span>
                                             }
                                             else
                                             {
@@ -392,11 +401,19 @@
                                             {
                                                 <div class="text-[10px] text-slate-500">@p en attente</div>
                                             }
+                                            @if (dossierReleve.GrowthBytesPerHour is { } croissance)
+                                            {
+                                                <div class="text-[10px] text-slate-500">@FormaterCroissance(croissance)</div>
+                                            }
                                         </td>
                                         <td class="py-2.5 pr-3">
                                             @if (dossierReleve.CanWrite == true)
                                             {
                                                 <span class="text-emerald-400">OK</span>
+                                                @if (dossierReleve.WriteLatencyMs is { } latence)
+                                                {
+                                                    <div class="text-[10px] text-slate-500 font-mono">@latence.ToString("0") ms</div>
+                                                }
                                             }
                                             else if (dossierReleve.CanWrite == false)
                                             {
@@ -423,10 +440,34 @@
                                                     </a>
                                                 </div>
                                             }
-                                            else
+                                            else if (dossierReleve.HealthWarnings.Count == 0)
                                             {
                                                 <span class="text-emerald-400">Aucun</span>
                                             }
+                                            @if (dossierReleve.HealthWarnings.Count > 0)
+                                            {
+                                                <div class="space-y-1 mt-1">
+                                                    @foreach (var avertissement in dossierReleve.HealthWarnings)
+                                                    {
+                                                        <div class="text-[10px] text-amber-300">@avertissement</div>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                        <td class="py-2.5 pr-3">
+                                            @if (composant.SharedFolder.LastBackupAt is { } derniere)
+                                            {
+                                                <div class="text-[11px] text-slate-300">@derniere.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</div>
+                                                <div class="text-[10px] text-slate-500">par @composant.SharedFolder.LastBackupBy</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-slate-500 text-[11px]">Jamais déclarée</span>
+                                            }
+                                            <button class="mt-1 text-[10px] text-sky-400 hover:underline"
+                                                    @onclick="() => DeclarerSauvegarde(composant.Id)">
+                                                <i class="bi bi-shield-check" aria-hidden="true"></i> Déclarer une sauvegarde
+                                            </button>
                                         </td>
                                     </tr>
                                 }
@@ -481,7 +522,7 @@
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-activity text-sky-400"></i>
+                    <i class="bi bi-activity text-sky-400" aria-hidden="true"></i>
                     Matrice des Composants
                 </h3>
                 <span class="text-xs text-slate-400">
@@ -493,7 +534,7 @@
             @if (_snapshots.Count == 0)
             {
                 <div class="p-12 text-center text-slate-400 text-xs space-y-3">
-                    <i class="bi bi-hdd-network text-4xl text-slate-600 block"></i>
+                    <i class="bi bi-hdd-network text-4xl text-slate-600 block" aria-hidden="true"></i>
                     <div>Aucune donnée de supervision disponible pour ce filtre.</div>
                     <div class="text-slate-500">Assurez-vous que l'environnement contient des composants et qu'il est activé.</div>
                 </div>
@@ -528,7 +569,7 @@
                                             @switch (snap.HoldsActiveRole)
                                             {
                                                 case true:
-                                                    <span class="text-emerald-400 font-semibold"><i class="bi bi-star-fill"></i> Rôle actif détenu</span>
+                                                    <span class="text-emerald-400 font-semibold"><i class="bi bi-star-fill" aria-hidden="true"></i> Rôle actif détenu</span>
                                                     break;
                                                 case false:
                                                     <span class="text-slate-500">Rôle non détenu</span>
@@ -546,12 +587,12 @@
                                             {
                                                 case true:
                                                     <span class="text-rose-400 font-semibold" title="@(snap.LastSyncConfirmedAt is { } confirme ? $"Dernier échange confirmé le {confirme.ToLocalTime():dd/MM HH:mm}" : "Aucun échange confirmé")">
-                                                        <i class="bi bi-exclamation-triangle-fill"></i> Synchro N4-XPS en retard
+                                                        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Synchro N4-XPS en retard
                                                     </span>
                                                     break;
                                                 case false:
                                                     <span class="text-emerald-400" title="@($"Dernier échange confirmé le {snap.LastSyncConfirmedAt!.Value.ToLocalTime():dd/MM HH:mm}")">
-                                                        <i class="bi bi-arrow-repeat"></i> Synchro N4-XPS à jour
+                                                        <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Synchro N4-XPS à jour
                                                     </span>
                                                     break;
                                                 default:
@@ -575,27 +616,32 @@
                                     {
                                         case ComponentState.Disponible:
                                             <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 w-max">
-                                                <i class="bi bi-check-circle-fill"></i> Disponible
+                                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Disponible
                                             </span>
                                             break;
                                         case ComponentState.Demarrage:
                                             <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center gap-1.5 w-max animate-pulse">
-                                                <i class="bi bi-hourglass-split"></i> En Démarrage
+                                                <i class="bi bi-hourglass-split" aria-hidden="true"></i> En Démarrage
                                             </span>
                                             break;
                                         case ComponentState.Degrade:
                                             <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 w-max">
-                                                <i class="bi bi-exclamation-triangle-fill"></i> Dégradé
+                                                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Dégradé
                                             </span>
                                             break;
                                         case ComponentState.Indisponible:
                                             <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1.5 w-max">
-                                                <i class="bi bi-x-circle-fill"></i> Indisponible
+                                                <i class="bi bi-x-circle-fill" aria-hidden="true"></i> Indisponible
                                             </span>
                                             break;
                                         case ComponentState.Arret:
                                             <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5 w-max">
-                                                <i class="bi bi-stop-circle"></i> À l'arrêt
+                                                <i class="bi bi-stop-circle" aria-hidden="true"></i> À l'arrêt
+                                            </span>
+                                            break;
+                                        case ComponentState.Maintenance:
+                                            <span class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-violet-500/20 text-violet-400 border border-violet-500/30 flex items-center gap-1.5 w-max">
+                                                <i class="bi bi-tools" aria-hidden="true"></i> Maintenance
                                             </span>
                                             break;
                                         default:
@@ -615,7 +661,7 @@
                                     @if (snap.ResponseTimeMs is { } ms)
                                     {
                                         <div class="text-[10px] font-mono @(ms > 5000 ? "text-amber-400 font-bold" : "text-slate-500")">
-                                            <i class="bi bi-speedometer2"></i> @ms.ToString("0") ms
+                                            <i class="bi bi-speedometer2" aria-hidden="true"></i> @ms.ToString("0") ms
                                         </div>
                                     }
                                 </td>
@@ -625,17 +671,17 @@
                                     {
                                         case LogProofState.Proved:
                                             <span class="text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
-                                                <i class="bi bi-file-earmark-check-fill"></i> Confirmé
+                                                <i class="bi bi-file-earmark-check-fill" aria-hidden="true"></i> Confirmé
                                             </span>
                                             break;
                                         case LogProofState.WaitingForProof:
                                             <span class="text-sky-400 font-semibold text-[11px] flex items-center gap-1">
-                                                <i class="bi bi-clock-history"></i> En attente du marqueur
+                                                <i class="bi bi-clock-history" aria-hidden="true"></i> En attente du marqueur
                                             </span>
                                             break;
                                         case LogProofState.ErrorDetected:
                                             <span class="text-rose-400 font-semibold text-[11px] flex items-center gap-1">
-                                                <i class="bi bi-file-earmark-x-fill"></i> Erreur log détectée
+                                                <i class="bi bi-file-earmark-x-fill" aria-hidden="true"></i> Erreur log détectée
                                             </span>
                                             break;
                                         default:
@@ -651,7 +697,7 @@
                                 <td class="py-3.5 px-4 text-right whitespace-nowrap">
                                     <button @onclick="() => EvaluateSingleAsync(snap.ComponentId)"
                                             class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-[11px] transition">
-                                        <i class="bi bi-arrow-repeat"></i>
+                                        <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
                                         <span>Tester</span>
                                     </button>
                                 </td>
@@ -885,6 +931,7 @@
     private bool _dossiersPanelOpen;
     private bool _dossiersEnCours;
     private List<(N4Component Composant, SharedFolderSnapshot Releve)> _dossiersResultats = [];
+    private string? _message;
 
     private async Task OpenDossiersPanelAsync()
     {
@@ -916,6 +963,22 @@
         }
     }
 
+    private async Task DeclarerSauvegarde(Guid composantId)
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await SharedFolders.DeclareBackupAsync(composantId, acteur, null);
+        if (erreur is not null)
+        {
+            _message = erreur;
+            return;
+        }
+
+        if (_selectedEnvId is { } envId)
+            await LancerControleDossiersAsync(envId);
+    }
+
     private static string LibelleCategorieDossier(SharedFolderCategory c) => c switch
     {
         SharedFolderCategory.ConfigurationN4 => "Configuration N4",
@@ -933,6 +996,12 @@
         var i = 0;
         while (v >= 1024 && i < unites.Length - 1) { v /= 1024; i++; }
         return $"{v:0.#} {unites[i]}";
+    }
+
+    private static string FormaterCroissance(double octetsParHeure)
+    {
+        var signe = octetsParHeure >= 0 ? "+" : "-";
+        return $"{signe}{FormaterTaille((long)Math.Abs(octetsParHeure))}/h";
     }
 
     public void Dispose()

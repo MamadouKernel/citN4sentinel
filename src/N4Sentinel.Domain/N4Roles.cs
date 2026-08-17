@@ -79,6 +79,25 @@ public static class N4Policies
     public const string PeutConsulter = "PeutConsulter";
     public const string PeutDiagnostiquer = "PeutDiagnostiquer";
     public const string PeutExecuter = "PeutExecuter";
+
+    /// <summary>
+    /// Sous-ensemble de <see cref="PeutExecuter"/> : les actions sensibles
+    /// (ex. SOP marqués <c>RequiresElevatedRole</c>, comme la reconstitution
+    /// ActiveMQ/KahaDB) ne s'ouvrent qu'à l'Administrateur N4, pas à tout
+    /// Opérateur N4 — CdC 2.3.2, profil « Administrateur N4 ».
+    /// </summary>
+    public const string PeutExecuterActionsSensibles = "PeutExecuterActionsSensibles";
+
+    /// <summary>
+    /// SEC-002 : politique distincte de <see cref="PeutExecuter"/> pour
+    /// l'action unitaire ad hoc sur un seul composant (OperationPonctuelle),
+    /// par opposition à l'exécution d'une opération complète issue d'un
+    /// workflow. Les deux partageaient la même policy — les habiliter
+    /// séparément, même avec le même périmètre de rôles aujourd'hui, permet
+    /// à la DSI de resserrer l'une sans toucher l'autre.
+    /// </summary>
+    public const string PeutExecuterActionUnitaire = "PeutExecuterActionUnitaire";
+
     public const string PeutApprouver = "PeutApprouver";
     public const string PeutAdministrerReferentiel = "PeutAdministrerReferentiel";
     public const string PeutAdministrerConnecteurs = "PeutAdministrerConnecteurs";

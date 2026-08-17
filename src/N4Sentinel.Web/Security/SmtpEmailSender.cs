@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Mail;
 using Microsoft.AspNetCore.Identity;
 using N4Sentinel.Infrastructure.Identity;
+using N4Sentinel.Infrastructure.Notifications;
 
 namespace N4Sentinel.Web.Security;
 
@@ -44,7 +45,7 @@ public sealed class SmtpOptions
 public sealed class SmtpEmailSender(
     SmtpOptions options,
     ILogger<SmtpEmailSender> logger,
-    IWebHostEnvironment environment) : IEmailSender<ApplicationUser>
+    IWebHostEnvironment environment) : IEmailSender<ApplicationUser>, INotificationSender
 {
     public Task SendConfirmationLinkAsync(ApplicationUser user, string email, string confirmationLink) =>
         SendAsync(email, "N4 Sentinel - confirmation de votre compte",
@@ -72,6 +73,10 @@ public sealed class SmtpEmailSender(
              <p>Il expire rapidement. Ne le transmettez a personne, y compris a un membre de la DSI :
              aucune equipe interne ne vous demandera ce code.</p>
              """);
+
+    /// <summary>FR-095 : même canal que les courriels de compte, pour les notifications d'opération.</summary>
+    public Task SendAsync(string to, string subject, string htmlBody, CancellationToken ct = default) =>
+        SendAsync(to, subject, htmlBody);
 
     private async Task SendAsync(string to, string subject, string htmlBody)
     {

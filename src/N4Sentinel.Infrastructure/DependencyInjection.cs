@@ -53,6 +53,10 @@ public static class DependencyInjection
         services.AddScoped<AuditingInterceptor>();
         services.AddScoped<IAuditWriter, AuditWriter>();
 
+        // Comptes et rôles (FR-091, SEC-002) — cf. N4SignInManager (Program.cs)
+        // pour l'application effective de ApplicationUser.IsDisabled.
+        services.AddScoped<Identity.UserAdministrationService>();
+
         // Fabrique plutot que contexte injecte directement : dans Blazor Server,
         // un composant peut declencher plusieurs operations concurrentes sur le
         // meme circuit, ce qu'un DbContext partage ne supporte pas. Chaque ecran
@@ -115,14 +119,11 @@ public static class DependencyInjection
         services.AddScoped<NodeVitalsService>();
         services.AddSingleton<UpdateReadingCache>();
         services.AddSingleton<SupervisionStateCache>();
-        services.AddSingleton<JmxMonitoringService>();
-        services.AddSingleton<AzureAdAuthProvider>();
+        services.AddScoped<Security.AzureAdSettingsService>();
+        services.AddScoped<AzureAdAuthProvider>();
 
         // Sentinel Intelligence Suite V2.5
-        services.AddSingleton<Ai.PredictiveAiService>();
-        services.AddSingleton<Diagnostic.IncidentReplayService>();
         services.AddSingleton<Procedures.FlightSimulatorService>();
-        services.AddSingleton<Supervision.DigitalTwinService>();
         services.AddSingleton<Ai.VoiceCopilotService>();
 
         services.AddHostedService<SupervisionBackgroundService>();
@@ -140,6 +141,7 @@ public static class DependencyInjection
         services.AddScoped<PreflightService>();
         services.AddScoped<AdHocOperationService>();
         services.AddScoped<ExecutionReportService>();
+        services.AddScoped<ApprovalMatrixService>();
         services.AddSingleton<OrchestrationEngine>();
         services.AddHostedService<OrchestrationBackgroundService>();
 
@@ -149,12 +151,23 @@ public static class DependencyInjection
         services.AddScoped<Diagnostic.SignatureCatalogue>();
         services.AddScoped<Diagnostic.LogAnalysisService>();
         services.AddScoped<Diagnostic.DiagnosticSessionService>();
+        services.AddScoped<Diagnostic.DiagnosticSettingsService>();
 
         // Base documentaire et historique (sprint 7). La base documentaire
         // conseille et cite ; elle ne déclenche rien. Aucun de ces services
         // n'a de dépendance vers l'orchestrateur, et c'est volontaire.
         services.AddScoped<Knowledge.KnowledgeService>();
         services.AddScoped<Reporting.HistoryService>();
+
+        // Export PDF/Word (FR-093) — sans etat, partageable.
+        services.AddSingleton<Reporting.ReportDocumentService>();
+
+        // Rapport d'incident automatique (FR-096).
+        services.AddScoped<Reporting.IncidentReportService>();
+
+        // Notifications (FR-095). INotificationSender est fourni par le projet
+        // Web (SmtpEmailSender) — voir Program.cs.
+        services.AddScoped<Notifications.OperationNotificationService>();
 
         // SOP — procédures opérationnelles standard (Phase C, Lot 2a).
         // Même principe que la base documentaire : ces services documentent et
@@ -167,6 +180,20 @@ public static class DependencyInjection
         // de clés : la base seule redonnerait des comptes techniques dont les
         // secrets sont illisibles.
         services.AddScoped<Operations.BackupService>();
+
+        // Métriques d'exploitation (NFR-008), au-delà des logs. Singleton :
+        // les compteurs vivent en mémoire pour toute la durée du processus.
+        services.AddSingleton<Observability.MetricsService>();
+
+        // Rétention (FR-079, SEC-009). L'audit n'y est jamais soumis - voir
+        // RetentionPolicy. La purge s'applique désormais automatiquement,
+        // pas seulement quand un administrateur clique dessus.
+        services.AddScoped<Retention.RetentionPolicyService>();
+        services.AddHostedService<Retention.RetentionPurgeBackgroundService>();
+
+        // Scan antivirus au versement de documents (SEC-007). Sans etat,
+        // partageable.
+        services.AddSingleton<Security.DocumentAntivirusScanner>();
 
         return services;
     }

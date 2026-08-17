@@ -47,6 +47,19 @@ public static class AuthorizationSetup
                 N4Roles.OperateurN4,
                 N4Roles.AdministrateurN4))
 
+            // Sous-ensemble de PeutExecuter : actions sensibles (ex. SOP
+            // RequiresElevatedRole) reservees a l'Administrateur N4.
+            .AddPolicy(N4Policies.PeutExecuterActionsSensibles, p => p.RequireRole(
+                N4Roles.AdministrateurN4))
+
+            // SEC-002 : action unitaire ad hoc sur un seul composant, distincte
+            // de l'execution d'une operation complete meme si le perimetre de
+            // roles est identique aujourd'hui — la separation permet a la DSI
+            // de resserrer l'une sans toucher l'autre.
+            .AddPolicy(N4Policies.PeutExecuterActionUnitaire, p => p.RequireRole(
+                N4Roles.OperateurN4,
+                N4Roles.AdministrateurN4))
+
             .AddPolicy(N4Policies.PeutApprouver, p => p.RequireRole(
                 N4Roles.Validateur))
 

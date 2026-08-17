@@ -28,6 +28,7 @@ public sealed class SopExecutionService(
     /// </summary>
     public async Task<StartSopResult> StartAsync(
         Guid sopId, string startedBy, string? reason, string? ticketReference,
+        bool callerHasElevatedRole = false,
         Guid? sourceAlertId = null, Guid? sourceDiagnosticSessionId = null, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -40,6 +41,23 @@ public sealed class SopExecutionService(
         if (sop is null) return StartSopResult.Failed("SOP introuvable.");
         if (!sop.IsUsable) return StartSopResult.Failed("Ce SOP n'est pas validé, ou ne comporte aucune étape.");
         if (string.IsNullOrWhiteSpace(startedBy)) return StartSopResult.Failed("Acteur manquant.");
+
+        // Garde-fou serveur, independant de l'ecran : verifie meme si l'appel
+        // ne transite pas par SopExecutions.razor. Un SOP marque sensible
+        // (ex. reconstitution ActiveMQ/KahaDB, FR-059E/G) exige l'Administrateur
+        // N4, pas seulement le droit d'executer un SOP ordinaire.
+        if (sop.RequiresElevatedRole && !callerHasElevatedRole)
+        {
+            await auditWriter.WriteAsync(
+                AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, startedBy,
+                entityType: nameof(Domain.Sop), entityId: sop.Id.ToString(), entityLabel: sop.Title,
+                environmentId: sop.EnvironmentId,
+                reason: "Démarrage tenté sans le rôle Administrateur N4 requis pour ce SOP sensible.",
+                ct: ct);
+
+            return StartSopResult.Failed(
+                "Ce SOP est marqué sensible : seul un Administrateur N4 peut le démarrer.");
+        }
 
         var execution = new SopExecution
         {
@@ -329,6 +347,46 @@ public sealed class SopExecutionService(
             AuditAction.ExecutionOperation, AuditOutcome.Echec, actor,
             entityType: nameof(SopExecution), entityId: execution.Id.ToString(), entityLabel: execution.SopTitle,
             environmentId: execution.EnvironmentId, reason: reason, correlationId: execution.CorrelationId, ct: ct);
+
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Résultat attesté (FR-089D)
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Attestation du résultat réel par l'opérateur, une fois l'exécution
+    /// finie. Distincte de « Terminé » (qui ne dit que « toutes les étapes ont
+    /// été confirmées ») : c'est cette déclaration, et elle seule, qui nourrit
+    /// le taux de réussite historique de <see cref="SopService.GetUsageStatsAsync"/>.
+    /// Modifiable — un résultat déclaré trop tôt peut être corrigé quand la
+    /// situation se clarifie.
+    /// </summary>
+    public async Task<string?> DeclareOutcomeAsync(
+        Guid executionId, string actor, SopOutcome outcome, string? note, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var execution = await db.SopExecutions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
+        if (execution is null) return "Exécution introuvable.";
+
+        if (!execution.IsFinished)
+            return $"L'exécution est en état {execution.Status} : le résultat ne peut être attesté "
+                 + "qu'une fois la procédure terminée ou abandonnée.";
+
+        execution.Outcome = outcome;
+        execution.OutcomeNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        execution.OutcomeDeclaredBy = actor;
+        execution.OutcomeDeclaredAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Modification, AuditOutcome.Succes, actor,
+            entityType: nameof(SopExecution), entityId: execution.Id.ToString(), entityLabel: execution.SopTitle,
+            environmentId: execution.EnvironmentId,
+            reason: $"Résultat attesté : {outcome}" + (note is { Length: > 0 } ? $" — {note}" : string.Empty),
+            correlationId: execution.CorrelationId, ct: ct);
 
         return null;
     }

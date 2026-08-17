@@ -33,7 +33,10 @@ public sealed class SignatureCatalogue(
     public async Task<List<DiagnosticSignature>> GetActiveAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.Signatures.AsNoTracking().Where(s => s.IsEnabled).ToListAsync(ct);
+        return await db.Signatures.AsNoTracking()
+            .Where(s => s.IsEnabled
+                     && (s.ValidationStatus == LifecycleStatus.Valide || s.ValidationStatus == LifecycleStatus.Actif))
+            .ToListAsync(ct);
     }
 
     public async Task<DiagnosticSignature?> GetAsync(Guid id, CancellationToken ct = default)
@@ -67,9 +70,12 @@ public sealed class SignatureCatalogue(
             existante.Meaning = signature.Meaning;
             existante.Remediation = signature.Remediation;
             existante.DocumentReference = signature.DocumentReference;
+            existante.CounterEvidence = signature.CounterEvidence;
             existante.ConfidenceWeight = signature.ConfidenceWeight;
             existante.AppliesToRole = signature.AppliesToRole;
             existante.IsEnabled = signature.IsEnabled;
+            existante.ValidationStatus = signature.ValidationStatus;
+            existante.Version++;
         }
 
         await db.SaveChangesAsync(ct);
@@ -211,7 +217,7 @@ public sealed class SignatureCatalogue(
             Code = "CLUSTER-SPLIT-BRAIN",
             Name = "Partition du cluster Hazelcast",
             Pattern = @"(?:split.?brain|Merging nodes|cluster partition|This node is not the master|master changed)",
-            Domain = DiagnosticDomain.Cluster,
+            Domain = DiagnosticDomain.N4Cluster,
             Severity = SignatureSeverity.Critique,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 85,
@@ -226,7 +232,7 @@ public sealed class SignatureCatalogue(
             Code = "CLUSTER-MEMBER-LOST",
             Name = "Perte d'un membre du cluster",
             Pattern = @"(?:Member .{0,80} left|Removing member|member removed|Connection.{0,40}lost to member)",
-            Domain = DiagnosticDomain.Cluster,
+            Domain = DiagnosticDomain.N4Cluster,
             Severity = SignatureSeverity.Avertissement,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 55,
@@ -365,7 +371,7 @@ public sealed class SignatureCatalogue(
             Code = "KAHADB-CORRUPT",
             Name = "Corruption du magasin KahaDB",
             Pattern = @"(?:KahaDB|kahadb).{0,120}(?:corrupt|recover|checksum|Invalid location|unexpected)",
-            Domain = DiagnosticDomain.Stockage,
+            Domain = DiagnosticDomain.ActiveMqKahaDb,
             Severity = SignatureSeverity.Critique,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 85,
@@ -431,7 +437,7 @@ public sealed class SignatureCatalogue(
             Code = "N4-STATUS-DISCONNECTED",
             Name = "Nœud DISCONNECTED",
             Pattern = @"\bDISCONNECTED\b",
-            Domain = DiagnosticDomain.Cluster,
+            Domain = DiagnosticDomain.N4Cluster,
             Severity = SignatureSeverity.Avertissement,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 50,
@@ -448,7 +454,7 @@ public sealed class SignatureCatalogue(
             Code = "N4-STATUS-INACTIVE",
             Name = "Nœud INACTIVE — battement de cœur perdu",
             Pattern = @"\bINACTIVE\b",
-            Domain = DiagnosticDomain.Cluster,
+            Domain = DiagnosticDomain.N4Cluster,
             Severity = SignatureSeverity.Erreur,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 70,
@@ -481,7 +487,7 @@ public sealed class SignatureCatalogue(
             Code = "BRIDGE-NOT-ACTIVE",
             Name = "Bridge bloqué avant l'état ACTIVE",
             Pattern = @"[Bb]ridge.{0,80}(?:WAITING|LOADING)|WAITING.{0,40}[Cc]enter\s*[Nn]ode",
-            Domain = DiagnosticDomain.Cluster,
+            Domain = DiagnosticDomain.BridgeXps,
             Severity = SignatureSeverity.Avertissement,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 55,
@@ -517,7 +523,7 @@ public sealed class SignatureCatalogue(
             Code = "AMQ-CORRUPT",
             Name = "Corruption des files ActiveMQ",
             Pattern = @"(?:ActiveMQ|activemq).{0,120}(?:corrupt|recover|failed to (?:load|start)|IOException)",
-            Domain = DiagnosticDomain.Stockage,
+            Domain = DiagnosticDomain.ActiveMqKahaDb,
             Severity = SignatureSeverity.Critique,
             Origin = SignatureOrigin.Editeur,
             ConfidenceWeight = 80,
@@ -527,6 +533,25 @@ public sealed class SignatureCatalogue(
             Remediation = "Ne rien supprimer avant d'avoir mesuré ce que les files contiennent : des messages "
                         + "métier non traités peuvent y être en attente.",
             DocumentReference = "N4 IT Administrator Day 1 — Top 10 P1 Causes"
+        },
+        new()
+        {
+            Code = "AMQ-SLOW-CONSUMER",
+            Name = "Consommateur lent sur une file ActiveMQ",
+            Pattern = @"(?:[Ss]low [Cc]onsumer|SlowConsumerAdvisory|prefetch.{0,40}(?:exhausted|full)|"
+                    + @"consumer.{0,60}not\s+keeping\s+up|producer\s+flow\s+control)",
+            Domain = DiagnosticDomain.ActiveMqKahaDb,
+            Severity = SignatureSeverity.Avertissement,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 65,
+            Meaning = "Un consommateur ActiveMQ dépile les messages plus lentement qu'ils n'arrivent. "
+                    + "Les files grossissent en mémoire et sur disque (KahaDB) jusqu'à déclencher le "
+                    + "contrôle de flux producteur, qui ralentit à son tour tout le reste du système.",
+            Remediation = "Identifier le consommateur visé dans la ligne (nom de file ou de destination) et "
+                        + "vérifier s'il est bloqué, redémarré en boucle, ou simplement sous-dimensionné pour "
+                        + "le débit reçu. Une file qui grossit sans repère de dépilement est le symptôme, "
+                        + "pas la cause.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.8 — N4 Shutdown Process"
         },
 
         new()

@@ -1,5 +1,36 @@
 namespace N4Sentinel.Domain;
 
+/// <summary>
+/// §3.19 : classification exacte d'un échec d'étape, distincte du message
+/// libre porté par <see cref="ExecutionStep.Error"/>. Un texte libre ne peut
+/// ni se filtrer, ni se compter, ni déclencher une réponse différenciée
+/// (ex. proposer l'arrêt forcé seulement pour le cas StopPending connu).
+/// </summary>
+public enum StepErrorType
+{
+    /// <summary>Le connecteur a refusé d'émettre la commande (accès, connectivité).</summary>
+    CommandeRefusee = 0,
+
+    /// <summary>Le délai imparti a expiré avant d'atteindre l'état attendu.</summary>
+    TimeoutAttente = 1,
+
+    /// <summary>
+    /// Comportement N4 connu et documenté : le Standby Center Node (et
+    /// d'autres composants occupés à vider leurs files) reste en StopPending
+    /// sans jamais rendre la main au gestionnaire de services.
+    /// </summary>
+    ComportementConnuStopPending = 2,
+
+    /// <summary>Le référentiel est incomplet (nom de service, chemin de journal...).</summary>
+    ComposantNonConfigure = 3,
+
+    /// <summary>Un prérequis déclaré n'est pas prouvé opérationnel (FR-044).</summary>
+    PrerequisNonSatisfait = 4,
+
+    /// <summary>Classé sans plus de précision — le message libre reste la seule source.</summary>
+    Inconnu = 5
+}
+
 /// <summary>États d'une exécution (FR-020).</summary>
 public enum ExecutionStatus
 {
@@ -128,6 +159,21 @@ public class WorkflowExecution : AuditableEntity
     /// <summary>Motif de l'issue : cause de l'échec, ou nature des avertissements.</summary>
     public string? Outcome { get; set; }
 
+    /// <summary>
+    /// État réel des composants touchés, recollecté après une annulation
+    /// (FR-025) — ce que l'opérateur doit constater avant toute reprise, pas
+    /// une phrase générique.
+    /// </summary>
+    public string? PostCancellationReport { get; set; }
+
+    /// <summary>
+    /// FR-025 : vrai si l'annulation laisse au moins un composant dans un état
+    /// que l'application ne peut pas confirmer stable — auquel cas une
+    /// intervention manuelle ou une escalade est requise, jamais un retour
+    /// automatique silencieux à un état présumé sain.
+    /// </summary>
+    public bool RequiresManualInterventionAfterCancel { get; set; }
+
     /// <summary>Identifiant de corrélation, repris dans les journaux applicatifs.</summary>
     public string CorrelationId { get; set; } = Guid.NewGuid().ToString("N")[..12];
 
@@ -151,6 +197,9 @@ public class WorkflowExecution : AuditableEntity
     public bool PreflightCleared => PreflightAt is not null && !PreflightBlocked;
 
     public ICollection<ExecutionStep> Steps { get; set; } = [];
+
+    /// <summary>Actions manuelles hors N4 Sentinel déclarées pendant cette exécution (§3.19).</summary>
+    public ICollection<ExternalActionDeclaration> ExternalActions { get; set; } = [];
 
     public bool IsActive => Status is ExecutionStatus.EnCours
                                     or ExecutionStatus.EnPause
@@ -197,23 +246,63 @@ public class ExecutionStep : AuditableEntity
 
     public string? Error { get; set; }
 
+    /// <summary>§3.19 : classification exacte de <see cref="Error"/>, jamais devinée après coup.</summary>
+    public StepErrorType? ErrorType { get; set; }
+
     public int AttemptCount { get; set; }
 
     /// <summary>Recopiés du modèle, pour que le rapport reste exact si le workflow évolue.</summary>
     public int MaxRetries { get; set; }
     public bool AutomaticRetry { get; set; }
+    public int RetryDelaySeconds { get; set; } = 30;
+
+    /// <summary>Horodatage à partir duquel une nouvelle tentative automatique peut repartir (FR-004).</summary>
+    public DateTimeOffset? RetryNotBeforeAt { get; set; }
 
     /// <summary>Contournement : qui, pourquoi, et le risque accepté (FR-027).</summary>
     public string? SkippedBy { get; set; }
     public string? SkipReason { get; set; }
+
+    /// <summary>
+    /// Second regard sur un contournement, exigé en Production quand la
+    /// matrice de criticité impose une double approbation (FR-013/FR-027).
+    /// Tant que non renseigné et exigé, le contournement reste en attente —
+    /// l'étape n'est PAS marquée Ignorée par le seul demandeur.
+    /// </summary>
+    public string? SkipCoApprovedBy { get; set; }
+    public DateTimeOffset? SkipCoApprovedAt { get; set; }
+
+    /// <summary>
+    /// Arrêt forcé (FR-029B) : décidé par un opérateur sur une étape d'arrêt
+    /// restée bloquée (StopPending), jamais déclenché automatiquement par le
+    /// moteur. La commande d'arrêt est réémise, mais l'absence de preuve
+    /// applicative reste dite explicitement — l'arrêt forcé n'est pas une
+    /// fabrication de succès.
+    /// </summary>
+    public string? ForcedStopBy { get; set; }
+    public string? ForcedStopReason { get; set; }
 
     /// <summary>Confirmation d'une intervention manuelle (FR-026).</summary>
     public string? ConfirmedBy { get; set; }
     public DateTimeOffset? ConfirmedAt { get; set; }
     public string? OperatorNote { get; set; }
 
+    /// <summary>Preuve jointe obligatoire (FR-026), recopiée du modèle.</summary>
+    public bool RequiresEvidenceFile { get; set; }
+    public string? EvidenceFileName { get; set; }
+    public string? EvidenceFileContentType { get; set; }
+    public byte[]? EvidenceFileContent { get; set; }
+
+    /// <summary>
+    /// Session de diagnostic ouverte pour aider à la décision sur cette étape
+    /// bloquée (FR-029). Reliée, jamais recomposée : les hypothèses affichées
+    /// à l'écran d'exécution sont celles, réelles, de cette session.
+    /// </summary>
+    public Guid? DiagnosticSessionId { get; set; }
+
     public int TimeoutSeconds { get; set; } = 1800;
     public int ExpectedSeconds { get; set; } = 60;
+    public int WarningThresholdSeconds { get; set; } = 120;
     public bool IsSkippable { get; set; }
     public bool RequiresConfirmation { get; set; }
 

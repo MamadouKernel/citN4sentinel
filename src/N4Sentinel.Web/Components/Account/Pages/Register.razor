@@ -37,13 +37,13 @@
     </div>
     
     <div class="form-floating mb-3">
-        <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="mot de passe" />
+        <PasswordInput @bind-Value="Input.Password" Id="Input.Password" CssClass="form-control pr-10" ButtonClass="text-slate-500 hover:text-slate-800" AutoComplete="new-password" aria-required="true" Placeholder="mot de passe" />
         <label for="Input.Password">Mot de passe temporaire</label>
         <ValidationMessage For="() => Input.Password" class="text-danger" />
     </div>
     
     <div class="form-floating mb-3">
-        <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="mot de passe" />
+        <PasswordInput @bind-Value="Input.ConfirmPassword" Id="Input.ConfirmPassword" CssClass="form-control pr-10" ButtonClass="text-slate-500 hover:text-slate-800" AutoComplete="new-password" aria-required="true" Placeholder="mot de passe" />
         <label for="Input.ConfirmPassword">Confirmer le mot de passe</label>
         <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
     </div>

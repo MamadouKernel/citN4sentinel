@@ -6,6 +6,7 @@
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject HistoryService History
+@inject N4Sentinel.Infrastructure.Reporting.ReportDocumentService Documents
 @inject ReferentialService Referential
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
@@ -85,6 +86,11 @@
         <div class="flex flex-col sm:flex-row gap-3">
             <input class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
                    placeholder="Contexte de l'escalade (facultatif) : ce que vous demandez, et à qui." @bind="_contexte" />
+            <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-semibold" @bind="_formatExport">
+                <option value="md">Markdown</option>
+                <option value="pdf">PDF</option>
+                <option value="docx">Word</option>
+            </select>
             <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold transition disabled:opacity-40 whitespace-nowrap"
                     disabled="@_export" @onclick="Exporter">
                 <i class="bi bi-download"></i> @(_export ? "Constitution…" : "Constituer le dossier")
@@ -204,6 +210,7 @@
     private Guid _envId;
     private HistoryFilter _filtre = HistoryFilter.Tout;
     private string _contexte = string.Empty;
+    private string _formatExport = "md";
     private bool _export;
 
     private DateTime _debut = DateTime.Now.AddDays(-7);
@@ -247,10 +254,27 @@
                 string.IsNullOrWhiteSpace(_contexte) ? null : _contexte);
 
             var code = _environnements.FirstOrDefault(e => e.Id == _envId)?.Code ?? "TOUS";
-            var nom = $"N4Sentinel-escalade-{code}-{DateTime.Now:yyyyMMdd-HHmm}.md";
+            var titre = $"Dossier d'escalade — {code}";
 
-            await JS.InvokeVoidAsync("n4TelechargerTexte", nom,
-                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(markdown)));
+            switch (_formatExport)
+            {
+                case "pdf":
+                    await JS.InvokeVoidAsync("n4TelechargerFichier",
+                        $"N4Sentinel-escalade-{code}-{DateTime.Now:yyyyMMdd-HHmm}.pdf",
+                        Convert.ToBase64String(Documents.RenderPdf(titre, markdown)), "application/pdf");
+                    break;
+                case "docx":
+                    await JS.InvokeVoidAsync("n4TelechargerFichier",
+                        $"N4Sentinel-escalade-{code}-{DateTime.Now:yyyyMMdd-HHmm}.docx",
+                        Convert.ToBase64String(Documents.RenderDocx(titre, markdown)),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+                    break;
+                default:
+                    await JS.InvokeVoidAsync("n4TelechargerTexte",
+                        $"N4Sentinel-escalade-{code}-{DateTime.Now:yyyyMMdd-HHmm}.md",
+                        Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(markdown)));
+                    break;
+            }
         }
         finally
         {

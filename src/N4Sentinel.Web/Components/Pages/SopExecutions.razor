@@ -44,59 +44,85 @@
     <!-- Lancement -->
     @if (_envId != Guid.Empty)
     {
-        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
-            <div class="p-5 border-b border-slate-800">
-                <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                    <i class="bi bi-play-circle text-sky-400"></i> Démarrer un SOP
-                </h3>
-            </div>
-
-            @if (_lancables.Count == 0)
-            {
-                <div class="p-6 text-xs text-slate-400 space-y-2">
-                    <p>Aucun SOP validé pour cet environnement.</p>
-                    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="adminCtx">
-                        <a href="/admin/sop" class="text-theme-primary hover:underline font-semibold">
-                            Définir un SOP →
-                        </a>
-                    </AuthorizeView>
-                </div>
-            }
-            else
-            {
-                <div class="p-5 space-y-4 text-xs">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-slate-400 font-semibold mb-1">SOP</label>
-                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_sopId">
-                                <option value="@Guid.Empty">Choisir…</option>
-                                @foreach (var s in _lancables)
-                                {
-                                    <option value="@s.Id">@s.Title (v@s.Version) — @s.Steps.Count étape(s)</option>
-                                }
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-slate-400 font-semibold mb-1">Référence de ticket</label>
-                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                                   placeholder="INC-1234 (facultatif)" @bind="_ticket" />
-                        </div>
+        <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="execCtx">
+            <Authorized>
+                <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                    <div class="p-5 border-b border-slate-800">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="bi bi-play-circle text-sky-400"></i> Démarrer un SOP
+                        </h3>
                     </div>
 
-                    <div>
-                        <label class="block text-slate-400 font-semibold mb-1">Motif (facultatif)</label>
-                        <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                                  placeholder="Pourquoi ce SOP, maintenant." @bind="_motif"></textarea>
-                    </div>
+                    @if (_lancables.Count == 0)
+                    {
+                        <div class="p-6 text-xs text-slate-400 space-y-2">
+                            <p>Aucun SOP validé pour cet environnement.</p>
+                            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="adminCtx">
+                                <a href="/admin/sop" class="text-theme-primary hover:underline font-semibold">
+                                    Définir un SOP →
+                                </a>
+                            </AuthorizeView>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-5 space-y-4 text-xs">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-slate-400 font-semibold mb-1">SOP</label>
+                                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_sopId">
+                                        <option value="@Guid.Empty">Choisir…</option>
+                                        @foreach (var s in _lancables)
+                                        {
+                                            <option value="@s.Id">@s.Title (v@s.Version) — @s.Steps.Count étape(s)@(s.RequiresElevatedRole ? " — sensible" : "")</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 font-semibold mb-1">Référence de ticket</label>
+                                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                           placeholder="INC-1234 (facultatif)" @bind="_ticket" />
+                                </div>
+                            </div>
 
-                    <button class="px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40 inline-flex items-center gap-2"
-                            disabled="@(_sopId == Guid.Empty || _enCours)" @onclick="Demarrer">
-                        <i class="bi bi-play-fill"></i>
-                        @(_enCours ? "Démarrage…" : "Démarrer")
-                    </button>
+                            <div>
+                                <label class="block text-slate-400 font-semibold mb-1">Motif (facultatif)</label>
+                                <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                          placeholder="Pourquoi ce SOP, maintenant." @bind="_motif"></textarea>
+                            </div>
+
+                            @{ var sopSelectionne = _lancables.FirstOrDefault(s => s.Id == _sopId); }
+                            @if (sopSelectionne?.RequiresElevatedRole == true)
+                            {
+                                <AuthorizeView Policy="@N4Policies.PeutExecuterActionsSensibles" Context="elevCtx">
+                                    <Authorized>
+                                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-semibold">
+                                            <i class="bi bi-shield-exclamation"></i> SOP sensible — démarrage réservé à l'Administrateur N4, autorisation confirmée.
+                                        </div>
+                                    </Authorized>
+                                    <NotAuthorized>
+                                        <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] font-semibold">
+                                            <i class="bi bi-shield-lock"></i> Ce SOP est marqué sensible : seul un Administrateur N4 peut le démarrer.
+                                        </div>
+                                    </NotAuthorized>
+                                </AuthorizeView>
+                            }
+
+                            <button class="px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40 inline-flex items-center gap-2"
+                                    disabled="@(_sopId == Guid.Empty || _enCours || !PeutDemarrerLeChoix())" @onclick="Demarrer">
+                                <i class="bi bi-play-fill"></i>
+                                @(_enCours ? "Démarrage…" : "Démarrer")
+                            </button>
+                        </div>
+                    }
                 </div>
-            }
-        </div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="glass-card rounded-2xl border border-slate-800 p-6 text-xs text-slate-400">
+                    Consultation seule : le démarrage d'un SOP exige le droit d'exécution.
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
     }
 
     <!-- Historique -->
@@ -174,9 +200,13 @@
 
     private string? _message;
     private string _messageClass = string.Empty;
+    private bool _callerHasElevatedRole;
 
     protected override async Task OnInitializedAsync()
     {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        _callerHasElevatedRole = etat.User.IsInRole(N4Roles.AdministrateurN4);
+
         _environnements = await Referential.GetEnvironmentsAsync();
         if (_environnements.Count == 1) _envId = _environnements[0].Id;
         await Recharger();
@@ -186,6 +216,17 @@
     {
         _recentes = await Executions.GetRecentAsync(_envId == Guid.Empty ? null : _envId);
         _lancables = _envId == Guid.Empty ? [] : await Catalogue.GetUsableAsync(_envId);
+    }
+
+    /// <summary>
+    /// Vrai sauf pour un SOP sensible démarré par un compte qui n'a pas la
+    /// capacité PeutExecuterActionsSensibles — deuxième filet après
+    /// l'AuthorizeView, le contrôle qui compte reste côté service.
+    /// </summary>
+    private bool PeutDemarrerLeChoix()
+    {
+        var sop = _lancables.FirstOrDefault(s => s.Id == _sopId);
+        return sop is null || !sop.RequiresElevatedRole || _callerHasElevatedRole;
     }
 
     private async Task Demarrer()
@@ -199,7 +240,8 @@
         var r = await Executions.StartAsync(
             _sopId, acteur,
             string.IsNullOrWhiteSpace(_motif) ? null : _motif.Trim(),
-            string.IsNullOrWhiteSpace(_ticket) ? null : _ticket.Trim());
+            string.IsNullOrWhiteSpace(_ticket) ? null : _ticket.Trim(),
+            callerHasElevatedRole: _callerHasElevatedRole);
 
         _enCours = false;
 

@@ -6,7 +6,9 @@
 @attribute [Authorize(Policy = N4Policies.PeutAuditer)]
 @rendermode InteractiveServer
 @inject UserManager<ApplicationUser> Users
-@inject RoleManager<IdentityRole> Roles
+@inject UserAdministrationService Administration
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
 
 <PageTitle>Comptes et droits — N4 Sentinel</PageTitle>
 
@@ -15,17 +17,88 @@
         <div>
             <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Comptes et droits</h1>
             <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
-                Revue périodique des accès (SEC-010) : qui a un compte, quel(s) rôle(s) il porte, et l'état de
+                Revue périodique des accès (SEC-002) : qui a un compte, quel(s) rôle(s) il porte, et l'état de
                 son second facteur. Désactiver un compte ne le supprime pas — l'historique des opérations qu'il
                 a menées reste exact.
             </p>
         </div>
-        <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition"
-                @onclick="() => _exportVisible = !_exportVisible">
-            <i class="bi bi-download text-sm"></i>
-            <span>@(_exportVisible ? "Masquer l'export" : "Exporter")</span>
-        </button>
+        <div class="flex items-center gap-2">
+            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="creerCtx">
+                <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition"
+                        @onclick="ToggleCreation">
+                    <i class="bi bi-person-plus-fill text-sm"></i>
+                    <span>Nouveau compte</span>
+                </button>
+            </AuthorizeView>
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition"
+                    @onclick="() => _exportVisible = !_exportVisible">
+                <i class="bi bi-download text-sm"></i>
+                <span>@(_exportVisible ? "Masquer l'export" : "Exporter")</span>
+            </button>
+        </div>
     </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="creationCtx">
+        @if (_creationVisible)
+        {
+            <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-person-plus text-sky-400"></i> Nouveau compte
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Adresse courriel</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               placeholder="nom@cotedivoireterminal.com" @bind="_nouveauEmail" />
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Nom affiché</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               @bind="_nouveauNom" />
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Service</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               placeholder="DSI - Solutions IT et Projets" @bind="_nouveauService" />
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-2 text-xs">Rôle(s) — au moins un</label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        @foreach (var role in N4Roles.All)
+                        {
+                            <label class="flex items-start gap-2 p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-[11px] cursor-pointer">
+                                <input type="checkbox" class="mt-0.5" checked="@_nouveauxRoles.Contains(role)"
+                                       @onchange="e => BasculerRole(_nouveauxRoles, role, (bool)e.Value!)" />
+                                <span>
+                                    <span class="font-bold text-white block">@role</span>
+                                    <span class="text-slate-500">@N4Roles.DescriptionOf(role)</span>
+                                </span>
+                            </label>
+                        }
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-500">
+                    Aucun mot de passe n'est choisi ici : un lien pour en définir un est envoyé à l'adresse indiquée.
+                </p>
+                <div class="flex items-center gap-3">
+                    <button class="px-4 py-2.5 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@_enCours" @onclick="CreerCompte">
+                        @(_enCours ? "Création…" : "Créer le compte")
+                    </button>
+                    <button class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+                            @onclick="ToggleCreation">
+                        Annuler
+                    </button>
+                </div>
+            </div>
+        }
+    </AuthorizeView>
 
     @if (_exportVisible)
     {
@@ -62,6 +135,9 @@
                             <th class="py-2 px-4 font-bold">Second facteur</th>
                             <th class="py-2 px-4 font-bold">Statut</th>
                             <th class="py-2 px-4 font-bold">Dernière connexion</th>
+                            <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="theadCtx">
+                                <th class="py-2 px-4 font-bold text-right">Actions</th>
+                            </AuthorizeView>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60">
@@ -113,7 +189,58 @@
                                 <td class="py-2.5 px-4 font-mono text-slate-400">
                                     @(c.User.LastLoginAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Jamais")
                                 </td>
+                                <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="rowCtx">
+                                    <td class="py-2.5 px-4 text-right whitespace-nowrap">
+                                        <button class="text-[11px] font-bold text-sky-400 hover:text-sky-300 mr-3"
+                                                @onclick="() => BasculerEdition(c.User.Id)">
+                                            @(_editionId == c.User.Id ? "Fermer" : "Rôles")
+                                        </button>
+                                        <button class="text-[11px] font-bold @(c.User.IsDisabled ? "text-emerald-400 hover:text-emerald-300" : "text-rose-400 hover:text-rose-300") mr-3"
+                                                @onclick="() => BasculerDesactivation(c.User)">
+                                            @(c.User.IsDisabled ? "Réactiver" : "Désactiver")
+                                        </button>
+                                        @if (c.User.TwoFactorEnabled)
+                                        {
+                                            <button class="text-[11px] font-bold text-amber-400 hover:text-amber-300"
+                                                    @onclick="() => RevoquerDeuxiemeFacteur(c.User.Id)">
+                                                Révoquer 2FA
+                                            </button>
+                                        }
+                                    </td>
+                                </AuthorizeView>
                             </tr>
+                            @if (_editionId == c.User.Id)
+                            {
+                                <tr>
+                                    <td colspan="7" class="bg-slate-900/40 px-4 py-4">
+                                        <div class="space-y-3">
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                @foreach (var role in N4Roles.All)
+                                                {
+                                                    <label class="flex items-start gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px] cursor-pointer">
+                                                        <input type="checkbox" class="mt-0.5" checked="@_editionRoles.Contains(role)"
+                                                               @onchange="e => BasculerRole(_editionRoles, role, (bool)e.Value!)" />
+                                                        <span>
+                                                            <span class="font-bold text-white block">@role</span>
+                                                            <span class="text-slate-500">@N4Roles.DescriptionOf(role)</span>
+                                                        </span>
+                                                    </label>
+                                                }
+                                            </div>
+                                            <div class="flex items-center gap-3">
+                                                <button class="px-3.5 py-2 rounded-xl btn-theme-primary text-white font-bold text-[11px] transition disabled:opacity-40"
+                                                        disabled="@_enCours" @onclick="() => EnregistrerRoles(c.User.Id)">
+                                                    Enregistrer les rôles
+                                                </button>
+                                                <button class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] transition"
+                                                        @onclick="() => BasculerEdition(c.User.Id)">
+                                                    Annuler
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
                         }
                     </tbody>
                 </table>
@@ -127,8 +254,30 @@
 
     private List<Compte> _comptes = [];
     private bool _exportVisible;
+    private bool _callerHasElevatedRole;
+
+    private bool _creationVisible;
+    private string _nouveauEmail = string.Empty;
+    private string _nouveauNom = string.Empty;
+    private string _nouveauService = string.Empty;
+    private readonly HashSet<string> _nouveauxRoles = [];
+
+    private string? _editionId;
+    private readonly HashSet<string> _editionRoles = [];
+
+    private bool _enCours;
+    private string? _message;
+    private string _messageClass = string.Empty;
 
     protected override async Task OnInitializedAsync()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        _callerHasElevatedRole = etat.User.IsInRole(N4Roles.AdministrateurSolution);
+
+        await RechargerAsync();
+    }
+
+    private async Task RechargerAsync()
     {
         var tous = Users.Users.OrderBy(u => u.Email).ToList();
 
@@ -137,6 +286,141 @@
             resultats.Add(new Compte(u, [.. await Users.GetRolesAsync(u)]));
 
         _comptes = resultats;
+    }
+
+    private void ToggleCreation()
+    {
+        _creationVisible = !_creationVisible;
+        _message = null;
+        if (_creationVisible)
+        {
+            _nouveauEmail = string.Empty;
+            _nouveauNom = string.Empty;
+            _nouveauService = string.Empty;
+            _nouveauxRoles.Clear();
+        }
+    }
+
+    private static void BasculerRole(HashSet<string> ensemble, string role, bool coche)
+    {
+        if (coche) ensemble.Add(role);
+        else ensemble.Remove(role);
+    }
+
+    private async Task CreerCompte()
+    {
+        _enCours = true;
+        _message = null;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var resetUrl = Nav.ToAbsoluteUri("Account/ResetPassword").AbsoluteUri;
+
+        var r = await Administration.CreateAsync(
+            _nouveauEmail, _nouveauNom, _nouveauService, _nouveauxRoles,
+            acteur, _callerHasElevatedRole, resetUrl);
+
+        _enCours = false;
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        Signaler($"Compte créé pour {_nouveauEmail}. Un lien pour définir le mot de passe a été envoyé.", true);
+        _creationVisible = false;
+        await RechargerAsync();
+    }
+
+    private void BasculerEdition(string userId)
+    {
+        if (_editionId == userId)
+        {
+            _editionId = null;
+            return;
+        }
+
+        _editionId = userId;
+        _editionRoles.Clear();
+        var compte = _comptes.FirstOrDefault(c => c.User.Id == userId);
+        if (compte is not null)
+            foreach (var r in compte.Roles) _editionRoles.Add(r);
+    }
+
+    private async Task EnregistrerRoles(string userId)
+    {
+        _enCours = true;
+        _message = null;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var r = await Administration.ChangeRolesAsync(userId, _editionRoles, acteur, _callerHasElevatedRole);
+
+        _enCours = false;
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        Signaler("Rôles mis à jour.", true);
+        _editionId = null;
+        await RechargerAsync();
+    }
+
+    private async Task BasculerDesactivation(ApplicationUser utilisateur)
+    {
+        _message = null;
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        // Etat cible fixe avant l'appel : UserManager partage le meme
+        // DbContext (porte de circuit) que le service, donc "utilisateur"
+        // peut se retrouver mute par l'appel lui-meme — le lire APRES
+        // donnerait un message inverse.
+        var futurDisabled = !utilisateur.IsDisabled;
+
+        var r = await Administration.SetDisabledAsync(
+            utilisateur.Id, futurDisabled, acteur, _callerHasElevatedRole);
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        Signaler(futurDisabled ? "Compte désactivé." : "Compte réactivé.", true);
+        await RechargerAsync();
+    }
+
+    private async Task RevoquerDeuxiemeFacteur(string userId)
+    {
+        _message = null;
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var r = await Administration.ResetTwoFactorAsync(userId, acteur, _callerHasElevatedRole);
+
+        if (!r.Succeeded)
+        {
+            Signaler(r.Error!, false);
+            return;
+        }
+
+        Signaler("Second facteur révoqué.", true);
+        await RechargerAsync();
+    }
+
+    private void Signaler(string message, bool succes)
+    {
+        _message = message;
+        _messageClass = succes
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
     }
 
     private string TexteExport()

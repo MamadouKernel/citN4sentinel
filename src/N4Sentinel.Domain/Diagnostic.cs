@@ -30,11 +30,29 @@ public enum DiagnosticVerdict
     AnomaliesSansCause = 2,
 
     /// <summary>
-    /// Rien n'a été trouvé DANS CE QUI A ÉTÉ ANALYSÉ. Ce n'est PAS un
-    /// certificat de bonne santé : la panne peut être hors de la fenêtre
-    /// examinée, dans un journal non collecté, ou ne rien écrire du tout.
+    /// Rien n'a été trouvé DANS CE QUI A ÉTÉ ANALYSÉ, et ce qui devait être lu
+    /// l'a bien été (aucune source en échec). Ce n'est PAS un certificat de
+    /// bonne santé : la panne peut être hors de la fenêtre examinée.
+    /// FR-069 : « Aucune anomalie détectée sur le périmètre analysé ».
     /// </summary>
-    RienDeConcluant = 3
+    RienDeConcluant = 3,
+
+    /// <summary>
+    /// FR-069 : « Cause confirmée » — au-delà de CauseCaracterisee, réservé au
+    /// cas exceptionnel d'une signature de poids maximal, seule concluante,
+    /// sans aucune autre hypothèse concurrente. Distinct de CauseCaracterisee
+    /// (« très probable ») pour ne jamais gonfler une conviction ordinaire au
+    /// rang de certitude.
+    /// </summary>
+    CauseConfirmee = 4,
+
+    /// <summary>
+    /// FR-069 : « Informations insuffisantes » — distinct de RienDeConcluant :
+    /// ici, ce qui devait être lu n'a PAS pu l'être (source en échec, aucune
+    /// source lue) ; on ne sait pas si un signal existait, contrairement à
+    /// RienDeConcluant où l'analyse a bien eu lieu et n'a rien trouvé.
+    /// </summary>
+    InformationsInsuffisantes = 5
 }
 
 /// <summary>
@@ -55,6 +73,19 @@ public enum DiagnosticDomain
     Securite = 8,
     Horloge = 9,
     Applicatif = 10,
+
+    // FR-062 : domaines propres à l'écosystème N4, ajoutés sans toucher aux
+    // valeurs existantes (déjà citées par des signatures et des tests).
+    Systeme = 11,
+    Services = 12,
+    N4Cluster = 13,
+    CenterStandby = 14,
+    ActiveMqKahaDb = 15,
+    BridgeXps = 16,
+    Ecn4Ecn4Web = 17,
+    SharedFolders = 18,
+    EdiInterfaces = 19,
+
     Indetermine = 99
 }
 
@@ -120,6 +151,20 @@ public class DiagnosticSignature : AuditableEntity
     public string? DocumentReference { get; set; }
 
     /// <summary>
+    /// Ce qui contredirait cette cause (FR-063). Une signature ne prouve rien
+    /// seule ; documenter ce qui l'infirmerait évite de la traiter comme un
+    /// verdict acquis dès qu'elle apparaît dans un journal.
+    /// </summary>
+    public string? CounterEvidence { get; set; }
+
+    /// <summary>
+    /// Incrémentée à chaque modification (FR-065) : une signature livrée par
+    /// l'éditeur puis corrigée sur site n'est plus la même version que celle
+    /// du guide cité en <see cref="DocumentReference"/>.
+    /// </summary>
+    public int Version { get; set; } = 1;
+
+    /// <summary>
     /// Poids dans le calcul de confiance, de 1 à 100. Une signature très
     /// spécifique emporte la conviction ; une signature générique ne devrait
     /// jamais suffire à nommer une cause.
@@ -132,12 +177,62 @@ public class DiagnosticSignature : AuditableEntity
     public bool IsEnabled { get; set; } = true;
 
     /// <summary>
+    /// FR-065 : statut de validation de la règle. Seules Validé/Actif
+    /// participent à l'évaluation (<see cref="Diagnostic.SignatureCatalogue.GetActiveAsync"/>) —
+    /// une règle en Brouillon reste visible et testable sans influencer
+    /// encore un diagnostic réel.
+    /// </summary>
+    public LifecycleStatus ValidationStatus { get; set; } = LifecycleStatus.Valide;
+
+    /// <summary>
     /// Une signature ne nomme une cause que si elle est assez spécifique.
     /// En dessous, elle contribue au faisceau sans le conclure.
     /// </summary>
     public bool EstConcluante => ConfidenceWeight >= 70
                                  && Severity >= SignatureSeverity.Erreur
                                  && !string.IsNullOrWhiteSpace(Meaning);
+}
+
+/// <summary>
+/// Phase du cycle de traitement d'un incident (§3.10.1).
+///
+/// LE CYCLE N'EST PAS STRICTEMENT LINÉAIRE : le texte du cahier des charges
+/// autorise explicitement de revenir à la collecte ou au diagnostic quand une
+/// vérification apporte un élément nouveau ou invalide une hypothèse. La
+/// valeur de cet enum n'est donc qu'un ÉTAT COURANT ; l'historique complet des
+/// passages vit dans <see cref="DiagnosticPhaseTransition"/>, jamais écrasé.
+/// </summary>
+public enum DiagnosticPhase
+{
+    DetectionEtEnregistrement = 0,
+    QualificationEtCollecte = 1,
+    Securisation = 2,
+    DiagnosticEtCorrelation = 3,
+    ChoixDuPlanDAction = 4,
+    ValidationEtExecution = 5,
+    RemiseEnServiceEtVerification = 6,
+    ClotureEtCapitalisation = 7
+}
+
+/// <summary>
+/// FR-066 : les 4 façons de comparer un incident à une référence, telles que
+/// littéralement énumérées par le cahier des charges (« une période saine
+/// validée ; une exécution précédente réussie ; les valeurs habituelles du
+/// même composant ; un autre nœud comparable du même environnement »).
+/// </summary>
+public enum ReferenceKind
+{
+    /// <summary>Une autre session de diagnostic, marquée saine par un opérateur habilité.</summary>
+    PeriodeSaine = 0,
+
+    /// <summary>Une exécution d'opération antérieure, terminée avec succès (jamais « avec avertissements »).</summary>
+    ExecutionReussie = 1,
+
+    /// <summary>L'historique de signaux de supervision du même composant, hors de la fenêtre de l'incident.</summary>
+    ValeursHabituellesComposant = 2,
+
+    /// <summary>Un autre composant du même rôle, dans le même environnement, sur la même fenêtre.</summary>
+    NoeudPair = 3
 }
 
 /// <summary>
@@ -183,15 +278,89 @@ public class DiagnosticSession : AuditableEntity
     /// </summary>
     public bool IsReferenceBaseline { get; set; }
 
-    /// <summary>FR-066 : session de référence choisie pour la comparaison, s'il y en a une.</summary>
+    /// <summary>FR-066 : session de référence choisie pour la comparaison, s'il y en a une (mode PeriodeSaine).</summary>
     public Guid? ReferenceSessionId { get; set; }
     public DiagnosticSession? ReferenceSession { get; set; }
+
+    /// <summary>FR-066 : mode de comparaison actif pour cette session. Un seul à la fois, jamais combinés implicitement.</summary>
+    public ReferenceKind ReferenceKind { get; set; } = ReferenceKind.PeriodeSaine;
+
+    /// <summary>FR-066 : exécution antérieure choisie comme référence (mode ExecutionReussie) — jamais déduite.</summary>
+    public Guid? ReferenceExecutionId { get; set; }
+
+    /// <summary>
+    /// FR-066 : composant de référence. Son sens dépend de <see cref="ReferenceKind"/> —
+    /// le composant dont on regarde le propre historique (ValeursHabituellesComposant),
+    /// ou le nœud pair choisi (NoeudPair). Jamais utilisé pour les deux autres modes.
+    /// </summary>
+    public Guid? ReferenceComponentId { get; set; }
+
+    /// <summary>
+    /// Phase courante du cycle §3.10.1. Le détail des passages — qui, quand,
+    /// pourquoi — vit dans <see cref="PhaseTransitions"/> ; ce champ n'est
+    /// qu'un raccourci de lecture sur la dernière entrée.
+    /// </summary>
+    public DiagnosticPhase Phase { get; set; } = DiagnosticPhase.DetectionEtEnregistrement;
 
     public ICollection<LogSource> Sources { get; set; } = [];
     public ICollection<LogFinding> Findings { get; set; } = [];
     public ICollection<DiagnosticHypothesis> Hypotheses { get; set; } = [];
+    public ICollection<DiagnosticPhaseTransition> PhaseTransitions { get; set; } = [];
+    public ICollection<ExternalActionDeclaration> ExternalActions { get; set; } = [];
 
     public bool HasBeenAnalysed => AnalysedAt is not null;
+
+    /// <summary>
+    /// §3.10.1 : à qui/quoi ce diagnostic a été escaladé, quand son verdict
+    /// n'est pas concluant. Renseigné avant de pouvoir clôturer une session
+    /// inconcluante — jamais déduit, une escalade est une décision humaine.
+    /// </summary>
+    public string? EscalatedTo { get; set; }
+    public DateTimeOffset? EscalatedAt { get; set; }
+    public string? EscalatedBy { get; set; }
+
+    /// <summary>Vrai pour tout verdict qui ne nomme pas de cause établie (§3.10.1, « attente/escalade »).</summary>
+    public bool VerdictEstInconcluant => Verdict is DiagnosticVerdict.PisteSerieuse
+        or DiagnosticVerdict.AnomaliesSansCause or DiagnosticVerdict.RienDeConcluant
+        or DiagnosticVerdict.InformationsInsuffisantes;
+}
+
+/// <summary>
+/// Horodatage d'un passage de phase (§3.10.1). Une nouvelle entrée s'ajoute à
+/// chaque transition, y compris un retour vers une phase déjà visitée — ce
+/// n'est jamais une erreur à corriger, c'est une reprise à tracer.
+/// </summary>
+public class DiagnosticPhaseTransition : AuditableEntity
+{
+    public Guid SessionId { get; set; }
+    public DiagnosticSession? Session { get; set; }
+
+    public DiagnosticPhase Phase { get; set; }
+    public string EnteredBy { get; set; } = string.Empty;
+    public DateTimeOffset EnteredAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Ce qui justifie ce passage. Obligatoire pour
+    /// <see cref="DiagnosticPhase.ClotureEtCapitalisation"/> : la disparition
+    /// du symptôme ne suffit pas à clôturer un incident, il faut dire ce qui a
+    /// été vérifié (§3.10.1, principes).
+    /// </summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>
+/// §3.18 : taxonomie exacte d'un échec de collecte de signal/journal. Ne
+/// jamais laisser en texte libre seul — un texte libre ne peut pas être
+/// filtré, compté, ni distingué automatiquement d'une absence d'anomalie.
+/// </summary>
+public enum LogCollectionFailureReason
+{
+    AccesRefuse = 0,
+    ConnecteurIndisponible = 1,
+    Timeout = 2,
+    SourceAbsente = 3,
+    FormatNonReconnu = 4,
+    ControleNonConfigure = 5
 }
 
 /// <summary>Un journal versé à une session (FR-070, FR-079B).</summary>
@@ -216,6 +385,20 @@ public class LogSource : AuditableEntity
     /// <summary>FR-071 : version repérée dans le contenu, si un motif connu l'indique.</summary>
     public string? DetectedVersion { get; set; }
 
+    /// <summary>FR-071 : nature du journal repérée par son format (ex. « log4j/Apex », « IIS », « Windows Event »).</summary>
+    public string? DetectedLogType { get; set; }
+
+    /// <summary>FR-071 : fuseau horaire repéré dans les horodatages du journal (ex. « UTC+00:00 »), quand détectable.</summary>
+    public string? DetectedTimeZone { get; set; }
+
+    /// <summary>
+    /// §3.18/FR-077/NFR-008 : identifiant de l'incident ou de l'opération à
+    /// l'origine de cette collecte, quand elle en découle une — permet de
+    /// filtrer et de relier un journal à ce qui l'a fait collecter, jamais
+    /// déduit après coup.
+    /// </summary>
+    public string? CorrelationId { get; set; }
+
     public LogOriginKind Origin { get; set; }
 
     /// <summary>Chemin réellement lu, après résolution d'un éventuel générique.</summary>
@@ -224,6 +407,14 @@ public class LogSource : AuditableEntity
 
     public long SizeBytes { get; set; }
     public int LineCount { get; set; }
+
+    /// <summary>
+    /// §3.18/FR-067 : empreinte SHA-256 du contenu MASQUÉ (jamais du brut).
+    /// Permet de vérifier qu'un extrait cité dans un paquet d'escalade
+    /// correspond bien à ce qui a été collecté, sans conserver le contenu
+    /// lui-même.
+    /// </summary>
+    public string? ContentHash { get; set; }
 
     // --- Résumé (FR-073) --------------------------------------------------
     /// <summary>Horodatage de la première ligne datée du fichier — pas seulement des anomalies.</summary>
@@ -252,6 +443,14 @@ public class LogSource : AuditableEntity
     public bool Truncated { get; set; }
 
     public string? Error { get; set; }
+
+    /// <summary>
+    /// §3.18 : classification exacte de l'échec, distincte du message libre
+    /// ci-dessus — l'absence d'un signal ne doit jamais être interprétée
+    /// comme une absence d'anomalie, encore faut-il pouvoir dire POURQUOI il
+    /// manque, filtrable et comptable.
+    /// </summary>
+    public LogCollectionFailureReason? FailureReason { get; set; }
 
     public bool Succeeded => Error is null;
 }
@@ -298,6 +497,15 @@ public class LogFinding : AuditableEntity
     public string? Meaning { get; set; }
     public string? Remediation { get; set; }
     public string? DocumentReference { get; set; }
+
+    /// <summary>
+    /// Thread, classe et identifiant de transaction relevés sur la ligne
+    /// représentative, quand le format du journal les porte (FR-072). Null
+    /// quand le motif n'a pas été reconnu — jamais deviné.
+    /// </summary>
+    public string? ThreadName { get; set; }
+    public string? LoggerClass { get; set; }
+    public string? TransactionId { get; set; }
 }
 
 /// <summary>
@@ -325,11 +533,28 @@ public class DiagnosticHypothesis : AuditableEntity
     /// <summary>Constats qui la soutiennent, cités par leur intitulé.</summary>
     public string Evidence { get; set; } = string.Empty;
 
+    /// <summary>
+    /// FR-063 : ce qui, s'il était observé, contredirait cette hypothèse
+    /// plutôt que de la confirmer — jamais laissé vide silencieusement : dit
+    /// explicitement quand rien de tel n'a été identifié.
+    /// </summary>
+    public string? CounterEvidence { get; set; }
+
+    /// <summary>FR-063 : dernière occurrence contribuant aux preuves, pour situer l'hypothèse dans le temps.</summary>
+    public DateTimeOffset? EvidenceObservedAt { get; set; }
+
+    /// <summary>FR-063/FR-065 : version de la règle de diagnostic la plus déterminante dans cette hypothèse.</summary>
+    public string? RuleVersion { get; set; }
+
     /// <summary>Ce qu'il conviendrait de vérifier ou de faire. Jamais exécuté automatiquement.</summary>
     public string? Recommendation { get; set; }
 
     /// <summary>Rang d'affichage : la plus probable en premier.</summary>
     public int Rank { get; set; }
 
-    public bool EstEtablie => Confidence >= 70;
+    /// <summary>
+    /// FR-065 : le seuil n'est plus figé à 70 — il vient de
+    /// <see cref="DiagnosticSettings.HypothesisEstablishedThreshold"/>, administrable.
+    /// </summary>
+    public bool EstEtablie(int seuil) => Confidence >= seuil;
 }

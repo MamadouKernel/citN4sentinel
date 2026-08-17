@@ -93,6 +93,21 @@ else
                                 }
                             </select>
                         </div>
+                        <div class="col-span-2 p-3.5 rounded-xl bg-slate-900/60 border border-slate-700 space-y-2">
+                            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+                                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_c.MaintenanceMode" />
+                                <span class="font-semibold">Maintenance en cours (FR-052)</span>
+                            </label>
+                            <p class="text-[10px] text-slate-500 leading-relaxed">
+                                La supervision affiche l'état Maintenance sans relever d'échec le temps de
+                                l'intervention — à activer avant une opération planifiée, à désactiver ensuite.
+                            </p>
+                            @if (_c.MaintenanceMode)
+                            {
+                                <input class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                                       placeholder="Note (facultative) : nature de l'intervention" @bind="_c.MaintenanceNote" />
+                            }
+                        </div>
                     </div>
                 </div>
             </div>

@@ -1,58 +1,32 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace N4Sentinel.Infrastructure.Security;
 
 /// <summary>
-/// Options de configuration du fournisseur d'authentification Azure AD SSO / OIDC (SEC-001 V2).
-/// </summary>
-public sealed class AzureAdOptions
-{
-    public bool Enabled { get; set; } = true;
-    public string TenantId { get; set; } = "cotedivoireterminal.onmicrosoft.com";
-    public string ClientId { get; set; } = "n4sentinel-app-client-id";
-    public string Authority { get; set; } = "https://login.microsoftonline.com/cotedivoireterminal.onmicrosoft.com/v2.0";
-    public string PostLogoutRedirectUri { get; set; } = "http://localhost:5161/";
-}
-
-/// <summary>
-/// Service d'intégration SSO Azure AD / OpenID Connect (SEC-001 V2).
-/// Permet l'authentification des agents CIT via l'annuaire d'entreprise Azure AD.
+/// Intégration SSO Azure AD / OpenID Connect (SEC-001, prévue pour la V2).
+///
+/// AUCUNE VALIDATION DE JETON RÉELLE N'EST IMPLÉMENTÉE. Une intégration OIDC
+/// authentique exige la vérification de signature contre le JWKS du
+/// tenant, le contrôle d'audience/émetteur et d'expiration — rien de tout
+/// cela n'existe ici. Simuler un succès aurait fabriqué une identité DSI de
+/// toutes pièces à partir de n'importe quelle chaîne fournie : c'est
+/// exactement le risque que le principe "Prudence en cas d'incertitude" du
+/// cahier des charges interdit. Cette méthode échoue donc TOUJOURS,
+/// paramètres activés ou non, jusqu'à ce qu'un connecteur OIDC réel soit
+/// développé en V2.
 /// </summary>
 public sealed class AzureAdAuthProvider(
-    IConfiguration configuration,
+    AzureAdSettingsService settings,
     ILogger<AzureAdAuthProvider> logger)
 {
-    private readonly AzureAdOptions _options = configuration
-        .GetSection("AzureAd")
-        .Get<AzureAdOptions>() ?? new AzureAdOptions();
-
-    public AzureAdOptions Options => _options;
-
-    /// <summary>
-    /// Valide un jeton de connexion SSO d'entreprise et extrait les claims utilisateur.
-    /// </summary>
-    public Task<AzureAdUserInfo?> AuthenticateSsoTokenAsync(string idToken)
+    public Task<AzureAdUserInfo?> AuthenticateSsoTokenAsync(string idToken, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(idToken)) return Task.FromResult<AzureAdUserInfo?>(null);
-
-        try
-        {
-            logger.LogInformation("Authentification SSO Azure AD tentée avec succès.");
-            return Task.FromResult<AzureAdUserInfo?>(new AzureAdUserInfo
-            {
-                Email = "m.konate@cotedivoireterminal.com",
-                DisplayName = "M. KONATE (DSI CIT)",
-                TenantId = _options.TenantId,
-                Roles = ["Validateur", "AdministrateurN4"]
-            });
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Erreur d'authentification SSO Azure AD.");
-            return Task.FromResult<AzureAdUserInfo?>(null);
-        }
+        logger.LogWarning(
+            "Tentative d'authentification SSO Azure AD refusée : aucun connecteur OIDC réel n'est implémenté en V1 (SEC-001, intégration prévue V2).");
+        return Task.FromResult<AzureAdUserInfo?>(null);
     }
+
+    public Task<Domain.AzureAdSettings> GetSettingsAsync(CancellationToken ct = default) => settings.GetAsync(ct);
 }
 
 public sealed class AzureAdUserInfo

@@ -9,6 +9,8 @@
 @inject ReferentialService Referential
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthProvider
+@inject N4Sentinel.Infrastructure.Reporting.ReportDocumentService Documents
+@inject IJSRuntime JS
 
 <PageTitle>@(_sop?.Title ?? "SOP") — N4 Sentinel</PageTitle>
 
@@ -38,6 +40,19 @@ else
             </div>
 
             <div class="flex items-center gap-2">
+                @if (_sop.Status is LifecycleStatus.Valide or LifecycleStatus.Actif)
+                {
+                    <button class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                            title="Copie autonome PDF, exploitable même si N4 Sentinel est indisponible (SEC-010)."
+                            @onclick="TelechargerPdf">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF hors ligne
+                    </button>
+                    <button class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                            title="Copie autonome Word, exploitable même si N4 Sentinel est indisponible (SEC-010)."
+                            @onclick="TelechargerWord">
+                        <i class="bi bi-file-earmark-word"></i> Word hors ligne
+                    </button>
+                }
                 @if (_sop.Status is LifecycleStatus.Brouillon or LifecycleStatus.AValider)
                 {
                     <button class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
@@ -501,6 +516,29 @@ else
 
         await OnParametersSetAsync();
         Signaler("SOP validé : il peut désormais être lancé.", true);
+    }
+
+    private async Task TelechargerPdf()
+    {
+        if (_sop is null) return;
+
+        var markdown = SopService.BuildEmergencyMarkdown(_sop);
+        var octets = Documents.RenderPdf($"{_sop.Title} — {_sop.Code}", markdown);
+        var nom = $"N4Sentinel-SOP-{_sop.Code}-v{_sop.Version}.pdf";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets), "application/pdf");
+    }
+
+    private async Task TelechargerWord()
+    {
+        if (_sop is null) return;
+
+        var markdown = SopService.BuildEmergencyMarkdown(_sop);
+        var octets = Documents.RenderDocx($"{_sop.Title} — {_sop.Code}", markdown);
+        var nom = $"N4Sentinel-SOP-{_sop.Code}-v{_sop.Version}.docx";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     }
 
     private async Task AjouterAssociation()

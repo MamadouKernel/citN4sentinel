@@ -23,6 +23,7 @@ namespace N4Sentinel.Infrastructure.Orchestration;
 /// </summary>
 public sealed class OrchestrationEngine(
     IServiceScopeFactory scopeFactory,
+    Observability.MetricsService metrics,
     ILogger<OrchestrationEngine> logger)
 {
     /// <summary>Exécutions pilotées par ce processus. Clé = identifiant d'exécution.</summary>
@@ -192,10 +193,22 @@ public sealed class OrchestrationEngine(
                 foreach (var restante in execution.Steps.Where(s => !s.IsTerminal))
                     restante.State = ExecutionStepState.Annule;
 
-                await TerminerAsync(db, execution, ExecutionStatus.Annule,
-                    $"Annulée par {execution.CancelRequestedBy}. Les étapes déjà exécutées ne sont PAS défaites : "
-                    + "l'écosystème est dans un état intermédiaire, à constater avant toute reprise.", locks, ct);
+                // FR-025 : l'annulation ne se contente pas de dire que l'état
+                // est intermédiaire — elle recollecte l'état réel de chaque
+                // composant réellement touché, et dit explicitement si une
+                // intervention manuelle est nécessaire.
+                var (rapportEtat, interventionRequise) = await ConstruireRapportPostAnnulationAsync(sp, execution, ct);
+                execution.PostCancellationReport = rapportEtat;
+                execution.RequiresManualInterventionAfterCancel = interventionRequise;
 
+                await TerminerAsync(db, execution, ExecutionStatus.Annule,
+                    $"Annulée par {execution.CancelRequestedBy}. Les étapes déjà exécutées ne sont PAS défaites."
+                    + (interventionRequise
+                        ? " ÉTAT INSTABLE CONSTATÉ — une intervention manuelle ou une escalade est requise avant toute reprise."
+                        : " État des composants touchés confirmé stable après recollecte.")
+                    + $"\n\n{rapportEtat}", locks, ct);
+
+                await NotifierFinDOperationAsync(execution, ct);
                 Notifier(executionId);
                 return;
             }
@@ -226,6 +239,7 @@ public sealed class OrchestrationEngine(
             {
                 var (statut, motif) = Conclure(execution);
                 await TerminerAsync(db, execution, statut, motif, locks, ct);
+                await NotifierFinDOperationAsync(execution, ct);
                 Notifier(executionId);
                 return;
             }
@@ -235,6 +249,19 @@ public sealed class OrchestrationEngine(
             // --- Etape en attente d'un geste humain : on ne fait rien, on attend.
             if (suivante.State is ExecutionStepState.EnAttente or ExecutionStepState.Bloque)
             {
+                await db.SaveChangesAsync(ct);
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+                continue;
+            }
+
+            // --- Delai entre tentatives (FR-004) : une nouvelle tentative
+            // automatique attend le delai declare sur l'etape avant de repartir,
+            // plutot que de rejouer immediatement une action qui vient d'echouer.
+            if (suivante.RetryNotBeforeAt is { } pasAvant && pasAvant > DateTimeOffset.UtcNow)
+            {
+                suivante.ProgressMessage =
+                    $"Nouvelle tentative automatique différée jusqu'à {pasAvant:HH:mm:ss} "
+                    + $"(délai de {suivante.RetryDelaySeconds} s entre tentatives).";
                 await db.SaveChangesAsync(ct);
                 await Task.Delay(TimeSpan.FromSeconds(3), ct);
                 continue;
@@ -293,6 +320,7 @@ public sealed class OrchestrationEngine(
                 etape.State = ExecutionStepState.EnCours;
                 etape.StartedAt ??= DateTimeOffset.UtcNow;
                 etape.AttemptCount++;
+                etape.RetryNotBeforeAt = null;
                 etape.ProgressMessage = enParallele ? "Démarrage de l'étape (en parallèle)." : "Démarrage de l'étape.";
             }
             await db.SaveChangesAsync(ct);
@@ -397,6 +425,8 @@ public sealed class OrchestrationEngine(
             return;
         }
 
+        var devientBloquee = false;
+
         switch (issue.State)
         {
             case ExecutionStepState.Reussi:
@@ -420,6 +450,7 @@ public sealed class OrchestrationEngine(
 
             default:
                 etape.Error = Tronquer(issue.Message);
+                etape.ErrorType = issue.ErrorType;
                 etape.ProgressMessage = null;
 
                 // Nouvelle tentative automatique : autorisee uniquement si le
@@ -431,9 +462,13 @@ public sealed class OrchestrationEngine(
                 {
                     etape.State = ExecutionStepState.AVenir;
                     etape.StartedAt = null;
+                    etape.RetryNotBeforeAt = etape.RetryDelaySeconds > 0
+                        ? DateTimeOffset.UtcNow.AddSeconds(etape.RetryDelaySeconds)
+                        : null;
                     etape.ProgressMessage =
                         $"Tentative {etape.AttemptCount} en échec. Nouvelle tentative automatique "
-                        + $"({etape.AttemptCount}/{etape.MaxRetries + 1}).";
+                        + $"({etape.AttemptCount}/{etape.MaxRetries + 1})"
+                        + (etape.RetryNotBeforeAt is null ? "." : $", après un délai de {etape.RetryDelaySeconds} s.");
                     break;
                 }
 
@@ -453,6 +488,7 @@ public sealed class OrchestrationEngine(
                         execution.Outcome =
                             $"Suspendue à l'étape « {etape.Name} » : {Tronquer(issue.Message, 900)} "
                             + "Le moteur attend une décision — réessayer, contourner, ou annuler.";
+                        devientBloquee = true;
                         break;
 
                     default: // Bloquer
@@ -473,12 +509,47 @@ public sealed class OrchestrationEngine(
                         using (var scope = scopeFactory.CreateScope())
                             await scope.ServiceProvider.GetRequiredService<EnvironmentLockService>()
                                 .ReleaseAsync(executionId, ct);
+
+                        metrics.RecordStepOutcome(etape.State);
+                        await NotifierFinDOperationAsync(execution, ct);
                         return;
                 }
                 break;
         }
 
+        // NFR-008 : chaque issue d'étape alimente un compteur consultable
+        // sans grep un fichier de log.
+        metrics.RecordStepOutcome(etape.State);
+
         await db.SaveChangesAsync(ct);
+
+        if (devientBloquee)
+            await NotifierBlocageDOperationAsync(execution, ct);
+    }
+
+    // -----------------------------------------------------------------------
+    // Notifications (FR-095) — jamais bloquantes pour le moteur : une erreur
+    // ici se journalise et s'arrête là, elle ne doit jamais faire echouer
+    // une transition d'etat qui, elle, vient d'etre ecrite en base.
+    // -----------------------------------------------------------------------
+    private Task NotifierFinDOperationAsync(WorkflowExecution execution, CancellationToken ct) =>
+        NotifierAsync(n => n.NotifierFinAsync(execution, ct));
+
+    private Task NotifierBlocageDOperationAsync(WorkflowExecution execution, CancellationToken ct) =>
+        NotifierAsync(n => n.NotifierBlocageAsync(execution, execution.Outcome ?? string.Empty, ct));
+
+    private async Task NotifierAsync(Func<Notifications.OperationNotificationService, Task> action)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var service = scope.ServiceProvider.GetService<Notifications.OperationNotificationService>();
+            if (service is not null) await action(service);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Échec d'une notification d'opération (non bloquant pour le moteur).");
+        }
     }
 
     private static (ExecutionStatus, string) Conclure(WorkflowExecution execution)
@@ -518,6 +589,46 @@ public sealed class OrchestrationEngine(
 
         await db.SaveChangesAsync(ct);
         await locks.ReleaseAsync(execution.Id, ct);
+    }
+
+    /// <summary>
+    /// FR-025 : recollecte l'état réel de chaque composant touché par une
+    /// étape réellement exécutée (Réussi, Avertissement ou Échec — jamais
+    /// À venir/Annulée, qui n'ont rien fait) avant de clore une annulation.
+    /// Le retour à un état stable n'est jamais présumé : s'il reste au moins
+    /// un composant dans un état que l'application ne peut pas confirmer
+    /// sain, l'intervention manuelle est signalée, jamais devinée.
+    /// </summary>
+    private static async Task<(string Rapport, bool InterventionRequise)> ConstruireRapportPostAnnulationAsync(
+        IServiceProvider sp, WorkflowExecution execution, CancellationToken ct)
+    {
+        var composantsIds = execution.Steps
+            .Where(s => s.State is ExecutionStepState.Reussi or ExecutionStepState.Avertissement or ExecutionStepState.Echec)
+            .Where(s => s.ComponentId is not null)
+            .Select(s => s.ComponentId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (composantsIds.Count == 0)
+            return ("Aucun composant n'a été réellement touché avant l'annulation : rien à recollecter.", false);
+
+        var supervision = sp.GetRequiredService<Supervision.SupervisionService>();
+        var lignes = new List<string>();
+        var instable = false;
+
+        foreach (var id in composantsIds)
+        {
+            var releve = await supervision.EvaluateComponentAsync(id, ct);
+            var estStable = releve.State is ComponentState.Disponible or ComponentState.Arret;
+            if (!estStable) instable = true;
+
+            lignes.Add($"- {releve.LogicalName} : {releve.State}"
+                     + (releve.LogProofStatus == Supervision.LogProofState.Proved ? " (démarrage prouvé)" : string.Empty)
+                     + (estStable ? string.Empty : " — ÉTAT NON CONFIRMÉ STABLE"));
+        }
+
+        var rapport = "État réel recollecté après annulation (FR-025) :\n" + string.Join("\n", lignes);
+        return (rapport, instable);
     }
 
     /// <summary>

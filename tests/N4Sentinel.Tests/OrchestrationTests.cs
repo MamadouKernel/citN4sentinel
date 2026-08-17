@@ -32,6 +32,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     private TestDbContextFactory _factory = null!;
     private WorkflowService _workflows = null!;
     private ExecutionService _executions = null!;
+    private ApprovalMatrixService _matrix = null!;
     private EnvironmentLockService _locks = null!;
     private SequenceValidator _validator = null!;
     private PreflightService _preflight = null!;
@@ -53,9 +54,11 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         _locks = new EnvironmentLockService(_factory, NullLogger<EnvironmentLockService>.Instance);
         _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance, new AuditWriter(_factory));
-        _executions = new ExecutionService(_factory, _locks, new AuditWriter(_factory), NullLogger<ExecutionService>.Instance);
-        _validator = new SequenceValidator(_factory);
+        _matrix = new ApprovalMatrixService(_factory);
         _adhoc = new AdHocOperationService(_factory, NullLogger<AdHocOperationService>.Instance);
+        _executions = new ExecutionService(_factory, _locks, new AuditWriter(_factory), NullLogger<ExecutionService>.Instance,
+            approvalMatrix: _matrix, adHoc: _adhoc);
+        _validator = new SequenceValidator(_factory);
         _report = new ExecutionReportService(_factory);
 
         _keyPath = Path.Combine(Path.GetTempPath(), $"n4-cles-{Guid.NewGuid():N}");
@@ -83,7 +86,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         await using var db = _factory.CreateDbContext();
         await db.Database.EnsureCreatedAsync();
 
-        var env = new N4Environment { Code = "UAT", Name = "Recette", Kind = EnvironmentKind.UAT };
+        var env = new N4Environment { Code = "UAT", Name = "Recette", Kind = EnvironmentKind.UAT, Status = LifecycleStatus.Valide };
         db.Environments.Add(env);
         await db.SaveChangesAsync();
         _envId = env.Id;
@@ -584,6 +587,371 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("déjà arrêté manuellement", entree.Reason!);
     }
 
+    // =======================================================================
+    // FR-026 — Preuve jointe obligatoire pour une intervention manuelle
+    // =======================================================================
+    [Fact]
+    public async Task ConfirmStepAsync_Refuse_Sans_Preuve_Quand_Obligatoire()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.InterventionManuelle;
+            etape.State = ExecutionStepState.EnAttente;
+            etape.RequiresEvidenceFile = true;
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.ConfirmStepAsync(etapeId, "op1", "Fait.", true);
+
+        Assert.NotNull(erreur);
+        Assert.Contains("exige une preuve jointe", erreur!);
+    }
+
+    [Fact]
+    public async Task ConfirmStepAsync_Accepte_Avec_Preuve_Jointe()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.InterventionManuelle;
+            etape.State = ExecutionStepState.EnAttente;
+            etape.RequiresEvidenceFile = true;
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var octets = new byte[] { 1, 2, 3, 4 };
+        var erreur = await _executions.ConfirmStepAsync(etapeId, "op1", "Fait.", true, octets, "capture.png", "image/png");
+        Assert.Null(erreur);
+
+        await using var relecture = _factory.CreateDbContext();
+        var apres = await relecture.ExecutionSteps.FirstAsync(s => s.Id == etapeId);
+        Assert.Equal("capture.png", apres.EvidenceFileName);
+        Assert.Equal(octets, apres.EvidenceFileContent);
+        Assert.Contains("capture.png", apres.Evidence!);
+    }
+
+    // =======================================================================
+    // FR-013 / FR-027 — Matrice de criticité
+    // =======================================================================
+    [Fact]
+    public async Task PrepareAsync_La_Matrice_Exige_Une_Approbation_Non_Prevue_Par_Le_Workflow()
+    {
+        await _matrix.SaveAsync(new ApprovalMatrixRule
+        {
+            EnvironmentKind = EnvironmentKind.UAT,
+            MinCriticality = CriticalityLevel.Moyenne,
+            RequiresApproval = true,
+            Notes = "Test"
+        });
+
+        var id = await CreerWorkflowAsync("MTX1", WorkflowKind.DemarrageComplet, approbation: false);
+        await ValiderAsync(id);
+
+        var prep = await _executions.PrepareAsync(id, "op1", "Test", null, isSimulation: false);
+        Assert.True(prep.Succeeded, prep.Error);
+
+        var execution = await _executions.GetAsync(prep.ExecutionId);
+        Assert.Equal(ExecutionStatus.EnAttenteApprobation, execution!.Status);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_Une_Regle_Desactivee_N_A_Aucun_Effet()
+    {
+        var regle = new ApprovalMatrixRule
+        {
+            EnvironmentKind = EnvironmentKind.UAT,
+            MinCriticality = CriticalityLevel.Faible,
+            RequiresApproval = true,
+            Enabled = false
+        };
+        await _matrix.SaveAsync(regle);
+
+        var id = await CreerWorkflowAsync("MTX2", WorkflowKind.DemarrageComplet, approbation: false);
+        await ValiderAsync(id);
+
+        var prep = await _executions.PrepareAsync(id, "op1", "Test", null, isSimulation: false);
+        var execution = await _executions.GetAsync(prep.ExecutionId);
+
+        Assert.Equal(ExecutionStatus.EnPreparation, execution!.Status);
+    }
+
+    [Fact]
+    public async Task SkipStepAsync_En_Production_Avec_Regle_Double_Approbation_Reste_En_Attente()
+    {
+        await using (var db = _factory.CreateDbContext())
+        {
+            var env = await db.Environments.FirstAsync(e => e.Id == _envId);
+            env.Kind = EnvironmentKind.Production;
+            await db.SaveChangesAsync();
+        }
+
+        await _matrix.SaveAsync(new ApprovalMatrixRule
+        {
+            EnvironmentKind = EnvironmentKind.Production,
+            MinCriticality = CriticalityLevel.Moyenne,
+            RequiresDoubleApproval = true
+        });
+
+        var executionId = await PreparerExecutionAsync(contournable: true);
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.State = ExecutionStepState.Bloque;
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.SkipStepAsync(etapeId, "op1", "Motif valide.");
+        Assert.Null(erreur);
+
+        await using (var relecture = _factory.CreateDbContext())
+        {
+            var apres = await relecture.ExecutionSteps.FirstAsync(s => s.Id == etapeId);
+            Assert.Equal(ExecutionStepState.Bloque, apres.State);
+            Assert.Equal("op1", apres.SkippedBy);
+            Assert.Null(apres.SkipCoApprovedBy);
+        }
+
+        var refusMemeAuteur = await _executions.ApproveSkipAsync(etapeId, "op1");
+        Assert.NotNull(refusMemeAuteur);
+        Assert.Contains("personne différente", refusMemeAuteur!);
+
+        var succes = await _executions.ApproveSkipAsync(etapeId, "op2");
+        Assert.Null(succes);
+
+        await using var finale = _factory.CreateDbContext();
+        var etapeFinale = await finale.ExecutionSteps.FirstAsync(s => s.Id == etapeId);
+        Assert.Equal(ExecutionStepState.Ignore, etapeFinale.State);
+        Assert.Equal("op2", etapeFinale.SkipCoApprovedBy);
+    }
+
+    // =======================================================================
+    // FR-029 — Diagnostic relié à une étape bloquée
+    // =======================================================================
+    [Fact]
+    public async Task OuvrirDiagnostic_Refuse_Hors_Etat_Bloque()
+    {
+        var executionId = await PreparerExecutionAsync();
+        var etapeId = (await _executions.GetAsync(executionId))!.Steps.Single().Id;
+
+        var (erreur, sessionId) = await _executions.OuvrirDiagnosticDepuisEtapeAsync(etapeId, "op1");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("rien à diagnostiquer", erreur!);
+        Assert.Null(sessionId);
+    }
+
+    [Fact]
+    public async Task OuvrirDiagnostic_Renvoie_La_Session_Deja_Reliee_Sans_En_Recreer_Une()
+    {
+        var executionId = await PreparerExecutionAsync();
+        var sessionExistante = Guid.NewGuid();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.State = ExecutionStepState.Bloque;
+            etape.DiagnosticSessionId = sessionExistante;
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var (erreur, sessionId) = await _executions.OuvrirDiagnosticDepuisEtapeAsync(etapeId, "op1");
+
+        Assert.Null(erreur);
+        Assert.Equal(sessionExistante, sessionId);
+    }
+
+    // =======================================================================
+    // FR-029B — Arrêt forcé sur blocage StopPending
+    // =======================================================================
+    [Fact]
+    public async Task Un_Arret_Force_Sans_Justification_Est_Refuse()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.Arreter;
+            etape.State = ExecutionStepState.Bloque;
+            etape.Error = "Le service est resté bloqué en StopPending pendant 60 s.";
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.ForcerArretAsync(etapeId, "op1", "  ");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("trou dans la traçabilité", erreur!);
+    }
+
+    [Fact]
+    public async Task Un_Arret_Force_Est_Refuse_Hors_Blocage_StopPending_Connu()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.Arreter;
+            etape.State = ExecutionStepState.Bloque;
+            etape.Error = "Le service ne s'est pas arrêté en 60 s (dernier état observé : Running).";
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.ForcerArretAsync(etapeId, "op1", "Motif valide.");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("blocage StopPending connu", erreur!);
+    }
+
+    [Fact]
+    public async Task Un_Arret_Force_Refuse_Une_Etape_Qui_N_Est_Pas_Un_Arret()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.Demarrer;
+            etape.State = ExecutionStepState.Bloque;
+            etape.Error = "StopPending";
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.ForcerArretAsync(etapeId, "op1", "Motif valide.");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("n'est pas une étape d'arrêt", erreur!);
+    }
+
+    [Fact(DisplayName = "§3.19 : la classification structurée du blocage StopPending, pas une recherche de texte, laisse passer l'arrêt forcé")]
+    public async Task Un_Arret_Force_Passe_La_Garde_Sur_Le_Type_D_Erreur_Classe_Plutot_Que_Sur_Un_Texte()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        Guid etapeId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.Arreter;
+            etape.State = ExecutionStepState.Bloque;
+            // Message reformulé, sans le mot "StopPending" : seule la
+            // classification structurée doit désormais faire foi.
+            etape.Error = "Le service refuse de rendre la main au gestionnaire de services.";
+            etape.ErrorType = StepErrorType.ComportementConnuStopPending;
+            await db.SaveChangesAsync();
+            etapeId = etape.Id;
+        }
+
+        var erreur = await _executions.ForcerArretAsync(etapeId, "op1", "Motif valide.");
+
+        // Le fixture de test ne cable pas de StepExecutor : passer la garde
+        // de classification aboutit au message "contexte absent", jamais au
+        // refus "pas de blocage StopPending connu".
+        Assert.NotNull(erreur);
+        Assert.DoesNotContain("blocage StopPending connu", erreur!);
+        Assert.Contains("n'est pas disponible dans ce contexte", erreur!);
+    }
+
+    // =======================================================================
+    // §3.19 — Retour au dernier point stable
+    // =======================================================================
+    [Fact(DisplayName = "§3.19 : un retour au dernier point stable sans justification est refusé")]
+    public async Task RollbackToStablePointAsync_Refuse_Sans_Justification()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        var resultat = await _executions.RollbackToStablePointAsync(executionId, "op1", "  ");
+
+        Assert.False(resultat.Succeeded);
+        Assert.Contains("pas tracé", resultat.Error!);
+    }
+
+    [Fact(DisplayName = "§3.19 : un retour au dernier point stable ne s'applique qu'à une exécution en échec ou bloquée")]
+    public async Task RollbackToStablePointAsync_Refuse_Hors_Etat_Echec_Ou_Bloque()
+    {
+        var executionId = await PreparerExecutionAsync();
+        // PreparerExecutionAsync laisse l'exécution EnPreparation : ni en
+        // échec, ni bloquée.
+
+        var resultat = await _executions.RollbackToStablePointAsync(executionId, "op1", "Motif valide.");
+
+        Assert.False(resultat.Succeeded);
+        Assert.Contains("échec ou bloquée", resultat.Error!);
+    }
+
+    [Fact(DisplayName = "§3.19 : sans étape Démarrer/Arrêter réussie, il n'y a rien à annuler")]
+    public async Task RollbackToStablePointAsync_Refuse_Sans_Etape_Reversible()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var execution = await db.Executions.FirstAsync(e => e.Id == executionId);
+            execution.Status = ExecutionStatus.Echec;
+            await db.SaveChangesAsync();
+        }
+
+        var resultat = await _executions.RollbackToStablePointAsync(executionId, "op1", "Motif valide.");
+
+        Assert.False(resultat.Succeeded);
+        Assert.Contains("Rien à annuler", resultat.Error!);
+    }
+
+    [Fact(DisplayName = "§3.19 : le retour au dernier point stable prépare l'inverse d'un démarrage réussi, sans jamais le lancer")]
+    public async Task RollbackToStablePointAsync_Prepare_L_Inverse_D_Un_Demarrage_Reussi()
+    {
+        var executionId = await PreparerExecutionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var execution = await db.Executions.Include(e => e.Steps).FirstAsync(e => e.Id == executionId);
+            execution.Status = ExecutionStatus.Echec;
+            var etape = execution.Steps.Single();
+            etape.Action = StepAction.Demarrer;
+            etape.ComponentId = _bridgeId;
+            etape.State = ExecutionStepState.Reussi;
+            await db.SaveChangesAsync();
+        }
+
+        var resultat = await _executions.RollbackToStablePointAsync(executionId, "op1", "Bridge resté injoignable après l'échec.");
+
+        Assert.True(resultat.Succeeded, resultat.Error);
+        var workflowId = Assert.Single(resultat.Workflows).WorkflowId;
+
+        // Le workflow créé est validé, prêt à être lancé — mais RIEN n'a été
+        // exécuté : c'est une préparation, jamais un lancement automatique.
+        var workflow = await _workflows.GetAsync(workflowId);
+        Assert.NotNull(workflow);
+        Assert.Equal(LifecycleStatus.Valide, workflow!.Status);
+        var etapeInversee = Assert.Single(workflow.Steps);
+        Assert.Equal(StepAction.Arreter, etapeInversee.Action);
+        Assert.Equal(_bridgeId, etapeInversee.ComponentId);
+
+        // Aucune nouvelle exécution n'a été créée ou lancée par ce seul appel.
+        await using var verif = _factory.CreateDbContext();
+        Assert.False(await verif.Executions.AnyAsync(e => e.WorkflowId == workflowId));
+    }
+
     [Fact]
     public async Task L_Annulation_Avant_Lancement_Est_Immediate()
     {
@@ -666,6 +1034,17 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains(violations, v => v.Blocking && v.Message.Contains("UN PAR UN"));
     }
 
+    [Fact(DisplayName = "AC-05 : deux nœuds Cluster déclarés parallélisables à l'arrêt sont refusés, pas seulement au démarrage")]
+    public async Task Deux_Noeuds_Cluster_En_Parallele_A_L_Arret_Sont_Refuses()
+    {
+        var e1 = new WorkflowStep { Name = "Arrêter Cluster 1", Action = StepAction.Arreter, ComponentId = _cluster1Id, Order = 1, CanRunInParallel = true };
+        var e2 = new WorkflowStep { Name = "Arrêter Cluster 2", Action = StepAction.Arreter, ComponentId = _cluster2Id, Order = 2, CanRunInParallel = true };
+
+        var violations = await _validator.ValidateAsync(_envId, [e1, e2]);
+
+        Assert.Contains(violations, v => v.Blocking && v.Message.Contains("UN PAR UN") && v.Message.Contains("quorum"));
+    }
+
     [Fact]
     public async Task Une_Dependance_Circulaire_Est_Detectee()
     {
@@ -711,7 +1090,9 @@ public sealed class OrchestrationTests : IAsyncLifetime
         }
 
         var moteur = new OrchestrationEngine(
-            new TestScopeFactory(_factory, _locks), NullLogger<OrchestrationEngine>.Instance);
+            new TestScopeFactory(_factory, _locks),
+            new N4Sentinel.Infrastructure.Observability.MetricsService(),
+            NullLogger<OrchestrationEngine>.Instance);
 
         await moteur.ReconcileAtStartupAsync(CancellationToken.None);
 
@@ -737,7 +1118,9 @@ public sealed class OrchestrationTests : IAsyncLifetime
         }
 
         var moteur = new OrchestrationEngine(
-            new TestScopeFactory(_factory, _locks), NullLogger<OrchestrationEngine>.Instance);
+            new TestScopeFactory(_factory, _locks),
+            new N4Sentinel.Infrastructure.Observability.MetricsService(),
+            NullLogger<OrchestrationEngine>.Instance);
 
         await moteur.ReconcileAtStartupAsync(CancellationToken.None);
 
@@ -888,6 +1271,40 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.False(controle.IsBlocking);
     }
 
+    [Fact(DisplayName = "FR-045 : une opération qui ne touche pas XPS ne déclenche aucun contrôle de continuité Bridge")]
+    public async Task ControlerContinuiteBridge_Non_Applicable_Sans_Etape_Xps()
+    {
+        var executionId = await PreparerExecutionAsync();
+        var rapport = await _preflight.RunAsync(executionId);
+
+        var controle = rapport.Checks.First(c => c.Name == "Continuité Bridge/XPS");
+        Assert.Equal(PreflightOutcome.NonApplicable, controle.Outcome);
+    }
+
+    [Fact(DisplayName = "FR-045 : démarrer XPS seul, sans que le Bridge soit prouvé ACTIVE, avertit sans bloquer le lancement")]
+    public async Task ControlerContinuiteBridge_Avertit_Sans_Bloquer_Si_Bridge_Non_Prouve()
+    {
+        var id = await CreerWorkflowAsync($"XPS-SEUL-{Guid.NewGuid():N}"[..12], WorkflowKind.OperationPartielle);
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.WorkflowSteps.FirstAsync(s => s.WorkflowId == id);
+            etape.ComponentId = _xpsId;
+            etape.Name = "Démarrer XPS";
+            await db.SaveChangesAsync();
+        }
+        await ValiderAsync(id);
+
+        var prep = await _executions.PrepareAsync(id, "op1", "Test", null, isSimulation: false);
+        Assert.True(prep.Succeeded, prep.Error);
+
+        var rapport = await _preflight.RunAsync(prep.ExecutionId);
+
+        var controle = rapport.Checks.First(c => c.Name == "Continuité Bridge/XPS");
+        Assert.Equal(PreflightOutcome.Avertissement, controle.Outcome);
+        Assert.False(controle.IsBlocking);
+        Assert.False(rapport.HasBlockingFailure);
+    }
+
     [Fact]
     public async Task Le_Rapport_De_Pre_Check_Est_Conserve_Avec_L_Execution()
     {
@@ -989,6 +1406,71 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         var erreur = await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.Basculer, "op1");
         Assert.NotNull(erreur);
+    }
+
+    // =======================================================================
+    // FR-046 — Séquence de continuité construite automatiquement
+    // =======================================================================
+    [Fact(DisplayName = "Rester actif sur un simple Arreter du Center insere Verifier+Arreter le Standby avant, sans retour actif")]
+    public async Task ResterActif_Sur_Un_Arret_Insere_Le_Standby_Avant_Sans_Retour_Actif()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.ResterActif, "op1"));
+
+        var execution = await _executions.GetAsync(executionId);
+        var etapes = execution!.Steps.OrderBy(s => s.Order).ToList();
+
+        Assert.Equal(3, etapes.Count);
+        Assert.Equal(StepAction.Verifier, etapes[0].Action);
+        Assert.Contains("Standby", etapes[0].Name);
+        Assert.Equal(StepAction.Arreter, etapes[1].Action);
+        Assert.Contains("Standby", etapes[1].Name);
+        Assert.Equal("Arrêter le Center", etapes[2].Name);
+
+        // Order est propre : 1,2,3, jamais de doublon.
+        Assert.Equal([1, 2, 3], etapes.Select(e => e.Order));
+    }
+
+    [Fact(DisplayName = "Rester actif sur un Redemarrer du Center insere aussi le retour actif et la remise en service")]
+    public async Task ResterActif_Sur_Un_Redemarrage_Insere_La_Sequence_Complete()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var etape = await db.ExecutionSteps.FirstAsync(s => s.ExecutionId == executionId);
+            etape.Action = StepAction.Redemarrer;
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.ResterActif, "op1"));
+
+        var execution = await _executions.GetAsync(executionId);
+        var etapes = execution!.Steps.OrderBy(s => s.Order).ToList();
+
+        Assert.Equal(5, etapes.Count);
+        Assert.Equal(StepAction.Verifier, etapes[0].Action);
+        Assert.Equal(StepAction.Arreter, etapes[1].Action);
+        Assert.Equal(StepAction.Redemarrer, etapes[2].Action);
+        Assert.Equal("Arrêter le Center", etapes[2].Name);
+        Assert.Equal(StepAction.Verifier, etapes[3].Action);
+        Assert.Contains("retour actif", etapes[3].Name);
+        Assert.Equal(StepAction.Demarrer, etapes[4].Action);
+        Assert.Contains("Standby", etapes[4].Name);
+        Assert.Equal([1, 2, 3, 4, 5], etapes.Select(e => e.Order));
+    }
+
+    [Fact(DisplayName = "Choisir deux fois Rester actif n'insere pas la sequence deux fois")]
+    public async Task ResterActif_Est_Idempotent()
+    {
+        var executionId = await PreparerExecutionCenterAsync();
+
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.ResterActif, "op1"));
+        Assert.Null(await _executions.SetContinuityChoiceAsync(executionId, CenterContinuityChoice.ResterActif, "op1"));
+
+        var execution = await _executions.GetAsync(executionId);
+        Assert.Equal(3, execution!.Steps.Count);
     }
 
     // =======================================================================

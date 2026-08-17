@@ -23,7 +23,6 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<N4Server> Servers => Set<N4Server>();
     public DbSet<N4Component> Components => Set<N4Component>();
     public DbSet<ComponentDependency> ComponentDependencies => Set<ComponentDependency>();
-    public DbSet<ComponentHealthCheck> ComponentHealthChecks => Set<ComponentHealthCheck>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<TechnicalCredential> Credentials => Set<TechnicalCredential>();
     public DbSet<Alert> Alerts => Set<Alert>();
@@ -37,8 +36,10 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<LogSource> Sources => Set<LogSource>();
     public DbSet<LogFinding> Findings => Set<LogFinding>();
     public DbSet<DiagnosticHypothesis> Hypotheses => Set<DiagnosticHypothesis>();
+    public DbSet<DiagnosticPhaseTransition> PhaseTransitions => Set<DiagnosticPhaseTransition>();
     public DbSet<KnowledgeDocument> Documents => Set<KnowledgeDocument>();
     public DbSet<DocumentSection> DocumentSections => Set<DocumentSection>();
+    public DbSet<KnowledgeFeedback> KnowledgeFeedback => Set<KnowledgeFeedback>();
     public DbSet<Sop> Sops => Set<Sop>();
     public DbSet<SopStep> SopSteps => Set<SopStep>();
     public DbSet<SopAssociation> SopAssociations => Set<SopAssociation>();
@@ -46,6 +47,12 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<SopExecutionStep> SopExecutionSteps => Set<SopExecutionStep>();
     public DbSet<SharedFolderSnapshot> SharedFolderSnapshots => Set<SharedFolderSnapshot>();
     public DbSet<EdiFile> EdiFiles => Set<EdiFile>();
+    public DbSet<RetentionPolicy> RetentionPolicies => Set<RetentionPolicy>();
+    public DbSet<DiagnosticSettings> DiagnosticSettings => Set<DiagnosticSettings>();
+    public DbSet<AzureAdSettings> AzureAdSettings => Set<AzureAdSettings>();
+    public DbSet<ComponentSignal> ComponentSignals => Set<ComponentSignal>();
+    public DbSet<ExternalActionDeclaration> ExternalActionDeclarations => Set<ExternalActionDeclaration>();
+    public DbSet<ApprovalMatrixRule> ApprovalMatrixRules => Set<ApprovalMatrixRule>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -196,6 +203,11 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
                 sf.Property(p => p.MaxPendingAgeHours).HasColumnName("SharedFolder_MaxPendingAgeHours");
                 sf.Property(p => p.EdiFileNamingPattern).HasMaxLength(500).HasColumnName("SharedFolder_EdiFileNamingPattern");
                 sf.Property(p => p.MaxHoursSinceLastIntegration).HasColumnName("SharedFolder_MaxHoursSinceLastIntegration");
+                sf.Property(p => p.MaxWriteLatencyMs).HasColumnName("SharedFolder_MaxWriteLatencyMs");
+                sf.Property(p => p.MaxGrowthBytesPerHour).HasColumnName("SharedFolder_MaxGrowthBytesPerHour");
+                sf.Property(p => p.LastBackupAt).HasColumnName("SharedFolder_LastBackupAt");
+                sf.Property(p => p.LastBackupBy).HasMaxLength(256).HasColumnName("SharedFolder_LastBackupBy");
+                sf.Property(p => p.LastBackupNote).HasMaxLength(500).HasColumnName("SharedFolder_LastBackupNote");
                 sf.Ignore(p => p.IsConfigured);
             });
         });
@@ -219,20 +231,6 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
              .WithMany()
              .HasForeignKey(x => x.DependsOnComponentId)
              .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        builder.Entity<ComponentHealthCheck>(e =>
-        {
-            e.ToTable("ComponentHealthChecks");
-            e.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            e.Property(x => x.Target).HasMaxLength(500);
-            e.Property(x => x.ExpectedValue).HasMaxLength(500);
-            e.Property(x => x.RowVersion).IsRowVersion();
-
-            e.HasOne(x => x.Component)
-             .WithMany(x => x.HealthChecks)
-             .HasForeignKey(x => x.ComponentId)
-             .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<AuditEntry>(e =>
@@ -507,6 +505,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.UnreachableReason).HasMaxLength(1000);
             e.Property(x => x.MissingMandatoryFiles).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
             e.Property(x => x.CorruptionIndicators).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
+            e.Property(x => x.HealthWarnings).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.SuspectedCorruption);
 
@@ -531,6 +530,49 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Component).WithMany()
              .HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<RetentionPolicy>(e =>
+        {
+            e.ToTable("RetentionPolicies");
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        builder.Entity<DiagnosticSettings>(e =>
+        {
+            e.ToTable("DiagnosticSettings");
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        builder.Entity<AzureAdSettings>(e =>
+        {
+            e.ToTable("AzureAdSettings");
+            e.Property(x => x.TenantId).HasMaxLength(200);
+            e.Property(x => x.ClientId).HasMaxLength(200);
+            e.Property(x => x.Authority).HasMaxLength(500);
+            e.Property(x => x.PostLogoutRedirectUri).HasMaxLength(500);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        builder.Entity<ComponentSignal>(e =>
+        {
+            e.ToTable("ComponentSignals");
+            e.HasIndex(x => new { x.ComponentId, x.CapturedAt });
+            e.Property(x => x.ComponentName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.SignalType).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Target).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Value).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Threshold).HasMaxLength(100);
+            e.Property(x => x.Quality).HasMaxLength(40).IsRequired();
+            e.Property(x => x.CorrelationId).HasMaxLength(100);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        builder.Entity<ApprovalMatrixRule>(e =>
+        {
+            e.ToTable("ApprovalMatrixRules");
+            e.Property(x => x.Notes).HasMaxLength(500);
+            e.Property(x => x.RowVersion).IsRowVersion();
         });
 
         builder.Entity<EnvironmentLock>(e =>
@@ -580,8 +622,11 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.TicketReference).HasMaxLength(100);
             e.Property(x => x.RequestedBy).HasMaxLength(256).IsRequired();
             e.Property(x => x.VerdictExplanation).HasMaxLength(4000);
+            e.Property(x => x.EscalatedTo).HasMaxLength(200);
+            e.Property(x => x.EscalatedBy).HasMaxLength(256);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.HasBeenAnalysed);
+            e.Ignore(x => x.VerdictEstInconcluant);
 
             e.HasOne(x => x.Environment).WithMany()
              .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
@@ -592,6 +637,21 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             // facon une cascade auto-referencee.
             e.HasOne(x => x.ReferenceSession).WithMany()
              .HasForeignKey(x => x.ReferenceSessionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<ExternalActionDeclaration>(e =>
+        {
+            e.ToTable("ExternalActionDeclarations");
+            e.Property(x => x.ComponentName).HasMaxLength(200);
+            e.Property(x => x.Description).HasMaxLength(2000).IsRequired();
+            e.Property(x => x.DeclaredBy).HasMaxLength(256).IsRequired();
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.DiagnosticSession).WithMany(x => x.ExternalActions)
+             .HasForeignKey(x => x.DiagnosticSessionId).OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.WorkflowExecution).WithMany(x => x.ExternalActions)
+             .HasForeignKey(x => x.WorkflowExecutionId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<LogSource>(e =>
@@ -648,7 +708,6 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.Evidence).HasMaxLength(2000);
             e.Property(x => x.Recommendation).HasMaxLength(2000);
             e.Property(x => x.RowVersion).IsRowVersion();
-            e.Ignore(x => x.EstEtablie);
 
             e.HasOne(x => x.Session).WithMany(x => x.Hypotheses)
              .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
@@ -692,6 +751,21 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Document).WithMany(x => x.Sections)
              .HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<KnowledgeFeedback>(e =>
+        {
+            e.ToTable("KnowledgeFeedback");
+            e.HasIndex(x => x.SectionId);
+
+            e.Property(x => x.Question).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Comment).HasMaxLength(1000);
+            e.Property(x => x.ReportedBy).HasMaxLength(256).IsRequired();
+            e.Property(x => x.ResolvedBy).HasMaxLength(256);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Section).WithMany()
+             .HasForeignKey(x => x.SectionId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<ApplicationUser>(e =>

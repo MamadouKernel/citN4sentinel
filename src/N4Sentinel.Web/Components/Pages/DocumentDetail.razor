@@ -93,6 +93,68 @@ else
             <div class="text-[11px] text-slate-500 font-mono">Fichier d'origine : @fichier</div>
         }
 
+        <!-- Signalements (FR-087) -->
+        <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+            @if (_signalements is { Count: > 0 })
+            {
+                <div class="glass-card rounded-2xl border border-rose-500/30 overflow-hidden">
+                    <div class="p-5 border-b border-slate-800">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="bi bi-flag-fill text-rose-400"></i> Réponses signalées incorrectes (@_signalements.Count)
+                        </h3>
+                    </div>
+                    <div class="divide-y divide-slate-800">
+                        @foreach (var f in _signalements)
+                        {
+                            <div class="p-4 text-xs space-y-1.5">
+                                <div class="text-slate-400">
+                                    Question : « <span class="text-white">@f.Question</span> »
+                                    &middot; signalé par @f.ReportedBy le @f.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                </div>
+                                @if (f.Comment is { Length: > 0 })
+                                {
+                                    <div class="text-slate-300">@f.Comment</div>
+                                }
+                                @if (f.ProposedCorrection is { Length: > 0 } proposition)
+                                {
+                                    <div class="p-2 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-200">
+                                        <strong class="text-sky-300">Correction proposée :</strong> @proposition
+                                    </div>
+                                }
+                                @if (_revisionOuverte == f.Id)
+                                {
+                                    <div class="flex flex-wrap items-center gap-2 pt-1">
+                                        <input class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-white flex-1 min-w-40"
+                                               placeholder="Note (obligatoire pour un rejet)" @bind="_revisionNote" @bind:event="oninput" />
+                                        <button class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition"
+                                                @onclick="() => Accepter(f.Id)">
+                                            Accepter
+                                        </button>
+                                        <button class="px-2.5 py-1 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white font-semibold transition disabled:opacity-40"
+                                                disabled="@string.IsNullOrWhiteSpace(_revisionNote)"
+                                                @onclick="() => Rejeter(f.Id)">
+                                            Rejeter
+                                        </button>
+                                        <button class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition"
+                                                @onclick="() => _revisionOuverte = null">
+                                            Annuler
+                                        </button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <button class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] transition"
+                                            @onclick="() => { _revisionOuverte = f.Id; _revisionNote = string.Empty; }">
+                                        Revoir
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </AuthorizeView>
+
         <!-- Sections -->
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
@@ -139,11 +201,46 @@ else
 
     private KnowledgeDocument? _d;
     private string _filtre = string.Empty;
+    private List<KnowledgeFeedback> _signalements = [];
+    private Guid? _revisionOuverte;
+    private string _revisionNote = string.Empty;
 
     private string? _message;
     private string _messageClass = string.Empty;
 
-    protected override async Task OnParametersSetAsync() => _d = await Base.GetDocumentAsync(Id);
+    protected override async Task OnParametersSetAsync()
+    {
+        _d = await Base.GetDocumentAsync(Id);
+        _signalements = await Base.GetOpenFeedbackAsync(Id);
+    }
+
+    private async Task Accepter(Guid feedbackId)
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        _message = await Base.AcceptFeedbackAsync(
+            feedbackId, acteur, string.IsNullOrWhiteSpace(_revisionNote) ? null : _revisionNote.Trim());
+        _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+
+        _revisionOuverte = null;
+        _revisionNote = string.Empty;
+        _d = await Base.GetDocumentAsync(Id);
+        _signalements = await Base.GetOpenFeedbackAsync(Id);
+    }
+
+    private async Task Rejeter(Guid feedbackId)
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        _message = await Base.RejectFeedbackAsync(feedbackId, acteur, _revisionNote.Trim());
+        _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+
+        _revisionOuverte = null;
+        _revisionNote = string.Empty;
+        _signalements = await Base.GetOpenFeedbackAsync(Id);
+    }
 
     private IEnumerable<DocumentSection> Filtrees()
     {

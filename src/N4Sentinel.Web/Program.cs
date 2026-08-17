@@ -118,7 +118,9 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<N4SentinelDbContext>()
-    .AddSignInManager()
+    // N4SignInManager bloque la connexion d'un compte ApplicationUser.IsDisabled
+    // (FR-091) — voir Infrastructure/Identity/N4SignInManager.cs.
+    .AddSignInManager<N4SignInManager>()
     .AddDefaultTokenProviders();
 
 builder.Services.AddN4SentinelAuthorization();
@@ -130,6 +132,10 @@ var smtpOptions = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<
 builder.Services.AddSingleton(smtpOptions);
 builder.Services.AddSingleton<SmtpEmailSender>();
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>>(sp => sp.GetRequiredService<SmtpEmailSender>());
+
+// FR-095 : meme expediteur, canal generique pour les notifications d'operation.
+builder.Services.AddSingleton<N4Sentinel.Infrastructure.Notifications.INotificationSender>(
+    sp => sp.GetRequiredService<SmtpEmailSender>());
 
 var app = builder.Build();
 
@@ -193,5 +199,35 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapAdditionalIdentityEndpoints();
+
+// NFR-008 : métriques d'exploitation exposées au format texte (compatible
+// scrape Prometheus), pour un outil d'APM externe — au-delà des logs.
+app.MapGet("/metrics", (N4Sentinel.Infrastructure.Observability.MetricsService metrics) =>
+{
+    var s = metrics.GetSnapshot();
+    var lignes = new List<string>
+    {
+        "# HELP n4sentinel_supervision_poll_total Nombre de passages de supervision effectués.",
+        "# TYPE n4sentinel_supervision_poll_total counter",
+        $"n4sentinel_supervision_poll_total {s.SupervisionPollCount}",
+        "# HELP n4sentinel_supervision_poll_failures_total Nombre de passages de supervision en échec.",
+        "# TYPE n4sentinel_supervision_poll_failures_total counter",
+        $"n4sentinel_supervision_poll_failures_total {s.SupervisionPollFailureCount}",
+        "# HELP n4sentinel_supervision_poll_duration_ms_avg Durée moyenne d'un passage de supervision.",
+        "# TYPE n4sentinel_supervision_poll_duration_ms_avg gauge",
+        $"n4sentinel_supervision_poll_duration_ms_avg {s.SupervisionPollAverageMs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}",
+        "# HELP n4sentinel_step_outcome_total Issues d'étape d'exécution, par état.",
+        "# TYPE n4sentinel_step_outcome_total counter"
+    };
+    foreach (var (etat, n) in s.StepOutcomes)
+        lignes.Add($"n4sentinel_step_outcome_total{{state=\"{etat}\"}} {n}");
+
+    lignes.Add("# HELP n4sentinel_diagnostic_verdict_total Diagnostics conclus, par verdict.");
+    lignes.Add("# TYPE n4sentinel_diagnostic_verdict_total counter");
+    foreach (var (verdict, n) in s.DiagnosticVerdicts)
+        lignes.Add($"n4sentinel_diagnostic_verdict_total{{verdict=\"{verdict}\"}} {n}");
+
+    return Results.Text(string.Join('\n', lignes) + '\n', "text/plain; version=0.0.4");
+});
 
 app.Run();

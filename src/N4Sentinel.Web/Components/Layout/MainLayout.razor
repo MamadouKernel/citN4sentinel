@@ -4,16 +4,16 @@
 @using N4Sentinel.Web.State
 @inject CurrentEnvironmentState EnvState
 
-<div class="min-h-screen app-bg-main text-slate-100 flex flex-col w-full">
-    <!-- Top Horizontal Navigation Bar (Fluid Navbar) -->
-    <header class="sticky top-0 z-50 w-full app-bg-header backdrop-blur-xl border-b border-slate-800/80 shadow-2xl">
-        <NavMenu />
-    </header>
+<div class="min-h-screen app-bg-main text-slate-100 flex flex-col lg:flex-row w-full">
+    <!-- Barre latérale : marque, environnement, menu complet groupé par contexte -->
+    <Sidebar />
 
-    <!-- Main Content Area (Fluid Container Widescreen) -->
-    <main class="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto">
-        @Body
-    </main>
+    <!-- Zone de contenu principale -->
+    <div class="flex-1 min-w-0 flex flex-col">
+        <main class="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1800px] mx-auto">
+            @Body
+        </main>
+    </div>
 
     <VoiceCopilot />
 </div>

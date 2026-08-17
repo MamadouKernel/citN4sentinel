@@ -59,6 +59,7 @@ public sealed class PreflightService(
         await ControlerServeursAsync(composants, controles, execution.IsSimulation, ct);
         await ControlerEtatInitialDemarrageCompletAsync(execution, composants, controles, ct);
         await ControlerContinuiteCenterAsync(execution, controles, ct);
+        await ControlerContinuiteBridgeAsync(execution, composants, controles, ct);
         ControlerImpact(execution, composants, controles);
 
         var rapport = new PreflightReport
@@ -369,6 +370,23 @@ public sealed class PreflightService(
             return;
         }
 
+        // FR-047 : un split-brain deja en cours interdit toute nouvelle
+        // action sur le Center, quel que soit le choix de continuite - y
+        // ajouter une operation orchestree aggraverait une situation deja
+        // incoherente plutot que de la resoudre.
+        var etatActuel = await continuity.AssessAsync(execution.EnvironmentId, ct);
+        if (etatActuel.BothHoldActiveRole)
+        {
+            controles.Add(PreflightCheck.Echec(
+                "Continuité Center",
+                $"Le Center « {etatActuel.Center?.LogicalName} » et le Standby « {etatActuel.Standby?.LogicalName} » "
+                + "tiennent actuellement TOUS LES DEUX le rôle actif (split-brain FR-032/033/047).",
+                "Résolvez le conflit de rôle manuellement (avec le support Navis si nécessaire) avant toute "
+                + "opération orchestrée sur le Center : agir dessus maintenant aggraverait l'incohérence.",
+                bloquant: true));
+            return;
+        }
+
         if (execution.ContinuityChoice is null)
         {
             controles.Add(PreflightCheck.Echec(
@@ -407,6 +425,90 @@ public sealed class PreflightService(
             "Continuité Center",
             $"Bascule choisie : le Standby « {evaluation.Standby!.LogicalName} » est disponible et apte "
             + "à prendre le rôle actif."));
+    }
+
+    /// <summary>
+    /// FR-045 : XPS a sa propre exigence de continuité, distincte de celle du
+    /// Center/Standby et du Cluster — le Bridge Daemon traverse WAITING puis
+    /// LOADING avant ACTIVE (module 1.6, N4 IT Administrator Day 1), et XPS
+    /// NE DOIT PAS être démarré avant que ce marqueur ait été prouvé. Un
+    /// composant simplement « Running » côté service Windows ne le garantit
+    /// pas — c'est la preuve applicative qui compte, comme partout ailleurs.
+    ///
+    /// NON BLOQUANT ICI, à dessein : l'état du Bridge peut changer entre la
+    /// préparation et le lancement, et c'est <see cref="StepExecutor.VerifierPrerequisAsync"/>,
+    /// revérifié juste avant que la commande XPS ne parte, qui fait
+    /// effectivement barrage (FR-044). Ce contrôle donne seulement à
+    /// l'opérateur une visibilité anticipée, avant qu'il ne s'engage.
+    /// </summary>
+    private async Task ControlerContinuiteBridgeAsync(
+        WorkflowExecution execution, Dictionary<Guid, N4Component> composants,
+        List<PreflightCheck> controles, CancellationToken ct)
+    {
+        var etapeXps = execution.Steps
+            .Where(s => s.Action is StepAction.Demarrer or StepAction.Redemarrer
+                && s.ComponentId is { } id && composants.TryGetValue(id, out var c) && c.Role == ComponentRole.Xps)
+            .OrderBy(s => s.Order)
+            .FirstOrDefault();
+
+        if (etapeXps is null)
+        {
+            controles.Add(PreflightCheck.NonApplicable(
+                "Continuité Bridge/XPS",
+                "Cette opération ne démarre ni ne redémarre XPS."));
+            return;
+        }
+
+        // Si CETTE opération démarre aussi le Bridge avant XPS, le garde-fou
+        // d'exécution (StepExecutor.VerifierPrerequisAsync, FR-044) revérifie
+        // déjà l'état réel juste avant l'étape XPS — un contrôle ici, sur
+        // l'état d'AVANT lancement, bloquerait à tort un démarrage à froid
+        // classique (Bridge puis XPS dans la même séquence).
+        var bridgeDemarreAvant = execution.Steps.Any(s =>
+            s.Order < etapeXps.Order
+            && s.Action is StepAction.Demarrer or StepAction.Redemarrer
+            && s.ComponentId is { } id && composants.TryGetValue(id, out var c) && c.Role == ComponentRole.BridgeDaemon);
+
+        if (bridgeDemarreAvant)
+        {
+            controles.Add(PreflightCheck.NonApplicable(
+                "Continuité Bridge/XPS",
+                "Le Bridge est démarré par cette même opération avant XPS : la preuve ACTIVE est revérifiée "
+                + "juste avant l'étape XPS, pas ici."));
+            return;
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var bridge = await db.Components.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.EnvironmentId == execution.EnvironmentId && c.Role == ComponentRole.BridgeDaemon, ct);
+
+        if (bridge is null)
+        {
+            controles.Add(PreflightCheck.Avertissement(
+                "Continuité Bridge/XPS",
+                "XPS va être démarré, mais aucun XPS Bridge Daemon n'est déclaré dans cet environnement : "
+                + "XPS ne fonctionne pas sans lui.",
+                "Déclarez le Bridge Daemon dans le référentiel."));
+            return;
+        }
+
+        var sante = await supervision.EvaluateComponentAsync(bridge.Id, ct);
+
+        if (sante.State != ComponentState.Disponible || sante.LogProofStatus != Supervision.LogProofState.Proved)
+        {
+            controles.Add(PreflightCheck.Avertissement(
+                "Continuité Bridge/XPS",
+                $"Le Bridge Daemon « {bridge.LogicalName} » n'est pas encore prouvé ACTIVE ({sante.Verdict}). "
+                + "Il traverse WAITING (réclame les données conteneurs au Center) puis LOADING (les reçoit) "
+                + "avant ACTIVE : démarrer XPS avant cet état expose à un traitement silencieusement incomplet. "
+                + "Le lancement réel revérifiera cet état juste avant la commande.",
+                "Vérifiez que le Bridge a atteint ACTIVE avant de valider le lancement."));
+            return;
+        }
+
+        controles.Add(PreflightCheck.Reussi(
+            "Continuité Bridge/XPS",
+            $"Le Bridge Daemon « {bridge.LogicalName} » est confirmé ACTIVE : XPS peut être démarré."));
     }
 
     private async Task ControlerServeursAsync(

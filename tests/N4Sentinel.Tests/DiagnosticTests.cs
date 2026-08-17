@@ -33,6 +33,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     private SignatureCatalogue _catalogue = null!;
     private LogAnalysisService _analyse = null!;
     private DiagnosticSessionService _sessions = null!;
+    private DiagnosticSettingsService _parametres = null!;
 
     private Guid _envId;
     private Guid _composantId;
@@ -81,9 +82,11 @@ public sealed class DiagnosticTests : IAsyncLifetime
             new ConnectorTargetFactory(_factory, store, NullLogger<ConnectorTargetFactory>.Instance),
             new ConnecteurMuet(),
             _catalogue,
+            new N4Sentinel.Infrastructure.Observability.MetricsService(),
             NullLogger<LogAnalysisService>.Instance);
 
-        _sessions = new DiagnosticSessionService(_factory, _analyse);
+        _sessions = new DiagnosticSessionService(_factory, _analyse, new AuditWriter(_factory));
+        _parametres = new DiagnosticSettingsService(_factory, new AuditWriter(_factory));
 
         await _catalogue.SeedAsync();
     }
@@ -115,6 +118,22 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.All(signatures, s => Assert.Equal(SignatureOrigin.Editeur, s.Origin));
         Assert.Contains(signatures, s => s.Code == "DB-CONN-REFUSED");
         Assert.Contains(signatures, s => s.Code == "LIC-EXPIRED");
+    }
+
+    [Fact(DisplayName = "FR-075 : la signature de consommateur lent ActiveMQ reconnait le motif editeur et porte son sens")]
+    public async Task Le_Catalogue_Reconnait_Un_Consommateur_Lent_ActiveMQ()
+    {
+        var sessionId = await CreerSessionAsync();
+        var journal = "2026-08-14 09:00:00,000 WARN [main] Slow Consumer detected on queue INBOUND.VESSEL, prefetch exhausted\n";
+
+        var resultat = await _analyse.ImportAsync(sessionId, "app.log", journal);
+        Assert.True(resultat.Succeeded, resultat.Error);
+
+        var session = await _sessions.GetAsync(sessionId);
+        var constat = Assert.Single(session!.Findings);
+        Assert.Equal("AMQ-SLOW-CONSUMER", constat.SignatureCode);
+        Assert.Equal(DiagnosticDomain.ActiveMqKahaDb, constat.Domain);
+        Assert.NotEmpty(constat.Meaning!);
     }
 
     [Fact]
@@ -350,15 +369,20 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("Portée de ce constat", session.VerdictExplanation!);
     }
 
+    /// <summary>
+    /// FR-069 : LIC-EXPIRED pèse 95, seule signature concluante d'un seul
+    /// domaine — exactement le cas exceptionnel réservé à CauseConfirmee,
+    /// distinct du cas ordinaire CauseCaracterisee (« très probable »).
+    /// </summary>
     [Fact]
-    public async Task Une_Signature_Concluante_Donne_Une_Cause_Caracterisee()
+    public async Task Une_Signature_Concluante_Isolee_De_Poids_Maximal_Donne_Une_Cause_Confirmee()
     {
         var sessionId = await CreerSessionAsync();
         await _analyse.ImportAsync(sessionId, "app.log", JournalAvecLicenceExpiree());
 
         var session = await _analyse.ConcludeAsync(sessionId);
 
-        Assert.Equal(DiagnosticVerdict.CauseCaracterisee, session!.Verdict);
+        Assert.Equal(DiagnosticVerdict.CauseConfirmee, session!.Verdict);
         Assert.Contains("licence", session.VerdictExplanation!, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -661,6 +685,131 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(3, source.InfoCount);
     }
 
+    [Fact(DisplayName = "Le type de journal N4 est reconnu a ses marqueurs structurels, jamais devine sur le nom du fichier")]
+    public async Task ImportAsync_Detecte_Le_Type_De_Journal_N4()
+    {
+        var sessionId = await CreerSessionAsync();
+        var journal = """
+            2026-08-14 09:00:00,000 INFO [main] Starting Navis N4 Center Node
+            2026-08-14 09:00:01,000 WARN [main] Slow initial connection
+            """;
+
+        // Le nom du fichier ne dit rien de N4 : seul le contenu doit permettre
+        // la detection, pas le nom "peu_importe.txt".
+        var resultat = await _analyse.ImportAsync(sessionId, "peu_importe.txt", journal);
+        Assert.True(resultat.Succeeded, resultat.Error);
+
+        var session = await _sessions.GetAsync(sessionId);
+        var source = Assert.Single(session!.Sources);
+        Assert.Equal("Journal applicatif N4 (log4j)", source.DetectedLogType);
+    }
+
+    [Fact(DisplayName = "Un journal sans marqueur structurel reconnu ne se voit attribuer aucun type invente")]
+    public async Task ImportAsync_Ne_Devine_Pas_Le_Type_De_Journal_Quand_Aucun_Motif_Ne_Correspond()
+    {
+        var sessionId = await CreerSessionAsync();
+        var resultat = await _analyse.ImportAsync(sessionId, "app.log", "quelque chose sans structure reconnue\nune autre ligne\n");
+        Assert.True(resultat.Succeeded, resultat.Error);
+
+        var session = await _sessions.GetAsync(sessionId);
+        var source = Assert.Single(session!.Sources);
+        Assert.Null(source.DetectedLogType);
+    }
+
+    [Fact(DisplayName = "Le fuseau horaire n'est retenu que s'il est explicitement ecrit dans l'horodatage")]
+    public async Task ImportAsync_Detecte_Le_Fuseau_Horaire_Explicite()
+    {
+        var sessionId = await CreerSessionAsync();
+        var journal = "2026-08-14T09:00:00Z INFO [main] Starting\n";
+
+        var resultat = await _analyse.ImportAsync(sessionId, "app.log", journal);
+        Assert.True(resultat.Succeeded, resultat.Error);
+
+        var session = await _sessions.GetAsync(sessionId);
+        var source = Assert.Single(session!.Sources);
+        Assert.Equal("UTC", source.DetectedTimeZone);
+    }
+
+    [Fact(DisplayName = "Sans fuseau ecrit dans l'horodatage, aucun fuseau n'est devine")]
+    public async Task ImportAsync_Ne_Devine_Pas_Le_Fuseau_Horaire_Absent()
+    {
+        var sessionId = await CreerSessionAsync();
+        var resultat = await _analyse.ImportAsync(sessionId, "app.log", "2026-08-14 09:00:00 INFO Starting\n");
+        Assert.True(resultat.Succeeded, resultat.Error);
+
+        var session = await _sessions.GetAsync(sessionId);
+        var source = Assert.Single(session!.Sources);
+        Assert.Null(source.DetectedTimeZone);
+    }
+
+    // =======================================================================
+    // FR-065 — Seuils de corrélation administrables
+    // =======================================================================
+    [Fact(DisplayName = "Par defaut, les seuils correspondent aux valeurs historiques")]
+    public async Task DiagnosticSettingsService_Renvoie_Les_Valeurs_Par_Defaut_Sans_Ligne_Enregistree()
+    {
+        var parametres = await _parametres.GetAsync();
+
+        Assert.Equal(70, parametres.HypothesisEstablishedThreshold);
+        Assert.Equal(90, parametres.ConclusiveSignatureConfidenceWeight);
+        Assert.Equal(50, parametres.SeriousLeadConfidenceThreshold);
+    }
+
+    [Fact(DisplayName = "Un seuil hors de 1-100 est refuse")]
+    public async Task DiagnosticSettingsService_Refuse_Un_Seuil_Hors_Bornes()
+    {
+        var erreur = await _parametres.SaveAsync(new DiagnosticSettings { SeriousLeadConfidenceThreshold = 0 }, "test");
+        Assert.NotNull(erreur);
+    }
+
+    [Fact(DisplayName = "Abaisser le seuil de piste serieuse change reellement le verdict rendu, pas seulement la valeur enregistree")]
+    public async Task ConcludeAsync_Le_Verdict_Suit_Le_Seuil_De_Piste_Serieuse_Configure()
+    {
+        // APP-UNCAUGHT porte un poids de confiance de 45 dans le catalogue :
+        // sous le seuil par defaut (50), au-dessus d'un seuil abaisse a 40.
+        const string journal = "2026-08-14 09:12:01,118 FATAL [main] Uncaught exception in worker thread\n";
+
+        var sessionAvantId = await CreerSessionAsync();
+        await _analyse.ImportAsync(sessionAvantId, "app.log", journal);
+        var sessionAvant = await _analyse.ConcludeAsync(sessionAvantId);
+        Assert.Equal(DiagnosticVerdict.AnomaliesSansCause, sessionAvant!.Verdict);
+
+        Assert.Null(await _parametres.SaveAsync(
+            new DiagnosticSettings { SeriousLeadConfidenceThreshold = 40 }, "test"));
+
+        var sessionApresId = await CreerSessionAsync();
+        await _analyse.ImportAsync(sessionApresId, "app.log", journal);
+        var sessionApres = await _analyse.ConcludeAsync(sessionApresId);
+        Assert.Equal(DiagnosticVerdict.PisteSerieuse, sessionApres!.Verdict);
+    }
+
+    [Fact(DisplayName = "EstEtablie suit le seuil transmis, jamais un seuil fige")]
+    public void DiagnosticHypothesis_EstEtablie_Suit_Le_Seuil_Transmis()
+    {
+        var hypothese = new DiagnosticHypothesis { Confidence = 60 };
+
+        Assert.False(hypothese.EstEtablie(70));
+        Assert.True(hypothese.EstEtablie(50));
+    }
+
+    // =======================================================================
+    // §3.18 — Classification de l'échec de collecte
+    // =======================================================================
+    [Fact(DisplayName = "Une collecte sans chemin de journal configure est classee dans le motif dedie, distinct du message libre")]
+    public async Task CollectFromServerAsync_Classe_L_Echec_Quand_Aucun_Chemin_N_Est_Configure()
+    {
+        var sessionId = await CreerSessionAsync();
+
+        var resultat = await _analyse.CollectFromServerAsync(sessionId, _composantId);
+
+        Assert.False(resultat.Succeeded);
+
+        var session = await _sessions.GetAsync(sessionId);
+        var source = Assert.Single(session!.Sources);
+        Assert.Equal(LogCollectionFailureReason.ControleNonConfigure, source.FailureReason);
+        Assert.NotNull(source.Error);
+    }
+
     // =======================================================================
     // FR-061 — Corrélation temporelle
     // =======================================================================
@@ -747,6 +896,42 @@ public sealed class DiagnosticTests : IAsyncLifetime
     }
 
     // =======================================================================
+    // FR-073 — Évolution temporelle (histogramme horaire)
+    // =======================================================================
+    [Fact(DisplayName = "L'histogramme regroupe les constats par heure, en tenant compte de l'ecart d'horloge mesure")]
+    public void BuildHourlyHistogram_Groupe_Par_Heure_Ajustee()
+    {
+        var source = new LogSource { Id = Guid.NewGuid(), ComponentName = "Center Node", ClockSkewSecondsAtCollection = 0 };
+        var base_ = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+
+        var session = new DiagnosticSession();
+        session.Sources.Add(source);
+        // Deux constats a 09h, un a 10h : deux tranches, la premiere avec 2.
+        session.Findings.Add(new LogFinding { SourceId = source.Id, Title = "A", FirstSeenAt = base_.AddMinutes(5), Severity = SignatureSeverity.Erreur });
+        session.Findings.Add(new LogFinding { SourceId = source.Id, Title = "B", FirstSeenAt = base_.AddMinutes(40), Severity = SignatureSeverity.Erreur });
+        session.Findings.Add(new LogFinding { SourceId = source.Id, Title = "C", FirstSeenAt = base_.AddHours(1).AddMinutes(10), Severity = SignatureSeverity.Erreur });
+
+        var histogramme = DiagnosticSessionService.BuildHourlyHistogram(session);
+
+        Assert.Equal(2, histogramme.Count);
+        Assert.Equal(new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero), histogramme[0].Heure);
+        Assert.Equal(2, histogramme[0].Nombre);
+        Assert.Equal(new DateTimeOffset(2026, 8, 14, 10, 0, 0, TimeSpan.Zero), histogramme[1].Heure);
+        Assert.Equal(1, histogramme[1].Nombre);
+    }
+
+    [Fact(DisplayName = "Un constat sans horodatage n'entre dans aucune tranche de l'histogramme")]
+    public void BuildHourlyHistogram_Ignore_Les_Constats_Sans_Horodatage()
+    {
+        var source = new LogSource { Id = Guid.NewGuid(), ComponentName = "Center Node" };
+        var session = new DiagnosticSession();
+        session.Sources.Add(source);
+        session.Findings.Add(new LogFinding { SourceId = source.Id, Title = "Sans horodatage", FirstSeenAt = null, Severity = SignatureSeverity.Erreur });
+
+        Assert.Empty(DiagnosticSessionService.BuildHourlyHistogram(session));
+    }
+
+    // =======================================================================
     // FR-066 — Comparaison avec une référence
     // =======================================================================
     [Fact(DisplayName = "Une session non analysee ne peut pas devenir reference")]
@@ -805,6 +990,280 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains(comparaison.NewFindings, f => f.Title.Contains("Licence") || f.SampleLine.Contains("License"));
         Assert.False(comparaison.IsStale); // reference toute fraiche
         Assert.False(comparaison.ReferenceScopeIncomplete);
+    }
+
+    // =======================================================================
+    // FR-066 — 3 modes de comparaison supplementaires (execution reussie,
+    // valeurs habituelles du composant, noeud pair)
+    // =======================================================================
+    [Fact(DisplayName = "Seule une execution terminee avec succes, dans le meme environnement, peut servir de reference")]
+    public async Task SetReferenceExecutionAsync_Refuse_Une_Execution_Non_Reussie_Ou_D_Un_Autre_Environnement()
+    {
+        var sessionId = await CreerSessionAsync();
+        Guid executionEchouee, executionAutreEnv;
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            executionEchouee = await CreerExecutionAsync(db, _envId, ExecutionStatus.Echec, ["Center Node"]);
+
+            var autreEnv = new N4Environment { Code = "PROD", Name = "Production", Kind = EnvironmentKind.Production };
+            db.Environments.Add(autreEnv);
+            await db.SaveChangesAsync();
+            executionAutreEnv = await CreerExecutionAsync(db, autreEnv.Id, ExecutionStatus.TermineSucces, ["Center Node"]);
+        }
+
+        Assert.Contains("succès", await _sessions.SetReferenceExecutionAsync(sessionId, executionEchouee));
+        Assert.Contains("environnement", await _sessions.SetReferenceExecutionAsync(sessionId, executionAutreEnv));
+    }
+
+    [Fact(DisplayName = "La comparaison a une execution reussie montre les composants de l'incident deja touches par cette execution")]
+    public async Task CompareToSuccessfulExecutionAsync_Signale_Les_Composants_Partages()
+    {
+        var sessionId = await CreerSessionAsync();
+        await _analyse.ImportAsync(sessionId, "app.log", JournalAvecLicenceExpiree());
+        // La source importee sans collecte ciblee n'a pas de ComponentId : on le force,
+        // comme le ferait une collecte ciblee reelle depuis le composant enregistre.
+        await using (var db0 = _factory.CreateDbContext())
+        {
+            var source = await db0.Sources.FirstAsync(s => s.SessionId == sessionId);
+            source.ComponentId = _composantId;
+            source.ComponentName = "Center Node";
+            await db0.SaveChangesAsync();
+        }
+
+        Guid executionId;
+        await using (var db = _factory.CreateDbContext())
+            executionId = await CreerExecutionAsync(db, _envId, ExecutionStatus.TermineSucces, ["Center Node", "Cluster Node 1"]);
+
+        var candidats = await _sessions.GetSuccessfulExecutionCandidatesAsync(_envId);
+        Assert.Contains(candidats, e => e.Id == executionId);
+
+        Assert.Null(await _sessions.SetReferenceExecutionAsync(sessionId, executionId));
+
+        var comparaison = await _sessions.CompareToSuccessfulExecutionAsync(sessionId);
+
+        Assert.NotNull(comparaison);
+        Assert.Contains("Center Node", comparaison!.SharedIncidentComponentNames);
+        Assert.DoesNotContain("Cluster Node 1", comparaison.SharedIncidentComponentNames);
+        Assert.False(comparaison.IsStale);
+    }
+
+    [Fact(DisplayName = "Les valeurs habituelles du composant signalent un ecart quand le relevé pendant l'incident differe de l'historique")]
+    public async Task CompareToUsualValuesAsync_Signale_Un_Ecart_Avec_L_Historique()
+    {
+        var debutIncident = DateTimeOffset.UtcNow.AddHours(-1);
+        var finIncident = DateTimeOffset.UtcNow;
+        var sessionId = await CreerSessionAsync(debutIncident, finIncident);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            for (var i = 1; i <= 5; i++)
+            {
+                db.ComponentSignals.Add(new ComponentSignal
+                {
+                    ComponentId = _composantId,
+                    EnvironmentId = _envId,
+                    ComponentName = "Center Node",
+                    SignalType = "Service Windows",
+                    Target = "Navis N4 Center Node",
+                    Value = "Running",
+                    CapturedAt = debutIncident.AddDays(-i),
+                    Quality = "Confirmé"
+                });
+            }
+            db.ComponentSignals.Add(new ComponentSignal
+            {
+                ComponentId = _composantId,
+                EnvironmentId = _envId,
+                ComponentName = "Center Node",
+                SignalType = "Service Windows",
+                Target = "Navis N4 Center Node",
+                Value = "Stopped",
+                CapturedAt = debutIncident.AddMinutes(10),
+                Quality = "Confirmé"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _sessions.SetReferenceComponentAsync(sessionId, _composantId));
+
+        var comparaison = await _sessions.CompareToUsualValuesAsync(sessionId, _composantId);
+
+        Assert.NotNull(comparaison);
+        Assert.False(comparaison!.IsIncomplete);
+        var signal = Assert.Single(comparaison.Signals);
+        Assert.Equal("Running", signal.ReferenceValue);
+        Assert.Equal("Stopped", signal.ObservedValue);
+        Assert.True(signal.Differs);
+    }
+
+    [Fact(DisplayName = "Un historique trop court est signale incomplet plutot que pris pour une habitude etablie")]
+    public async Task CompareToUsualValuesAsync_Signale_Un_Historique_Insuffisant()
+    {
+        var sessionId = await CreerSessionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            // CreatedAt n'est renseigne que par AuditingInterceptor, absent de ce
+            // contexte de test (voir le test de fraicheur FR-066 ci-dessus) :
+            // sans ce reglage direct, la fenetre par defaut (CreatedAt ± 30 min)
+            // deborderait de DateTimeOffset.MinValue.
+            var session = await db.Sessions.FirstAsync(s => s.Id == sessionId);
+            session.CreatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+
+            db.ComponentSignals.Add(new ComponentSignal
+            {
+                ComponentId = _composantId,
+                EnvironmentId = _envId,
+                ComponentName = "Center Node",
+                SignalType = "Service Windows",
+                Target = "Navis N4 Center Node",
+                Value = "Running",
+                CapturedAt = DateTimeOffset.UtcNow.AddDays(-10),
+                Quality = "Confirmé"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var comparaison = await _sessions.CompareToUsualValuesAsync(sessionId, _composantId);
+
+        Assert.NotNull(comparaison);
+        Assert.True(comparaison!.IsIncomplete);
+    }
+
+    [Fact(DisplayName = "Les candidats noeud pair sont du meme role et du meme environnement, jamais le composant lui-meme")]
+    public async Task GetPeerCandidatesAsync_Ne_Propose_Que_Le_Meme_Role_Et_Environnement()
+    {
+        Guid pairId, autreRoleId, autreEnvId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var pair = new N4Component
+            {
+                EnvironmentId = _envId, LogicalName = "Standby Center Node", Role = ComponentRole.CenterNode,
+                ControlMode = ControlMode.Pilotable, Status = LifecycleStatus.Valide
+            };
+            var autreRole = new N4Component
+            {
+                EnvironmentId = _envId, LogicalName = "Bridge", Role = ComponentRole.BridgeDaemon,
+                ControlMode = ControlMode.Pilotable, Status = LifecycleStatus.Valide
+            };
+            db.Components.AddRange(pair, autreRole);
+            await db.SaveChangesAsync();
+            pairId = pair.Id;
+            autreRoleId = autreRole.Id;
+
+            var autreEnv = new N4Environment { Code = "PROD", Name = "Production", Kind = EnvironmentKind.Production };
+            db.Environments.Add(autreEnv);
+            await db.SaveChangesAsync();
+            var composantAutreEnv = new N4Component
+            {
+                EnvironmentId = autreEnv.Id, LogicalName = "Center Node PROD", Role = ComponentRole.CenterNode,
+                ControlMode = ControlMode.Pilotable, Status = LifecycleStatus.Valide
+            };
+            db.Components.Add(composantAutreEnv);
+            await db.SaveChangesAsync();
+            autreEnvId = composantAutreEnv.Id;
+        }
+
+        var candidats = await _sessions.GetPeerCandidatesAsync(_composantId);
+
+        Assert.Contains(candidats, c => c.Id == pairId);
+        Assert.DoesNotContain(candidats, c => c.Id == autreRoleId);
+        Assert.DoesNotContain(candidats, c => c.Id == autreEnvId);
+        Assert.DoesNotContain(candidats, c => c.Id == _composantId);
+    }
+
+    [Fact(DisplayName = "La comparaison a un noeud pair montre ce que le pair affichait sur la meme fenetre que l'incident")]
+    public async Task CompareToPeerNodeAsync_Compare_Sur_La_Meme_Fenetre()
+    {
+        var debutIncident = DateTimeOffset.UtcNow.AddHours(-1);
+        var finIncident = DateTimeOffset.UtcNow;
+        var sessionId = await CreerSessionAsync(debutIncident, finIncident);
+
+        Guid pairId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var pair = new N4Component
+            {
+                EnvironmentId = _envId, LogicalName = "Standby Center Node", Role = ComponentRole.CenterNode,
+                ControlMode = ControlMode.Pilotable, Status = LifecycleStatus.Valide
+            };
+            db.Components.Add(pair);
+            await db.SaveChangesAsync();
+            pairId = pair.Id;
+
+            for (var i = 0; i < 4; i++)
+            {
+                db.ComponentSignals.Add(new ComponentSignal
+                {
+                    ComponentId = pairId, EnvironmentId = _envId, ComponentName = pair.LogicalName,
+                    SignalType = "Service Windows", Target = "Navis N4 Standby Center Node", Value = "Running",
+                    CapturedAt = debutIncident.AddMinutes(5 * i), Quality = "Confirmé"
+                });
+            }
+            db.ComponentSignals.Add(new ComponentSignal
+            {
+                ComponentId = _composantId, EnvironmentId = _envId, ComponentName = "Center Node",
+                SignalType = "Service Windows", Target = "Navis N4 Center Node", Value = "Stopped",
+                CapturedAt = debutIncident.AddMinutes(10), Quality = "Confirmé"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Null(await _sessions.SetReferenceComponentAsync(sessionId, pairId));
+
+        var comparaison = await _sessions.CompareToPeerNodeAsync(sessionId, _composantId, pairId);
+
+        Assert.NotNull(comparaison);
+        Assert.False(comparaison!.IsIncomplete);
+        var signal = Assert.Single(comparaison.Signals);
+        Assert.Equal("Running", signal.ReferenceValue);
+        Assert.Equal("Stopped", signal.ObservedValue);
+        Assert.True(signal.Differs);
+    }
+
+    private static async Task<Guid> CreerExecutionAsync(
+        N4SentinelDbContext db, Guid environmentId, ExecutionStatus statut, string[] composants)
+    {
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId,
+            Code = $"WF{Guid.NewGuid():N}"[..8],
+            Name = "Démarrage complet",
+            Kind = WorkflowKind.DemarrageComplet,
+            Status = LifecycleStatus.Valide
+        };
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync();
+
+        var execution = new WorkflowExecution
+        {
+            EnvironmentId = environmentId,
+            EnvironmentCode = "ENV",
+            WorkflowId = workflow.Id,
+            WorkflowVersion = 1,
+            WorkflowName = workflow.Name,
+            Status = statut,
+            RequestedBy = "op1",
+            StartedAt = DateTimeOffset.UtcNow.AddHours(-2),
+            EndedAt = DateTimeOffset.UtcNow.AddHours(-1)
+        };
+        var ordre = 0;
+        foreach (var nom in composants)
+        {
+            execution.Steps.Add(new ExecutionStep
+            {
+                Order = ordre++,
+                Name = $"Démarrer {nom}",
+                Action = StepAction.Demarrer,
+                ComponentName = nom,
+                State = ExecutionStepState.Reussi
+            });
+        }
+        db.Executions.Add(execution);
+        await db.SaveChangesAsync();
+        return execution.Id;
     }
 
     // =======================================================================
@@ -904,6 +1363,106 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("4 échec", session.Reason);
         Assert.Single(session.Sources);
         Assert.Equal(_composantId, session.Sources.First().ComponentId);
+    }
+
+    [Fact]
+    public async Task AdvancePhaseAsync_Trace_Chaque_Transition_Sans_Ecraser_Les_Precedentes()
+    {
+        var sessionId = await CreerSessionAsync();
+
+        Assert.Null(await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.QualificationEtCollecte, "m.konate", null));
+        Assert.Null(await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.DiagnosticEtCorrelation, "m.konate", "Corrélation lancée sur 3 sources."));
+
+        var session = await _sessions.GetAsync(sessionId);
+        Assert.NotNull(session);
+        Assert.Equal(DiagnosticPhase.DiagnosticEtCorrelation, session!.Phase);
+        Assert.Equal(2, session.PhaseTransitions.Count);
+        Assert.Equal(DiagnosticPhase.QualificationEtCollecte, session.PhaseTransitions.First().Phase);
+        Assert.Equal(DiagnosticPhase.DiagnosticEtCorrelation, session.PhaseTransitions.Last().Phase);
+    }
+
+    [Fact]
+    public async Task AdvancePhaseAsync_Autorise_Un_Retour_En_Arriere()
+    {
+        var sessionId = await CreerSessionAsync();
+
+        await _sessions.AdvancePhaseAsync(sessionId, DiagnosticPhase.ChoixDuPlanDAction, "m.konate", null);
+        var erreur = await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.QualificationEtCollecte, "m.konate",
+            "Nouvel élément invalide l'hypothèse retenue — retour en collecte.");
+
+        Assert.Null(erreur);
+
+        var session = await _sessions.GetAsync(sessionId);
+        Assert.Equal(DiagnosticPhase.QualificationEtCollecte, session!.Phase);
+        Assert.Equal(2, session.PhaseTransitions.Count);
+    }
+
+    [Fact]
+    public async Task AdvancePhaseAsync_Refuse_La_Cloture_Sans_Preciser_Ce_Qui_A_Ete_Verifie()
+    {
+        var sessionId = await CreerSessionAsync();
+
+        var erreur = await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.ClotureEtCapitalisation, "m.konate", null);
+
+        Assert.NotNull(erreur);
+
+        var session = await _sessions.GetAsync(sessionId);
+        Assert.Equal(DiagnosticPhase.DetectionEtEnregistrement, session!.Phase);
+        Assert.Empty(session.PhaseTransitions);
+    }
+
+    [Fact(DisplayName = "§3.10.1 : un diagnostic analysé et inconcluant ne se clôture pas sans escalade déclarée")]
+    public async Task AdvancePhaseAsync_Refuse_La_Cloture_D_Un_Diagnostic_Inconcluant_Sans_Escalade()
+    {
+        var sessionId = await CreerSessionAsync();
+        await _analyse.ImportAsync(sessionId, "app.log", "2026-08-14 08:00:00 INFO Démarrage\n");
+        var analyse = await _analyse.ConcludeAsync(sessionId);
+        Assert.Equal(DiagnosticVerdict.RienDeConcluant, analyse!.Verdict);
+
+        var erreur = await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.ClotureEtCapitalisation, "m.konate", "Rien trouvé, on referme.");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("escaladé", erreur!);
+    }
+
+    [Fact(DisplayName = "§3.10.1 : déclarer l'escalade permet la clôture et reste tracé sur la session")]
+    public async Task AdvancePhaseAsync_Accepte_La_Cloture_D_Un_Diagnostic_Inconcluant_Avec_Escalade()
+    {
+        var sessionId = await CreerSessionAsync();
+        await _analyse.ImportAsync(sessionId, "app.log", "2026-08-14 08:00:00 INFO Démarrage\n");
+        await _analyse.ConcludeAsync(sessionId);
+
+        var erreur = await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.ClotureEtCapitalisation, "m.konate", "Rien trouvé, on referme.",
+            "Support Navis");
+
+        Assert.Null(erreur);
+
+        var session = await _sessions.GetAsync(sessionId);
+        Assert.Equal(DiagnosticPhase.ClotureEtCapitalisation, session!.Phase);
+        Assert.Equal("Support Navis", session.EscalatedTo);
+        Assert.Equal("m.konate", session.EscalatedBy);
+        Assert.NotNull(session.EscalatedAt);
+    }
+
+    [Fact(DisplayName = "§3.10.1 : un verdict concluant se clôture sans exiger d'escalade")]
+    public async Task AdvancePhaseAsync_N_Exige_Pas_D_Escalade_Pour_Un_Verdict_Concluant()
+    {
+        var sessionId = await CreerSessionAsync();
+        await _analyse.ImportAsync(sessionId, "app.log", JournalAvecLicenceExpiree());
+        var analyse = await _analyse.ConcludeAsync(sessionId);
+        Assert.NotEqual(DiagnosticVerdict.RienDeConcluant, analyse!.Verdict);
+        Assert.False(analyse.VerdictEstInconcluant);
+
+        var erreur = await _sessions.AdvancePhaseAsync(
+            sessionId, DiagnosticPhase.ClotureEtCapitalisation, "m.konate", "Licence renouvelée, service redémarré.");
+
+        Assert.Null(erreur);
     }
 
     // =======================================================================

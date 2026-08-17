@@ -63,6 +63,19 @@ else
                     <div class="text-right text-[11px] text-slate-500 font-mono">
                         <div>évalué à @_s.EvaluatedAt.ToLocalTime().ToString("HH:mm:ss")</div>
                         <div class="mt-0.5">@(_c.StartOrder > 0 ? $"ordre de démarrage {_c.StartOrder}" : "hors séquence")</div>
+                        <div class="mt-0.5" title="FR-051 : dernier relevé de supervision persisté pour ce composant.">
+                            Heartbeat :
+                            @if (_s.LastHeartbeatAt is { } hb)
+                            {
+                                <span class="@(DateTimeOffset.UtcNow - hb > TimeSpan.FromMinutes(2) ? "text-amber-400" : "text-emerald-400")">
+                                    @hb.ToLocalTime().ToString("HH:mm:ss")
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="text-slate-600">aucun relevé encore persisté</span>
+                            }
+                        </div>
                     </div>
                 </div>
             </div>
@@ -234,6 +247,7 @@ else
         ComponentState.Degrade => "border-amber-500/30",
         ComponentState.Indisponible => "border-rose-500/30",
         ComponentState.Demarrage => "border-sky-500/30",
+        ComponentState.Maintenance => "border-violet-500/30",
         _ => "border-slate-800"
     };
 
@@ -243,6 +257,7 @@ else
         ComponentState.Degrade => "text-amber-400",
         ComponentState.Indisponible => "text-rose-400",
         ComponentState.Demarrage => "text-sky-400",
+        ComponentState.Maintenance => "text-violet-400",
         _ => "text-slate-400"
     };
 

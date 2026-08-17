@@ -1,0 +1,171 @@
+@page "/admin/matrice-approbation"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Orchestration
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject ApprovalMatrixService Matrice
+
+<PageTitle>Matrice de criticité — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Matrice de criticité</h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Circuit d'approbation configurable selon l'environnement, le scénario et le niveau de risque des
+            composants concernés (FR-013). Une règle n'abaisse jamais ce qu'un workflow exige déjà — elle ne
+            peut qu'ajouter une exigence d'approbation, simple ou double, au lancement ou au contournement en
+            Production (FR-027).
+        </p>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-3 text-xs">
+        <h3 class="text-sm font-bold text-white">Nouvelle règle</h3>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Environnement</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_envChoisi">
+                    <option value="">Tous</option>
+                    @foreach (var v in Enum.GetValues<EnvironmentKind>())
+                    {
+                        <option value="@v">@v</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Scénario</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_scenarioChoisi">
+                    <option value="">Tous</option>
+                    @foreach (var v in Enum.GetValues<WorkflowKind>())
+                    {
+                        <option value="@v">@v</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Seuil de criticité</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_nouvelle.MinCriticality">
+                    @foreach (var v in Enum.GetValues<CriticalityLevel>())
+                    {
+                        <option value="@v">@v</option>
+                    }
+                </select>
+            </div>
+            <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer">
+                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_nouvelle.RequiresApproval" />
+                <span>Approbation</span>
+            </label>
+            <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer">
+                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_nouvelle.RequiresDoubleApproval" />
+                <span>Double approbation</span>
+            </label>
+        </div>
+        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+               placeholder="Notes (facultatif) — pourquoi cette règle" @bind="_nouvelle.Notes" />
+        <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold transition" @onclick="Ajouter">
+            <i class="bi bi-plus-lg"></i> Ajouter la règle
+        </button>
+    </div>
+
+    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="border-b border-slate-800 text-slate-500 uppercase text-[10px] tracking-wider">
+                        <th class="text-left p-3">Environnement</th>
+                        <th class="text-left p-3">Scénario</th>
+                        <th class="text-left p-3">Seuil</th>
+                        <th class="text-left p-3">Exigence</th>
+                        <th class="text-left p-3">Notes</th>
+                        <th class="text-left p-3">Actif</th>
+                        <th class="p-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                    @if (_regles.Count == 0)
+                    {
+                        <tr><td colspan="7" class="p-6 text-center text-slate-500">
+                            Aucune règle : seul le plancher par défaut s'applique (approbation simple en Production).
+                        </td></tr>
+                    }
+                    @foreach (var r in _regles)
+                    {
+                        <tr class="hover:bg-slate-800/30">
+                            <td class="p-3 text-slate-300">@(r.EnvironmentKind?.ToString() ?? "Tous")</td>
+                            <td class="p-3 text-slate-300">@(r.WorkflowKind?.ToString() ?? "Tous")</td>
+                            <td class="p-3 text-slate-300">@r.MinCriticality</td>
+                            <td class="p-3 text-slate-300">
+                                @(r.RequiresDoubleApproval ? "Double approbation" : r.RequiresApproval ? "Approbation simple" : "Aucune")
+                            </td>
+                            <td class="p-3 text-slate-500">@r.Notes</td>
+                            <td class="p-3">
+                                <button class="px-2 py-1 rounded-lg @(r.Enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-800 text-slate-500") font-bold text-[10px]"
+                                        @onclick="() => Basculer(r)">
+                                    @(r.Enabled ? "Actif" : "Désactivé")
+                                </button>
+                            </td>
+                            <td class="p-3">
+                                <button class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                                        @onclick="() => Supprimer(r.Id)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ApprovalMatrixRule> _regles = [];
+    private ApprovalMatrixRule _nouvelle = new();
+    private string _envChoisi = "";
+    private string _scenarioChoisi = "";
+    private string? _message;
+    private string _messageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync() => await Charger();
+
+    private async Task Charger() => _regles = await Matrice.GetAllAsync();
+
+    private async Task Ajouter()
+    {
+        _nouvelle.EnvironmentKind = string.IsNullOrEmpty(_envChoisi) ? null : Enum.Parse<EnvironmentKind>(_envChoisi);
+        _nouvelle.WorkflowKind = string.IsNullOrEmpty(_scenarioChoisi) ? null : Enum.Parse<WorkflowKind>(_scenarioChoisi);
+
+        var erreur = await Matrice.SaveAsync(_nouvelle);
+        _message = erreur ?? "Règle ajoutée.";
+        _messageClass = erreur is null
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border-rose-500/20 text-rose-300";
+
+        if (erreur is null)
+        {
+            _nouvelle = new();
+            _envChoisi = "";
+            _scenarioChoisi = "";
+        }
+
+        await Charger();
+    }
+
+    private async Task Basculer(ApprovalMatrixRule regle)
+    {
+        regle.Enabled = !regle.Enabled;
+        await Matrice.SaveAsync(regle);
+        await Charger();
+    }
+
+    private async Task Supprimer(Guid id)
+    {
+        await Matrice.DeleteAsync(id);
+        await Charger();
+    }
+}

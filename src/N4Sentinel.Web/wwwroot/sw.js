@@ -1,8 +1,8 @@
-const CACHE_NAME = 'n4-sentinel-v2';
+const CACHE_NAME = 'n4-sentinel-v3';
 const urlsToCache = [
   '/',
   '/manifest.json',
-  '/favicon.png'
+  '/favicon.svg'
 ];
 
 self.addEventListener('install', event => {

@@ -48,7 +48,7 @@
                 <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                     <i class="bi bi-lock"></i>
                 </div>
-                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 transition" autocomplete="current-password" placeholder="••••••••" />
+                <PasswordInput @bind-Value="Input.Password" Id="Input.Password" CssClass="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 transition" AutoComplete="current-password" Placeholder="••••••••" />
             </div>
             <ValidationMessage For="() => Input.Password" class="text-xs text-rose-400 mt-1" />
         </div>
@@ -139,7 +139,21 @@
             Logger.LogInformation("Utilisateur connecté.");
             await AuditWriter.WriteAsync(AuditAction.Connexion, AuditOutcome.Succes, Input.Email,
                 ip, correlationId: correlationId);
-            RedirectManager.RedirectTo(ReturnUrl);
+
+            if (await RequiertSecondFacteurObligatoireAsync(Input.Email))
+            {
+                // SEC-001 : le texte du CdC demande un MFA obligatoire pour les
+                // comptes sensibles. Tant qu'aucun second facteur n'est activé,
+                // la connexion aboutit (pas de blocage sans issue) mais redirige
+                // systematiquement vers son activation plutot que vers la
+                // destination demandee - voir ApplicationUser.cs pour l'ecart
+                // assume avec le texte exact (TOTP au lieu de MFA e-mail).
+                RedirectManager.RedirectTo("Account/Manage/EnableAuthenticator");
+            }
+            else
+            {
+                RedirectManager.RedirectTo(ReturnUrl);
+            }
         }
         else if (result.RequiresTwoFactor)
         {
@@ -163,6 +177,30 @@
                 Input.Email, ip, detail: "Identifiants incorrects.", correlationId: correlationId);
             errorMessage = "Erreur : Identifiants incorrects.";
         }
+    }
+
+    /// <summary>
+    /// SEC-001 : second facteur obligatoire pour les rôles pouvant exécuter ou
+    /// approuver une opération (PeutExecuter/PeutApprouver) et pour
+    /// l'administration (PeutAdministrerReferentiel/PeutAdministrerConnecteurs) —
+    /// pas pour les rôles de consultation seule, moins sensibles.
+    /// </summary>
+    private static readonly string[] RolesExigeantSecondFacteur =
+    [
+        N4Roles.OperateurN4,
+        N4Roles.AdministrateurN4,
+        N4Roles.Validateur,
+        N4Roles.AdministrateurSolution,
+        N4Roles.AdministrateurInfrastructure
+    ];
+
+    private async Task<bool> RequiertSecondFacteurObligatoireAsync(string email)
+    {
+        var user = await UserManager.FindByEmailAsync(email);
+        if (user is null || user.TwoFactorEnabled) return false;
+
+        var roles = await UserManager.GetRolesAsync(user);
+        return roles.Any(RolesExigeantSecondFacteur.Contains);
     }
 
     private sealed class InputModel

@@ -28,10 +28,43 @@ public sealed class SharedFolderHealthService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
     ConnectorTargetFactory targetFactory,
     IN4Connector connector,
+    IAuditWriter auditWriter,
     ILogger<SharedFolderHealthService> logger)
 {
     /// <summary>Seul nom de fichier KahaDB attesté dans le corpus de support.</summary>
     private const string FichierKahaDb = "db.data";
+
+    /// <summary>
+    /// §3.18 : attestation humaine qu'une sauvegarde de ce dossier partagé
+    /// vient d'être faite — hors application, jamais capturée automatiquement.
+    /// </summary>
+    public async Task<string?> DeclareBackupAsync(
+        Guid componentId, string actor, string? note, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(actor)) return "Acteur manquant.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var composant = await db.Components.FirstOrDefaultAsync(c => c.Id == componentId, ct);
+        if (composant is null) return "Composant introuvable.";
+        if (!composant.SharedFolder.IsConfigured)
+            return $"Aucun dossier partagé n'est configuré sur « {composant.LogicalName} ».";
+
+        composant.SharedFolder.LastBackupAt = DateTimeOffset.UtcNow;
+        composant.SharedFolder.LastBackupBy = actor;
+        composant.SharedFolder.LastBackupNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Creation, AuditOutcome.Succes, actor,
+            entityType: nameof(SharedFolderProfile), entityId: componentId.ToString(),
+            entityLabel: composant.LogicalName, environmentId: composant.EnvironmentId,
+            detail: $"Sauvegarde du dossier partagé déclarée" + (note is { Length: > 0 } ? $" — {note}" : string.Empty),
+            ct: ct);
+
+        return null;
+    }
 
     public async Task<SharedFolderSnapshot> EvaluateAsync(N4Component composant, CancellationToken ct = default)
     {
@@ -88,10 +121,42 @@ public sealed class SharedFolderHealthService(
 
         await ClassifierAsync(snapshot, profil, cible, ct);
 
+        var chrono = System.Diagnostics.Stopwatch.StartNew();
         var probe = await connector.ProbeWriteAsync(cible, racine, ct);
+        chrono.Stop();
+
         snapshot.CanWrite = probe.Succeeded ? probe.Value!.CanWrite : null;
+        if (probe.Succeeded && probe.Value!.CanWrite)
+            snapshot.WriteLatencyMs = chrono.Elapsed.TotalMilliseconds;
         if (probe.Succeeded && !probe.Value!.CanWrite && probe.Value.Error is { Length: > 0 } motifEcriture)
             snapshot.CorruptionIndicators.Add($"Écriture impossible dans le dossier : {motifEcriture}");
+
+        // FR-059B : latence et croissance, jugées uniquement contre un seuil
+        // DÉCLARÉ sur le composant — jamais une limite devinée.
+        if (profil.MaxWriteLatencyMs is { } seuilLatence && snapshot.WriteLatencyMs is { } latence && latence > seuilLatence)
+            snapshot.HealthWarnings.Add(
+                $"Temps de réponse en écriture de {latence:0} ms, au-delà du seuil déclaré de {seuilLatence} ms.");
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var precedent = await db.SharedFolderSnapshots.AsNoTracking()
+            .Where(s => s.ComponentId == composant.Id && s.Reachable == true)
+            .OrderByDescending(s => s.CapturedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (precedent is not null)
+        {
+            var ecoule = snapshot.CapturedAt - precedent.CapturedAt;
+            if (ecoule > TimeSpan.Zero)
+            {
+                snapshot.GrowthBytesPerHour = (snapshot.TotalSizeBytes - precedent.TotalSizeBytes) / ecoule.TotalHours;
+
+                if (profil.MaxGrowthBytesPerHour is { } seuilCroissance
+                    && snapshot.GrowthBytesPerHour is { } croissance && croissance > seuilCroissance)
+                    snapshot.HealthWarnings.Add(
+                        $"Croissance de {croissance / 1024.0 / 1024.0:0.0} Mo/h, au-delà du seuil déclaré de "
+                        + $"{seuilCroissance / 1024.0 / 1024.0:0.0} Mo/h.");
+            }
+        }
 
         if (profil.Category == SharedFolderCategory.ActiveMqKahaDb)
             ControlerKahaDb(snapshot, fichiers);

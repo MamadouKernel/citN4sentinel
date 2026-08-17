@@ -1,11 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Orchestration;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Security;
-using N4Sentinel.Infrastructure.Supervision;
 
 namespace N4Sentinel.Tests;
 
@@ -13,7 +11,10 @@ namespace N4Sentinel.Tests;
 /// Suite de tests d'intégration pour les fonctionnalités des Lots 3 et 4 :
 /// - Palier 2 (Orchestration Automatique Bout en Bout) & Fallback d'urgence 1-Click
 /// - Authentification SSO Azure AD (SEC-001 V2)
-/// - Supervision JMX temps réel (ActiveMQ & JVM N4)
+///
+/// La supervision JMX temps réel a été retirée (donnée de démonstration fixe
+/// sans appel JMX/RMI réel, cf. décision #11 du plan de remédiation de l'audit
+/// CIT-CIV-DSI-RFP-0010) : son test a été supprimé avec le code qu'il couvrait.
 /// </summary>
 public sealed class Palier2AndLot4Tests
 {
@@ -27,30 +28,33 @@ public sealed class Palier2AndLot4Tests
         Assert.Equal(2, (int)AutomationLevel.AutomatiqueBoutEnBout);
     }
 
+    /// <summary>
+    /// SEC-001 : aucun connecteur OIDC réel n'existe en V1. Simuler un succès
+    /// fabriquerait une identité DSI à partir de n'importe quelle chaîne — la
+    /// méthode doit donc toujours refuser, paramètres activés ou non.
+    /// </summary>
     [Fact]
-    public async Task AzureAdAuthProvider_Valide_Authentification_Sso()
+    public async Task AzureAdAuthProvider_Refuse_Toujours_Faute_De_Connecteur_Reel()
     {
-        var config = new ConfigurationBuilder().Build();
-        var provider = new AzureAdAuthProvider(config, NullLogger<AzureAdAuthProvider>.Instance);
+        var dbName = $"n4test_azuread_{Guid.NewGuid():N}";
+        var cs = $"Server=localhost;Database={dbName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
+        var options = TestDbContextOptions.Builder(cs).Options;
 
-        var userInfo = await provider.AuthenticateSsoTokenAsync("fake-jwt-token");
+        var factory = new LocalTestDbContextFactory(options);
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.EnsureCreatedAsync();
 
-        Assert.NotNull(userInfo);
-        Assert.Equal("m.konate@cotedivoireterminal.com", userInfo.Email);
-        Assert.Contains("Validateur", userInfo.Roles);
-    }
+            var settingsService = new AzureAdSettingsService(factory, new AuditWriter(factory));
+            await settingsService.SaveAsync(new AzureAdSettings { Enabled = true, TenantId = "cotedivoireterminal.onmicrosoft.com" }, "m.konate");
 
-    [Fact]
-    public async Task JmxMonitoringService_Collecte_Metriques_Jmx()
-    {
-        var service = new JmxMonitoringService(NullLogger<JmxMonitoringService>.Instance);
+            var provider = new AzureAdAuthProvider(settingsService, NullLogger<AzureAdAuthProvider>.Instance);
+            var userInfo = await provider.AuthenticateSsoTokenAsync("n'importe-quelle-chaine");
 
-        var snapshot = await service.PollJmxMetricsAsync("SRV-N4-NODE01", 1099);
+            Assert.Null(userInfo);
 
-        Assert.NotNull(snapshot);
-        Assert.Equal("SRV-N4-NODE01", snapshot.TargetHost);
-        Assert.True(snapshot.HeapMemoryUsagePercent > 0);
-        Assert.True(snapshot.ActiveThreadCount > 0);
+            await db.Database.EnsureDeletedAsync();
+        }
     }
 
     [Fact]
@@ -82,7 +86,10 @@ public sealed class Palier2AndLot4Tests
             db.Executions.Add(exec);
             await db.SaveChangesAsync();
 
-            var engine = new OrchestrationEngine(new TestScopeFactory(factory), NullLogger<OrchestrationEngine>.Instance);
+            var engine = new OrchestrationEngine(
+                new TestScopeFactory(factory),
+                new N4Sentinel.Infrastructure.Observability.MetricsService(),
+                NullLogger<OrchestrationEngine>.Instance);
 
             var result = await engine.ToggleFallbackToSemiAutoAsync(exec.Id, "M. KONATE (DSI)");
 

@@ -8,6 +8,7 @@
 @rendermode InteractiveServer
 @inject SopService Catalogue
 @inject ExecutionService Executions
+@inject N4Sentinel.Infrastructure.Diagnostic.DiagnosticSessionService Diagnostics
 @inject ReferentialService Referential
 @inject NavigationManager Nav
 
@@ -38,6 +39,11 @@
             <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
                     disabled="@(_envId == Guid.Empty)" @onclick="() => _depuisExecution = !_depuisExecution">
                 <i class="bi bi-play-circle"></i> Depuis une exécution réussie
+            </button>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="() => _depuisIncident = !_depuisIncident">
+                <i class="bi bi-clipboard2-pulse"></i> Depuis un incident clos
             </button>
 
             <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
@@ -139,6 +145,57 @@
         </div>
     }
 
+    @if (_depuisIncident)
+    {
+        <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-4">
+            <h3 class="text-sm font-bold text-white">Générer un brouillon depuis un incident clos (FR-097)</h3>
+            <p class="text-[11px] text-slate-400">
+                Chaque étape reprend une action RÉELLEMENT déclarée pendant l'incident (« Actions manuelles
+                hors N4 Sentinel »). Créé en brouillon : à relire et ajuster avant validation.
+            </p>
+
+            @if (_sessionsCloturees.Count == 0)
+            {
+                <p class="text-xs text-slate-500">Aucun incident clos avec au moins une action déclarée n'a été trouvé pour cet environnement.</p>
+            }
+            else
+            {
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div class="md:col-span-1">
+                        <label class="block text-slate-400 font-semibold mb-1">Incident source</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_sessionSourceId">
+                            <option value="@Guid.Empty">Choisir…</option>
+                            @foreach (var s in _sessionsCloturees)
+                            {
+                                <option value="@s.Id">@s.Title — @s.CreatedAt.ToString("dd/MM HH:mm")</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Code du SOP généré</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                               placeholder="SOP-RECOVERY-BRIDGE" @bind="_genCode" />
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Titre</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               placeholder="Rétablissement après blocage Bridge" @bind="_genTitre" />
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                            disabled="@(_sessionSourceId == Guid.Empty)" @onclick="GenererDepuisIncident">
+                        Générer le brouillon
+                    </button>
+                    <button class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs transition" @onclick="() => _depuisIncident = false">
+                        Annuler
+                    </button>
+                </div>
+            }
+        </div>
+    }
+
     @if (_envId == Guid.Empty)
     {
         <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
@@ -230,6 +287,10 @@
     private string _genCode = string.Empty;
     private string _genTitre = string.Empty;
 
+    private bool _depuisIncident;
+    private List<Domain.DiagnosticSession> _sessionsCloturees = [];
+    private Guid _sessionSourceId;
+
     private string? _message;
     private string _messageClass = string.Empty;
 
@@ -246,6 +307,10 @@
         var recentes = _envId == Guid.Empty ? [] : await Executions.GetRecentAsync(_envId, 100);
         _executionsRecentes = recentes.Where(x => x.Status == ExecutionStatus.TermineSucces)
             .OrderByDescending(x => x.EndedAt).Take(20).ToList();
+
+        var sessions = _envId == Guid.Empty ? [] : await Diagnostics.GetRecentAsync(_envId, 100);
+        _sessionsCloturees = sessions.Where(s => s.Phase == Domain.DiagnosticPhase.ClotureEtCapitalisation)
+            .OrderByDescending(s => s.CreatedAt).Take(20).ToList();
     }
 
     private async Task Creer()
@@ -283,6 +348,20 @@
         }
 
         var r = await Catalogue.GenerateFromExecutionAsync(_executionSourceId, _genCode.Trim().ToUpperInvariant(), _genTitre.Trim());
+        if (!r.Succeeded) { Signaler(r.Error!, false); return; }
+
+        Nav.NavigateTo($"/admin/sop/{r.SopId}");
+    }
+
+    private async Task GenererDepuisIncident()
+    {
+        if (string.IsNullOrWhiteSpace(_genCode) || string.IsNullOrWhiteSpace(_genTitre))
+        {
+            Signaler("Le code et le titre du SOP généré sont obligatoires.", false);
+            return;
+        }
+
+        var r = await Catalogue.GenerateFromDiagnosticSessionAsync(_sessionSourceId, _genCode.Trim().ToUpperInvariant(), _genTitre.Trim());
         if (!r.Succeeded) { Signaler(r.Error!, false); return; }
 
         Nav.NavigateTo($"/admin/sop/{r.SopId}");

@@ -120,6 +120,43 @@ public sealed class SupervisionTests : IAsyncLifetime
         Assert.Equal("Stopped", snapshot.ServiceStatus);
     }
 
+    [Fact(DisplayName = "EvaluateComponentAsync retourne Maintenance sans relever d'echec quand le composant est declare en maintenance (FR-052)")]
+    public async Task EvaluateComponentAsync_Returns_Maintenance_When_Flagged()
+    {
+        var envId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var compId = Guid.NewGuid();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Environments.Add(new N4Environment { Id = envId, Code = "PROD", Name = "Production" });
+            db.Servers.Add(new N4Server { Id = serverId, EnvironmentId = envId, HostName = "N4SRV01" });
+            db.Components.Add(new N4Component
+            {
+                Id = compId,
+                EnvironmentId = envId,
+                ServerId = serverId,
+                LogicalName = "Center Node",
+                WindowsServiceName = "NavisCenterService",
+                ControlMode = ControlMode.Pilotable,
+                MaintenanceMode = true,
+                MaintenanceNote = "Remplacement disque planifié."
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Le connecteur simule un service arrêté (l'échec habituel) : la
+        // maintenance déclarée doit primer avant toute interrogation réelle.
+        var fakeConnector = new FakeN4Connector { ServiceStatusToReturn = "Stopped" };
+        var targetFactory = CreateTargetFactory(_factory);
+        var service = new SupervisionService(_factory, targetFactory, fakeConnector, NullLogger<SupervisionService>.Instance);
+
+        var snapshot = await service.EvaluateComponentAsync(compId);
+
+        Assert.Equal(ComponentState.Maintenance, snapshot.State);
+        Assert.Contains("Remplacement disque planifié.", snapshot.Verdict);
+    }
+
     [Fact(DisplayName = "EvaluateComponentAsync retourne Disponible quand le service tourne et que la preuve log est confirmee")]
     public async Task EvaluateComponentAsync_Returns_Disponible_When_Service_Running_And_Log_Proof_Confirmed()
     {

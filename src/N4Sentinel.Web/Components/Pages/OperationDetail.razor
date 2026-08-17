@@ -9,8 +9,12 @@
 @inject OrchestrationEngine Moteur
 @inject PreflightService Preflight
 @inject ExecutionReportService Rapport
+@inject N4Sentinel.Infrastructure.Reporting.ReportDocumentService Documents
+@inject N4Sentinel.Infrastructure.Diagnostic.DiagnosticSessionService Sessions
+@inject N4Sentinel.Infrastructure.Diagnostic.DiagnosticSettingsService DiagSettings
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>@(_x?.WorkflowName ?? "Opération") — N4 Sentinel</PageTitle>
 
@@ -172,8 +176,16 @@ else
         <!-- Issue -->
         @if (_x.Outcome is { Length: > 0 } issue)
         {
-            <div class="p-4 rounded-xl text-xs leading-relaxed border @IssueClasse()">
-                <strong class="block mb-1">@Operations.LibelleEtat(_x.Status)</strong>
+            <div class="p-4 rounded-xl text-xs leading-relaxed border whitespace-pre-line @IssueClasse()">
+                <strong class="block mb-1">
+                    @Operations.LibelleEtat(_x.Status)
+                    @if (_x.RequiresManualInterventionAfterCancel)
+                    {
+                        <span class="ml-2 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold align-middle">
+                            <i class="bi bi-exclamation-triangle-fill"></i> Intervention manuelle requise
+                        </span>
+                    }
+                </strong>
                 @issue
             </div>
         }
@@ -263,14 +275,28 @@ else
                             title="@(_x.PreflightCleared ? null : "Les contrôles préalables doivent être passés sans échec bloquant.")">
                         <i class="bi bi-play-fill"></i> Lancer maintenant
                     </button>
+                    <span class="text-[11px] text-slate-500">
+                        Durée normale cumulée des @_x.Steps.Count étape(s) : <strong class="text-slate-300">@_dureeNormaleCumulee</strong>
+                        (FR-014, somme de ce que chaque étape déclare — pas une estimation).
+                    </span>
                 }
 
                 @if (_x.IsFinished)
                 {
-                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
-                            @onclick="TelechargerRapport">
-                        <i class="bi bi-file-earmark-text"></i> Rapport d'exécution
-                    </button>
+                    <div class="inline-flex rounded-xl overflow-hidden border border-slate-700">
+                        <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                                @onclick="TelechargerRapport" title="Markdown">
+                            <i class="bi bi-file-earmark-text"></i> Rapport
+                        </button>
+                        <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border-l border-slate-700"
+                                @onclick="TelechargerRapportPdf" title="PDF">
+                            PDF
+                        </button>
+                        <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border-l border-slate-700"
+                                @onclick="TelechargerRapportWord" title="Word">
+                            Word
+                        </button>
+                    </div>
                 }
 
                 @if (_x.Status == ExecutionStatus.EnCours)
@@ -321,6 +347,87 @@ else
             </div>
         }
 
+        <!-- §3.19 : options sûres après échec — retour au dernier point stable -->
+        <AuthorizeView Policy="@N4Policies.PeutExecuter">
+            @if (_x.Status is ExecutionStatus.Echec or ExecutionStatus.EnPause)
+            {
+                <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                    @if (_rollbackResultat is { Succeeded: true } ok)
+                    {
+                        <div class="text-[11px] text-emerald-300 space-y-1">
+                            <div><i class="bi bi-check2-circle"></i> Retour préparé — à lancer depuis « Nouvelle opération » :</div>
+                            @foreach (var w in ok.Workflows)
+                            {
+                                <div><a href="/operations/nouvelle" class="text-sky-400 hover:underline">@w.Name</a></div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-[11px] text-slate-400">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                            Revenir au dernier point stable : prépare l'inverse des seules étapes Démarrer/Arrêter
+                            réussies (jamais lancé automatiquement — préchecks et audit normaux ensuite).
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
+                                   placeholder="Justification du retour au dernier point stable" @bind="_justificationRollback" @bind:event="oninput" />
+                            <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
+                                    disabled="@string.IsNullOrWhiteSpace(_justificationRollback)"
+                                    @onclick="PreparerRollback">
+                                <i class="bi bi-arrow-counterclockwise"></i> Revenir au dernier point stable
+                            </button>
+                        </div>
+                        @if (_rollbackResultat is { Succeeded: false })
+                        {
+                            <p class="text-[11px] text-rose-400">@_rollbackResultat.Error</p>
+                        }
+                    }
+                </div>
+            }
+        </AuthorizeView>
+
+        <!-- Actions manuelles hors N4 Sentinel (§3.19) -->
+        @if (_x.ExternalActions.Count > 0 || _declarationOuverte)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                    <h3 class="text-xs font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-person-exclamation text-amber-400"></i> Actions manuelles hors N4 Sentinel
+                    </h3>
+                </div>
+                @if (_declarationOuverte)
+                {
+                    <div class="p-4 border-b border-slate-800 space-y-2 text-xs">
+                        <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                  placeholder="Ce qui a été fait, sur quel composant, et pourquoi." @bind="_declarationTexte"></textarea>
+                        <div class="flex items-center gap-2">
+                            <input type="datetime-local" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                   @bind="_declarationQuand" />
+                            <button class="px-3 py-1.5 rounded-lg btn-theme-primary text-white font-bold text-xs transition" @onclick="DeclarerActionExterne">
+                                Confirmer
+                            </button>
+                        </div>
+                    </div>
+                }
+                <div class="divide-y divide-slate-800/60 text-xs">
+                    @foreach (var a in _x.ExternalActions.OrderBy(a => a.OccurredAt))
+                    {
+                        <div class="p-3.5">
+                            <div class="text-slate-200">@a.Description</div>
+                            <div class="text-[10px] text-slate-500 mt-0.5">@a.OccurredAt.ToLocalTime().ToString("dd/MM HH:mm") &middot; déclaré par @a.DeclaredBy</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        <AuthorizeView Policy="@N4Policies.PeutExecuter">
+            <button class="text-[11px] text-slate-500 hover:text-amber-400 transition -mt-3"
+                    @onclick="() => _declarationOuverte = !_declarationOuverte">
+                <i class="bi bi-person-exclamation"></i> Déclarer une action manuelle hors N4 Sentinel
+            </button>
+        </AuthorizeView>
+
         <!-- Progression -->
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
@@ -362,6 +469,13 @@ else
                                     @if (etape.Duration is { } d && etape.StartedAt is not null)
                                     {
                                         <span class="text-[11px] font-mono text-slate-500">@StepExecutor.Formater(d)</span>
+                                        @if (etape.State == ExecutionStepState.EnCours && d.TotalSeconds > etape.WarningThresholdSeconds)
+                                        {
+                                            <span class="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[10px] font-bold"
+                                                  title="@($"Seuil d'avertissement dépassé ({etape.WarningThresholdSeconds} s) — l'étape n'est pas en échec, mais dure plus longtemps que prévu.")">
+                                                <i class="bi bi-exclamation-triangle"></i> Durée anormale
+                                            </span>
+                                        }
                                     }
                                 </div>
 
@@ -381,11 +495,27 @@ else
                                     </div>
                                 }
 
+                                @if (etape.EvidenceFileName is { Length: > 0 } nomPreuve)
+                                {
+                                    <button class="text-[11px] text-sky-400 hover:underline flex items-center gap-1"
+                                            @onclick="() => TelechargerPreuve(etape.Id)">
+                                        <i class="bi bi-paperclip"></i> Télécharger la preuve jointe (@nomPreuve)
+                                    </button>
+                                }
+
                                 @if (etape.Error is { Length: > 0 } erreur)
                                 {
                                     <div class="text-xs text-rose-300 leading-relaxed flex items-start gap-2">
                                         <i class="bi bi-exclamation-octagon-fill mt-0.5 shrink-0"></i>
-                                        <span>@erreur</span>
+                                        <div class="space-y-1">
+                                            @if (etape.ErrorType is { } typeErreur)
+                                            {
+                                                <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 border border-rose-500/30 uppercase tracking-wide">
+                                                    @LibelleTypeErreur(typeErreur)
+                                                </span>
+                                            }
+                                            <span class="block">@erreur</span>
+                                        </div>
                                     </div>
                                 }
 
@@ -410,8 +540,23 @@ else
                                                 <input class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs"
                                                        placeholder="Note (facultative) : ce qui a été constaté."
                                                        @bind="_note" />
+                                                @if (etape.RequiresEvidenceFile)
+                                                {
+                                                    <div class="space-y-1">
+                                                        <label class="block text-[10px] text-amber-400 font-semibold">
+                                                            <i class="bi bi-paperclip"></i> Preuve jointe <span class="text-rose-400">obligatoire</span>
+                                                        </label>
+                                                        <InputFile OnChange="ChoisirPreuve"
+                                                                   class="w-full text-[11px] text-slate-300 file:mr-2 file:px-2 file:py-1 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200" />
+                                                        @if (_preuveNom is { Length: > 0 })
+                                                        {
+                                                            <div class="text-[11px] text-emerald-400"><i class="bi bi-check2"></i> @_preuveNom</div>
+                                                        }
+                                                    </div>
+                                                }
                                                 <div class="flex flex-wrap gap-2">
-                                                    <button class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                                                    <button class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition disabled:opacity-40"
+                                                            disabled="@(etape.RequiresEvidenceFile && _preuveOctets is null)"
                                                             @onclick="() => Confirmer(etape.Id, true)">
                                                         <i class="bi bi-check2"></i> C'est fait
                                                     </button>
@@ -435,6 +580,20 @@ else
                                 @if (etape.State == ExecutionStepState.Bloque)
                                 {
                                     <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="decideur">
+                                        @if (etape.SkippedBy is not null && etape.SkipCoApprovedBy is null)
+                                        {
+                                            <div class="mt-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs space-y-2">
+                                                <div class="text-amber-200">
+                                                    <i class="bi bi-people-fill"></i>
+                                                    Contournement demandé par <strong>@etape.SkippedBy</strong> — @etape.SkipReason.
+                                                    La matrice de criticité exige un second regard (FR-013/FR-027), d'une personne différente.
+                                                </div>
+                                                <button class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition"
+                                                        @onclick="() => ApprouverContournement(etape.Id)">
+                                                    <i class="bi bi-check2-circle"></i> Approuver ce contournement
+                                                </button>
+                                            </div>
+                                        }
                                         <div class="mt-2 flex flex-wrap items-center gap-2">
                                             <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
                                                     @onclick="() => Reessayer(etape.Id)">
@@ -458,6 +617,61 @@ else
                                                 </span>
                                             }
                                         </div>
+
+                                        @if (etape.Action == StepAction.Arreter
+                                           && etape.ErrorType == StepErrorType.ComportementConnuStopPending)
+                                        {
+                                            <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-2">
+                                                <span class="text-[11px] text-amber-400 w-full">
+                                                    <i class="bi bi-exclamation-triangle"></i>
+                                                    Blocage StopPending connu (FR-029B) : un arrêt forcé peut être déclenché,
+                                                    soumis à confirmation et audit. Ce n'est jamais automatique.
+                                                </span>
+                                                <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs flex-1 min-w-48"
+                                                       placeholder="Justification de l'arrêt forcé" @bind="_justificationArretForce" @bind:event="oninput" />
+                                                <button class="px-3 py-1.5 rounded-lg bg-rose-700/80 hover:bg-rose-600 text-white font-bold text-xs transition disabled:opacity-40 disabled:hover:bg-rose-700/80"
+                                                        disabled="@string.IsNullOrWhiteSpace(_justificationArretForce)"
+                                                        title="@(string.IsNullOrWhiteSpace(_justificationArretForce) ? "La justification est obligatoire avant un arrêt forcé." : null)"
+                                                        @onclick="() => ForcerArret(etape.Id)">
+                                                    <i class="bi bi-power"></i> Forcer l'arrêt
+                                                </button>
+                                            </div>
+                                        }
+
+                                        <div class="mt-2 border-t border-slate-800 pt-2">
+                                            @if (etape.DiagnosticSessionId is { } sessionId)
+                                            {
+                                                <a href="@($"/diagnostics/{sessionId}")" class="text-[11px] text-sky-400 hover:underline flex items-center gap-1">
+                                                    <i class="bi bi-search"></i> Voir le diagnostic ouvert pour cette étape
+                                                </a>
+                                                @if (_diagnosticsResume.TryGetValue(etape.Id, out var resume))
+                                                {
+                                                    @if (resume.Count == 0)
+                                                    {
+                                                        <div class="text-[11px] text-slate-500 mt-1">Aucune hypothèse formulée pour l'instant.</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="text-[11px] text-slate-400 mt-1 space-y-0.5">
+                                                            @foreach (var h in resume)
+                                                            {
+                                                                <div>
+                                                                    <span class="@(h.Confidence >= _seuilEtablie ? "text-amber-400" : "text-slate-500")">@h.Confidence %</span>
+                                                                    — @h.Statement
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <button class="text-[11px] text-slate-400 hover:text-sky-400 transition flex items-center gap-1"
+                                                        @onclick="() => OuvrirDiagnostic(etape.Id)">
+                                                    <i class="bi bi-search"></i> Diagnostiquer cette étape (FR-029)
+                                                </button>
+                                            }
+                                        </div>
                                     </AuthorizeView>
                                 }
                             </div>
@@ -474,12 +688,27 @@ else
 
     private WorkflowExecution? _x;
     private int _termines;
+    private string _dureeNormaleCumulee = "—";
     private string _note = string.Empty;
+    private byte[]? _preuveOctets;
+    private string? _preuveNom;
+    private string? _preuveType;
     private string _justification = string.Empty;
+    private string _justificationArretForce = string.Empty;
+    private string _justificationRollback = string.Empty;
+    private RollbackPlanResult? _rollbackResultat;
     private bool _annulationArmee;
 
     private List<PreflightCheck> _controles = [];
     private bool _preflightEnCours;
+    private readonly Dictionary<Guid, List<DiagnosticHypothesis>> _diagnosticsResume = [];
+
+    /// <summary>FR-065 : seuil administrable, plus jamais figé à 70.</summary>
+    private int _seuilEtablie = 70;
+
+    private bool _declarationOuverte;
+    private string _declarationTexte = string.Empty;
+    private DateTime _declarationQuand = DateTime.Now;
 
     private string? _message;
     private string _messageClass = string.Empty;
@@ -489,6 +718,7 @@ else
     protected override async Task OnParametersSetAsync()
     {
         await Charger();
+        _seuilEtablie = (await DiagSettings.GetAsync()).HypothesisEstablishedThreshold;
 
         // Rafraichissement periodique tant que l'operation vit. Le moteur
         // notifie aussi, mais l'ecran ne doit pas dependre de cette
@@ -514,6 +744,51 @@ else
         _x = await Executions.GetAsync(Id);
         _termines = _x?.Steps.Count(s => s.IsTerminal) ?? 0;
         _controles = PreflightService.Relire(_x?.PreflightJson);
+        _dureeNormaleCumulee = _x is null
+            ? "—"
+            : StepExecutor.Formater(TimeSpan.FromSeconds(_x.Steps.Sum(s => s.ExpectedSeconds)));
+
+        _diagnosticsResume.Clear();
+        if (_x is not null)
+        {
+            foreach (var etape in _x.Steps.Where(s => s.DiagnosticSessionId is not null))
+            {
+                var session = await Sessions.GetAsync(etape.DiagnosticSessionId!.Value);
+                if (session is not null)
+                    _diagnosticsResume[etape.Id] = session.Hypotheses
+                        .OrderByDescending(h => h.Confidence).Take(3).ToList();
+            }
+        }
+    }
+
+    private async Task OuvrirDiagnostic(Guid stepId)
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var (erreur, sessionId) = await Executions.OuvrirDiagnosticDepuisEtapeAsync(stepId, acteur);
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        Nav.NavigateTo($"/diagnostics/{sessionId}");
+    }
+
+    private async Task DeclarerActionExterne()
+    {
+        if (_x is null || string.IsNullOrWhiteSpace(_declarationTexte)) return;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        await Executions.DeclareExternalActionAsync(Id, _declarationTexte, new DateTimeOffset(_declarationQuand), acteur);
+
+        _declarationTexte = string.Empty;
+        _declarationOuverte = false;
+        await Charger();
     }
 
     private async Task LancerPreCheck()
@@ -563,6 +838,29 @@ else
         await JS.InvokeVoidAsync("n4TelechargerTexte", nom, Convert.ToBase64String(octets));
     }
 
+    private async Task TelechargerRapportPdf()
+    {
+        var markdown = await Rapport.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var octets = Documents.RenderPdf($"Rapport d'exécution — {_x!.WorkflowName}", markdown);
+        var nom = $"N4Sentinel-{_x.EnvironmentCode}-{_x.CorrelationId}.pdf";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets), "application/pdf");
+    }
+
+    private async Task TelechargerRapportWord()
+    {
+        var markdown = await Rapport.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var octets = Documents.RenderDocx($"Rapport d'exécution — {_x!.WorkflowName}", markdown);
+        var nom = $"N4Sentinel-{_x.EnvironmentCode}-{_x.CorrelationId}.docx";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    }
+
     private async Task<string> ActeurAsync()
     {
         var etat = await AuthProvider.GetAuthenticationStateAsync();
@@ -583,12 +881,54 @@ else
     private async Task Reessayer(Guid stepId) =>
         await Executer(async a => await Executions.RetryStepAsync(stepId, a));
 
+    private async Task TelechargerPreuve(Guid stepId)
+    {
+        var etape = _x?.Steps.FirstOrDefault(s => s.Id == stepId);
+        if (etape?.EvidenceFileContent is not { Length: > 0 } octets) return;
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", etape.EvidenceFileName ?? "preuve",
+            Convert.ToBase64String(octets), etape.EvidenceFileContentType ?? "application/octet-stream");
+    }
+
+    private async Task ChoisirPreuve(InputFileChangeEventArgs e)
+    {
+        var fichier = e.File;
+        if (fichier.Size > ExecutionService.EvidenceFileMaxBytes)
+        {
+            _message = $"Fichier trop volumineux : {ExecutionService.EvidenceFileMaxBytes / 1024 / 1024} Mo au maximum.";
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        using var tampon = new MemoryStream();
+        await using (var source = fichier.OpenReadStream(ExecutionService.EvidenceFileMaxBytes))
+            await source.CopyToAsync(tampon);
+
+        _preuveOctets = tampon.ToArray();
+        _preuveNom = fichier.Name;
+        _preuveType = fichier.ContentType;
+    }
+
     private async Task Confirmer(Guid stepId, bool reussi) =>
         await Executer(async a => await Executions.ConfirmStepAsync(
-            stepId, a, string.IsNullOrWhiteSpace(_note) ? null : _note.Trim(), reussi));
+            stepId, a, string.IsNullOrWhiteSpace(_note) ? null : _note.Trim(), reussi,
+            _preuveOctets, _preuveNom, _preuveType));
 
     private async Task Contourner(Guid stepId) =>
         await Executer(async a => await Executions.SkipStepAsync(stepId, a, _justification.Trim()));
+
+    private async Task ApprouverContournement(Guid stepId) =>
+        await Executer(async a => await Executions.ApproveSkipAsync(stepId, a));
+
+    private async Task ForcerArret(Guid stepId) =>
+        await Executer(async a => await Executions.ForcerArretAsync(stepId, a, _justificationArretForce.Trim()));
+
+    private async Task PreparerRollback()
+    {
+        var acteur = await ActeurAsync();
+        _rollbackResultat = await Executions.RollbackToStablePointAsync(Id, acteur, _justificationRollback.Trim());
+        if (_rollbackResultat.Succeeded) _justificationRollback = string.Empty;
+    }
 
     private async Task Executer(Func<string, Task<string?>> action)
     {
@@ -599,7 +939,11 @@ else
         _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
 
         _note = string.Empty;
+        _preuveOctets = null;
+        _preuveNom = null;
+        _preuveType = null;
         _justification = string.Empty;
+        _justificationArretForce = string.Empty;
         _annulationArmee = false;
 
         await Charger();
@@ -637,6 +981,16 @@ else
         PreflightOutcome.Avertissement => "RÉSERVE",
         PreflightOutcome.Echec => c.IsBlocking ? "BLOQUANT" : "ÉCHEC",
         _ => "SANS OBJET"
+    };
+
+    private static string LibelleTypeErreur(StepErrorType t) => t switch
+    {
+        StepErrorType.CommandeRefusee => "Commande refusée",
+        StepErrorType.TimeoutAttente => "Délai dépassé",
+        StepErrorType.ComportementConnuStopPending => "StopPending connu",
+        StepErrorType.ComposantNonConfigure => "Référentiel incomplet",
+        StepErrorType.PrerequisNonSatisfait => "Prérequis non satisfait",
+        _ => "Non classé"
     };
 
     private static string LibelleAction(StepAction a) => a switch

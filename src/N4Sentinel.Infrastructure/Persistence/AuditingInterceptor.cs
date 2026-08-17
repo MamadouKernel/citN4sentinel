@@ -152,7 +152,6 @@ public sealed class AuditingInterceptor(ICurrentUserContext currentUser) : SaveC
         N4Environment e => $"{e.Code} - {e.Name}",
         N4Server s => s.HostName,
         N4Component c => c.LogicalName,
-        ComponentHealthCheck h => h.Name,
         ComponentDependency => "dependance",
         _ => null
     };

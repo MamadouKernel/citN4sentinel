@@ -196,6 +196,49 @@ public sealed class SopTests : IAsyncLifetime
     }
 
     // =======================================================================
+    // FR-097 — Génération depuis un incident clos
+    // =======================================================================
+    [Fact(DisplayName = "Générer un SOP depuis une session de diagnostic non clôturée est refusé")]
+    public async Task GenerateFromDiagnosticSessionAsync_Refuse_Une_Session_Non_Cloturee()
+    {
+        var sessionId = await CreerSessionClotureeAsync(cloturer: false, avecAction: true);
+
+        var r = await _sop.GenerateFromDiagnosticSessionAsync(sessionId, "GEN-INC-1", "SOP généré");
+
+        Assert.False(r.Succeeded);
+        Assert.Contains("CLÔTURÉE", r.Error!);
+    }
+
+    [Fact(DisplayName = "Générer un SOP depuis un incident clos sans action déclarée est refusé")]
+    public async Task GenerateFromDiagnosticSessionAsync_Refuse_Sans_Action_Declaree()
+    {
+        var sessionId = await CreerSessionClotureeAsync(cloturer: true, avecAction: false);
+
+        var r = await _sop.GenerateFromDiagnosticSessionAsync(sessionId, "GEN-INC-1", "SOP généré");
+
+        Assert.False(r.Succeeded);
+        Assert.Contains("Aucune action", r.Error!);
+    }
+
+    [Fact(DisplayName = "Le SOP généré depuis un incident clos reprend les actions réellement déclarées, en brouillon")]
+    public async Task GenerateFromDiagnosticSessionAsync_Reprend_Les_Actions_Declarees()
+    {
+        var sessionId = await CreerSessionClotureeAsync(cloturer: true, avecAction: true);
+
+        var r = await _sop.GenerateFromDiagnosticSessionAsync(sessionId, "GEN-INC-1", "SOP généré");
+        Assert.True(r.Succeeded, r.Error);
+
+        var sop = await _sop.GetAsync(r.SopId);
+        Assert.Equal(LifecycleStatus.Brouillon, sop!.Status);
+        Assert.False(sop.HasBeenExecuted);
+        Assert.Equal(sessionId, sop.SourceDiagnosticSessionId);
+
+        var etape = Assert.Single(sop.Steps);
+        Assert.Contains("Redémarrage manuel du service via la console serveur", etape.Instruction);
+        Assert.Equal(_composantId, etape.ComponentId);
+    }
+
+    // =======================================================================
     // FR-059E/F/G — SOP guidé de reconstitution ActiveMQ/KahaDB
     // =======================================================================
     [Fact(DisplayName = "Le SOP de reconstitution ActiveMQ/KahaDB est créé en brouillon, avec toutes ses étapes")]
@@ -493,6 +536,11 @@ public sealed class SopTests : IAsyncLifetime
         Assert.Equal(1, stats.Abandonne);
         Assert.Equal(0, stats.EnCours);
         Assert.Equal(2, stats.Total);
+
+        // Aucune exécution n'a été attestée : le taux reste null, jamais
+        // déduit du seul fait que la procédure ait été suivie jusqu'au bout.
+        Assert.Equal(0, stats.OutcomesAttestes);
+        Assert.Null(stats.SuccessRatePercent);
     }
 
     [Fact(DisplayName = "Un SOP jamais exécuté a un historique vide")]
@@ -503,6 +551,117 @@ public sealed class SopTests : IAsyncLifetime
         var stats = await _sop.GetUsageStatsAsync(id);
 
         Assert.Equal(0, stats.Total);
+    }
+
+    [Fact(DisplayName = "Un résultat attesté alimente réellement le taux de réussite (FR-089D)")]
+    public async Task DeclareOutcomeAsync_Alimente_Le_Taux_De_Reussite_Reel()
+    {
+        var id = await ValiderSopAsync("Procédure Bridge", "Étape unique");
+
+        var e1 = await _executions.StartAsync(id, "op1", "Test 1", null);
+        var etape1 = (await _executions.GetAsync(e1.ExecutionId))!.Steps.Single().Id;
+        await _executions.ConfirmStepAsync(etape1, "op1", "Preuve 1", null);
+        Assert.Null(await _executions.DeclareOutcomeAsync(e1.ExecutionId, "op1", SopOutcome.ProblemeResolu, null));
+
+        var e2 = await _executions.StartAsync(id, "op2", "Test 2", null);
+        var etape2 = (await _executions.GetAsync(e2.ExecutionId))!.Steps.Single().Id;
+        await _executions.ConfirmStepAsync(etape2, "op2", "Preuve 2", null);
+        Assert.Null(await _executions.DeclareOutcomeAsync(e2.ExecutionId, "op2", SopOutcome.ProblemeNonResolu, "Le service a rechuté."));
+
+        var stats = await _sop.GetUsageStatsAsync(id);
+
+        Assert.Equal(2, stats.OutcomesAttestes);
+        Assert.Equal(50, stats.SuccessRatePercent);
+    }
+
+    [Fact(DisplayName = "Le résultat ne peut être attesté avant la fin de l'exécution")]
+    public async Task DeclareOutcomeAsync_Refuse_Avant_La_Fin_De_L_Execution()
+    {
+        var executionId = await DemarrerExecutionAsync("Première étape", "Seconde étape");
+
+        var erreur = await _executions.DeclareOutcomeAsync(executionId, "op1", SopOutcome.ProblemeResolu, null);
+
+        Assert.NotNull(erreur);
+        Assert.Contains("ne peut être attesté", erreur!);
+    }
+
+    // =======================================================================
+    // FR-087 — Signalement et correction de la documentation
+    // =======================================================================
+    [Fact(DisplayName = "Accepter une correction remplace le contenu de la section citée")]
+    public async Task AcceptFeedbackAsync_Remplace_Le_Contenu_De_La_Section()
+    {
+        var document = new KnowledgeDocument
+        {
+            Title = "Procédure interne",
+            Reference = "PROC-INT-1",
+            Kind = DocumentKind.ProcedureInterne
+        };
+        var indexation = await _knowledge.IndexAsync(document,
+            [new ExtractedSection { PageNumber = 1, Heading = "Redémarrage", Content = "Texte initial, imprécis, mais assez long pour être indexé." }]);
+        await _knowledge.ValidateAsync(indexation.DocumentId, "m.konate");
+
+        var doc = await _knowledge.GetDocumentAsync(indexation.DocumentId);
+        var sectionId = doc!.Sections.Single().Id;
+
+        await _knowledge.ReportIncorrectAsync(
+            indexation.DocumentId, sectionId, "comment redémarrer ?", "Manque une étape.",
+            "Texte corrigé, avec l'étape manquante.", "op1");
+
+        var signalement = (await _knowledge.GetOpenFeedbackAsync(indexation.DocumentId)).Single();
+        Assert.Equal(FeedbackReviewStatus.EnAttente, signalement.ReviewStatus);
+
+        var erreur = await _knowledge.AcceptFeedbackAsync(signalement.Id, "admin", "Confirmé, merci.");
+        Assert.Null(erreur);
+
+        var docApres = await _knowledge.GetDocumentAsync(indexation.DocumentId);
+        Assert.Equal("Texte corrigé, avec l'étape manquante.", docApres!.Sections.Single().Content);
+        Assert.Empty(await _knowledge.GetOpenFeedbackAsync(indexation.DocumentId));
+    }
+
+    [Fact(DisplayName = "Accepter une correction sur un document éditeur n'en modifie jamais le contenu")]
+    public async Task AcceptFeedbackAsync_Ne_Modifie_Jamais_Un_Document_Editeur()
+    {
+        var document = new KnowledgeDocument
+        {
+            Title = "Guide Navis",
+            Reference = "GUIDE-N4-1",
+            Kind = DocumentKind.GuideEditeur
+        };
+        var indexation = await _knowledge.IndexAsync(document,
+            [new ExtractedSection { PageNumber = 1, Heading = "Section", Content = "Texte éditeur d'origine, suffisamment long pour être indexé." }]);
+        await _knowledge.ValidateAsync(indexation.DocumentId, "m.konate");
+
+        var doc = await _knowledge.GetDocumentAsync(indexation.DocumentId);
+        var sectionId = doc!.Sections.Single().Id;
+
+        await _knowledge.ReportIncorrectAsync(
+            indexation.DocumentId, sectionId, "question", null, "Correction proposée.", "op1");
+        var signalement = (await _knowledge.GetOpenFeedbackAsync(indexation.DocumentId)).Single();
+
+        Assert.Null(await _knowledge.AcceptFeedbackAsync(signalement.Id, "admin", null));
+
+        var docApres = await _knowledge.GetDocumentAsync(indexation.DocumentId);
+        Assert.Equal("Texte éditeur d'origine, suffisamment long pour être indexé.", docApres!.Sections.Single().Content);
+    }
+
+    [Fact(DisplayName = "Un rejet sans motif est refusé")]
+    public async Task RejectFeedbackAsync_Exige_Un_Motif()
+    {
+        var document = new KnowledgeDocument { Title = "Doc", Reference = "DOC-1", Kind = DocumentKind.ProcedureInterne };
+        var indexation = await _knowledge.IndexAsync(document,
+            [new ExtractedSection { PageNumber = 1, Content = "Texte suffisamment long pour être indexé correctement." }]);
+        await _knowledge.ValidateAsync(indexation.DocumentId, "m.konate");
+        var doc = await _knowledge.GetDocumentAsync(indexation.DocumentId);
+        var sectionId = doc!.Sections.Single().Id;
+
+        await _knowledge.ReportIncorrectAsync(indexation.DocumentId, sectionId, "question", null, null, "op1");
+        var signalement = (await _knowledge.GetOpenFeedbackAsync(indexation.DocumentId)).Single();
+
+        var erreur = await _knowledge.RejectFeedbackAsync(signalement.Id, "admin", "  ");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("trou dans la traçabilité", erreur!);
     }
 
     // =======================================================================
@@ -641,6 +800,39 @@ public sealed class SopTests : IAsyncLifetime
         db.Executions.Add(execution);
         await db.SaveChangesAsync();
         return execution.Id;
+    }
+
+    private async Task<Guid> CreerSessionClotureeAsync(bool cloturer, bool avecAction)
+    {
+        await using var db = _factory.CreateDbContext();
+
+        var session = new DiagnosticSession
+        {
+            EnvironmentId = _envId,
+            EnvironmentCode = "UAT",
+            Title = "Bridge bloqué en StopPending",
+            RequestedBy = "op1",
+            Phase = cloturer ? DiagnosticPhase.ClotureEtCapitalisation : DiagnosticPhase.DiagnosticEtCorrelation
+        };
+        db.Sessions.Add(session);
+        await db.SaveChangesAsync();
+
+        if (avecAction)
+        {
+            db.ExternalActionDeclarations.Add(new ExternalActionDeclaration
+            {
+                EnvironmentId = _envId,
+                DiagnosticSessionId = session.Id,
+                ComponentId = _composantId,
+                ComponentName = "Bridge",
+                Description = "Redémarrage manuel du service via la console serveur, après échec de la commande à distance.",
+                OccurredAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+                DeclaredBy = "op1"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        return session.Id;
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<N4SentinelDbContext> options)

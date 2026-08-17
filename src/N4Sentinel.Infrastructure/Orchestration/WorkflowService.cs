@@ -453,8 +453,17 @@ public sealed class WorkflowService(
             if (etape.TimeoutSeconds <= 0)
                 return $"L'étape « {etape.Name} » doit porter un délai maximal.";
 
+            if (etape.WarningThresholdSeconds <= 0)
+                return $"L'étape « {etape.Name} » doit porter un seuil d'avertissement (FR-004).";
+
             if (etape.ExpectedSeconds > etape.TimeoutSeconds)
                 return $"L'étape « {etape.Name} » annonce une durée normale supérieure à son délai maximal.";
+
+            if (etape.WarningThresholdSeconds > etape.TimeoutSeconds)
+                return $"L'étape « {etape.Name} » porte un seuil d'avertissement supérieur à son délai maximal.";
+
+            if (etape.RetryDelaySeconds < 0)
+                return $"L'étape « {etape.Name} » ne peut pas porter un délai entre tentatives négatif.";
         }
 
         return null;

@@ -64,6 +64,22 @@ public sealed class SupervisionService(
             };
         }
 
+        // FR-052 : la maintenance déclarée prime sur tout relevé — on ne
+        // rapporte pas un échec pendant une intervention planifiée et connue.
+        if (component.MaintenanceMode)
+        {
+            return new ComponentHealthSnapshot
+            {
+                ComponentId = component.Id,
+                LogicalName = component.LogicalName,
+                EnvironmentCode = component.Environment?.Code ?? "INCONNU",
+                Role = component.Role,
+                State = ComponentState.Maintenance,
+                Verdict = "Composant déclaré en maintenance."
+                        + (component.MaintenanceNote is { Length: > 0 } n ? $" {n}" : string.Empty)
+            };
+        }
+
         if (component.Server is null)
         {
             return new ComponentHealthSnapshot
@@ -290,6 +306,17 @@ public sealed class SupervisionService(
             }
         }
 
+        // FR-051 : le heartbeat littéral — dernier relevé de supervision
+        // persisté pour ce composant, distinct de « maintenant » (l'instant du
+        // relevé courant). Absent tant qu'aucun cycle de fond n'a encore
+        // écrit de signal pour ce composant.
+        snapshot.LastHeartbeatAt = await db.ComponentSignals
+            .AsNoTracking()
+            .Where(s => s.ComponentId == componentId)
+            .OrderByDescending(s => s.CapturedAt)
+            .Select(s => (DateTimeOffset?)s.CapturedAt)
+            .FirstOrDefaultAsync(ct);
+
         return snapshot;
     }
 
@@ -350,6 +377,9 @@ public sealed class ComponentHealthSnapshot
 
     /// <summary>FR-056 : dernière confirmation d'échange normal N4-XPS trouvée dans le journal, si un marqueur est configuré.</summary>
     public DateTimeOffset? LastSyncConfirmedAt { get; set; }
+
+    /// <summary>FR-051 : heartbeat littéral — horodatage du dernier relevé de supervision persisté pour ce composant.</summary>
+    public DateTimeOffset? LastHeartbeatAt { get; set; }
 
     /// <summary>
     /// FR-056. Null : non applicable (hors Bridge/XPS) ou non prouvable

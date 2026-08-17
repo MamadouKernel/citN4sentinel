@@ -88,6 +88,45 @@ else
             </div>
         }
 
+        @if (_x.IsFinished)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 p-5 text-xs space-y-3">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-clipboard2-check text-sky-400"></i> Résultat réel (FR-089D)
+                </h3>
+                <p class="text-[11px] text-slate-500 leading-relaxed">
+                    Avoir suivi la procédure jusqu'au bout ne dit pas si elle a résolu l'incident. Cette
+                    attestation, distincte du statut ci-dessus, est ce qui alimente le taux de réussite
+                    historique proposé pour les futurs incidents similaires (AC-23) — jamais déduit automatiquement.
+                </p>
+                @if (_x.Outcome is { } resultatActuel)
+                {
+                    <div class="p-3 rounded-xl @(resultatActuel == SopOutcome.ProblemeResolu ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-200" : resultatActuel == SopOutcome.ProblemeNonResolu ? "bg-rose-500/10 border border-rose-500/20 text-rose-200" : "bg-slate-800 border border-slate-700 text-slate-300")">
+                        <strong>@LibelleResultat(resultatActuel)</strong>
+                        @if (_x.OutcomeNote is { Length: > 0 } note) { <span> — @note</span> }
+                        <div class="text-[10px] opacity-70 mt-1">
+                            Attesté par @_x.OutcomeDeclaredBy le @_x.OutcomeDeclaredAt!.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                        </div>
+                    </div>
+                }
+                <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="attestant">
+                    <div class="flex flex-wrap items-center gap-2 pt-1">
+                        <select class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white" @bind="_resultatChoisi">
+                            <option value="@SopOutcome.ProblemeResolu">Problème résolu</option>
+                            <option value="@SopOutcome.ProblemeNonResolu">Problème non résolu</option>
+                            <option value="@SopOutcome.Indetermine">Indéterminé</option>
+                        </select>
+                        <input class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white flex-1 min-w-48"
+                               placeholder="Note (facultative)" @bind="_resultatNote" @bind:event="oninput" />
+                        <button class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold transition"
+                                @onclick="DeclarerResultat">
+                            @(_x.Outcome is null ? "Attester le résultat" : "Corriger l'attestation")
+                        </button>
+                    </div>
+                </AuthorizeView>
+            </div>
+        }
+
         <!-- Commandes -->
         <AuthorizeView Policy="@N4Policies.PeutExecuter">
             @if (_x.Status != SopExecutionStatus.Abandonne)
@@ -284,6 +323,8 @@ else
     private string _abandonMotif = string.Empty;
     private bool _retourArme;
     private string _retourMotif = string.Empty;
+    private SopOutcome _resultatChoisi = SopOutcome.ProblemeResolu;
+    private string _resultatNote = string.Empty;
 
     private string? _message;
     private string _messageClass = string.Empty;
@@ -320,6 +361,16 @@ else
 
     private async Task RevenirEnArriere() => await Executer(async a =>
         await Executions.GoBackAsync(Id, a, _retourMotif.Trim()));
+
+    private async Task DeclarerResultat() => await Executer(async a =>
+        await Executions.DeclareOutcomeAsync(Id, a, _resultatChoisi, string.IsNullOrWhiteSpace(_resultatNote) ? null : _resultatNote.Trim()));
+
+    private static string LibelleResultat(SopOutcome o) => o switch
+    {
+        SopOutcome.ProblemeResolu => "Problème résolu",
+        SopOutcome.ProblemeNonResolu => "Problème non résolu",
+        _ => "Indéterminé"
+    };
 
     private async Task Executer(Func<string, Task<string?>> action)
     {

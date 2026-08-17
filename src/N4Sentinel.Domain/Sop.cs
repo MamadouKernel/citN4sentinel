@@ -13,6 +13,21 @@ public enum SopExecutionStatus
 }
 
 /// <summary>
+/// Résultat attesté par l'opérateur, DISTINCT du statut « Terminé » (FR-089D).
+/// Aller au bout des étapes ne dit pas si l'incident est résolu — seul un
+/// humain peut le dire. C'est cette attestation, et elle seule, qui alimente
+/// le taux de réussite historique proposé aux futurs incidents similaires.
+/// </summary>
+public enum SopOutcome
+{
+    ProblemeResolu = 0,
+    ProblemeNonResolu = 1,
+
+    /// <summary>La procédure a été suivie, mais son effet réel reste incertain.</summary>
+    Indetermine = 2
+}
+
+/// <summary>
 /// État d'une étape de SOP. Toujours confirmée à la main par l'opérateur —
 /// jamais déduite d'une commande technique, puisqu'il n'y en a pas : un SOP
 /// n'automatise rien.
@@ -72,6 +87,16 @@ public class Sop : AuditableEntity
     /// <summary>Vrai dès qu'une exécution s'est appuyée sur cette version. Elle devient alors immuable.</summary>
     public bool HasBeenExecuted { get; set; }
 
+    /// <summary>
+    /// Vrai pour les SOP sensibles (ex. reconstitution ActiveMQ/KahaDB) :
+    /// démarrer une exécution exige alors la capacité
+    /// <see cref="N4Policies.PeutExecuterActionsSensibles"/>, pas seulement
+    /// <see cref="N4Policies.PeutExecuter"/> — vérifié à la fois côté écran
+    /// et côté service (<c>SopExecutionService.StartAsync</c>), pas
+    /// seulement côté écran.
+    /// </summary>
+    public bool RequiresElevatedRole { get; set; }
+
     // --- Gabarit structuré (FR-088) ---------------------------------------
     public string? Objective { get; set; }
     public string? Scope { get; set; }
@@ -93,6 +118,14 @@ public class Sop : AuditableEntity
 
     /// <summary>Exécution de workflow à l'origine de ce SOP, si généré à partir d'une opération réussie (FR-089B).</summary>
     public Guid? SourceExecutionId { get; set; }
+
+    /// <summary>
+    /// FR-097 : session de diagnostic CLÔTURÉE à l'origine de ce SOP, si
+    /// généré à partir d'un incident résolu — pas seulement d'une opération
+    /// orchestrée réussie. Capitaliser un incident traité à la main (actions
+    /// externes déclarées) mérite la même reprise qu'une opération pilotée.
+    /// </summary>
+    public Guid? SourceDiagnosticSessionId { get; set; }
 
     public ICollection<SopStep> Steps { get; set; } = [];
     public ICollection<SopAssociation> Associations { get; set; } = [];
@@ -181,6 +214,12 @@ public class SopExecution : AuditableEntity
     public DateTimeOffset? EndedAt { get; set; }
 
     public string? AbandonReason { get; set; }
+
+    /// <summary>Attestation du résultat réel (FR-089D), saisie une fois l'exécution finie.</summary>
+    public SopOutcome? Outcome { get; set; }
+    public string? OutcomeNote { get; set; }
+    public string? OutcomeDeclaredBy { get; set; }
+    public DateTimeOffset? OutcomeDeclaredAt { get; set; }
 
     /// <summary>Identifiant de corrélation, repris dans les journaux applicatifs.</summary>
     public string CorrelationId { get; set; } = Guid.NewGuid().ToString("N")[..12];

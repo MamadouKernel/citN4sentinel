@@ -5,6 +5,8 @@
 @attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
 @rendermode InteractiveServer
 @inject SignatureCatalogue Catalogue
+@inject DiagnosticSettingsService DiagSettings
+@inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>Signatures de diagnostic — N4 Sentinel</PageTitle>
 
@@ -31,12 +33,49 @@
         <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
     }
 
+    <!-- Seuils de corrélation (FR-065) -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
+        <div>
+            <h3 class="text-sm font-bold text-white">Seuils de corrélation</h3>
+            <p class="text-slate-400 mt-1 leading-relaxed">
+                Ces seuils décident à partir de quand une observation est présentée comme établie plutôt
+                que comme une piste. Ils étaient jusqu'ici figés dans le code ; ils sont désormais propres
+                à ce site.
+            </p>
+        </div>
+        @if (_paramMessage is not null)
+        {
+            <div class="p-3 rounded-xl text-[11px] font-semibold border @_paramMessageClass">@_paramMessage</div>
+        }
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Hypothèse établie à partir de (%)</label>
+                <input type="number" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       @bind="_parametres.HypothesisEstablishedThreshold" />
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Signature concluante à partir de (poids %)</label>
+                <input type="number" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       @bind="_parametres.ConclusiveSignatureConfidenceWeight" />
+            </div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Piste sérieuse à partir de (%)</label>
+                <input type="number" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                       @bind="_parametres.SeriousLeadConfidenceThreshold" />
+            </div>
+        </div>
+        <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition"
+                @onclick="EnregistrerParametres">
+            <i class="bi bi-check2"></i> Enregistrer les seuils
+        </button>
+    </div>
+
     <!-- Édition -->
     @if (_edition is not null)
     {
         <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-4 text-xs">
             <h3 class="text-sm font-bold text-white">
-                @(_estNouvelle ? "Nouvelle signature" : $"Modifier « {_edition.Name} »")
+                @(_estNouvelle ? "Nouvelle signature" : $"Modifier « {_edition.Name} » (v{_edition.Version})")
             </h3>
 
             @if (!_estNouvelle && _edition.Origin == SignatureOrigin.Editeur)
@@ -147,13 +186,34 @@
                           placeholder="Un conseil, jamais une action automatique." @bind="_edition.Remediation"></textarea>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+            <div>
+                <label class="block text-slate-400 font-semibold mb-1">Preuves à l'encontre</label>
+                <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                          placeholder="Ce qui, si observé, contredirait cette cause plutôt que de la confirmer."
+                          @bind="_edition.CounterEvidence"></textarea>
+                <p class="text-[10px] text-slate-500 mt-1">
+                    Une signature ne prouve rien seule (FR-063) : documenter ce qui l'infirmerait évite
+                    de la traiter comme un verdict acquis dès qu'elle apparaît dans un journal.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="md:col-span-2">
                     <label class="block text-slate-400 font-semibold mb-1">Référence documentaire</label>
                     <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
                            placeholder="Guide 3.8.25, § 4.2" @bind="_edition.DocumentReference" />
                 </div>
-                <label class="flex items-center gap-2 text-slate-300 cursor-pointer pt-6">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Statut de validation</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_edition.ValidationStatus">
+                        @foreach (var v in Enum.GetValues<LifecycleStatus>())
+                        {
+                            <option value="@v">@v</option>
+                        }
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-1">Seules Validé/Actif participent à un diagnostic réel.</p>
+                </div>
+                <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
                     <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_edition.IsEnabled" />
                     <span>Active</span>
                 </label>
@@ -195,6 +255,7 @@
                         <th class="text-center px-5 py-3 font-bold">Gravité</th>
                         <th class="text-center px-5 py-3 font-bold">Poids</th>
                         <th class="text-center px-5 py-3 font-bold">Origine</th>
+                        <th class="text-center px-5 py-3 font-bold">Version</th>
                         <th class="text-right px-5 py-3 font-bold"></th>
                     </tr>
                 </thead>
@@ -227,6 +288,7 @@
                             <td class="px-5 py-3 text-center text-slate-400">
                                 @(s.Origin == SignatureOrigin.Editeur ? "éditeur" : "site")
                             </td>
+                            <td class="px-5 py-3 text-center font-mono text-slate-400">v@(s.Version)</td>
                             <td class="px-5 py-3 text-right whitespace-nowrap">
                                 <button class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition"
                                         @onclick="() => Modifier(s)">
@@ -255,9 +317,31 @@
     private string? _message;
     private string _messageClass = string.Empty;
 
-    protected override async Task OnInitializedAsync() => await Recharger();
+    private DiagnosticSettings _parametres = new();
+    private string? _paramMessage;
+    private string _paramMessageClass = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Recharger();
+        _parametres = await DiagSettings.GetAsync();
+    }
 
     private async Task Recharger() => _signatures = await Catalogue.GetAllAsync();
+
+    private async Task EnregistrerParametres()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await DiagSettings.SaveAsync(_parametres, acteur);
+        _paramMessage = erreur ?? "Seuils enregistrés.";
+        _paramMessageClass = erreur is null
+            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+            : "border-rose-500/30 bg-rose-500/10 text-rose-300";
+
+        if (erreur is null) _parametres = await DiagSettings.GetAsync();
+    }
 
     private void Nouvelle()
     {
@@ -288,9 +372,12 @@
             Meaning = s.Meaning,
             Remediation = s.Remediation,
             DocumentReference = s.DocumentReference,
+            CounterEvidence = s.CounterEvidence,
             ConfidenceWeight = s.ConfidenceWeight,
             AppliesToRole = s.AppliesToRole,
-            IsEnabled = s.IsEnabled
+            IsEnabled = s.IsEnabled,
+            ValidationStatus = s.ValidationStatus,
+            Version = s.Version
         };
     }
 

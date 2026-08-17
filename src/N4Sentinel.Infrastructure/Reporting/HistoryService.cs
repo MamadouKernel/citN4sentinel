@@ -122,6 +122,27 @@ public sealed class HistoryService(IDbContextFactory<N4SentinelDbContext> dbFact
             }));
         }
 
+        // --- Actions manuelles hors N4 Sentinel, déclarées (§3.10.1/§3.19) ---
+        if (filter is HistoryFilter.Tout or HistoryFilter.Diagnostics or HistoryFilter.Operations)
+        {
+            var actionsExternes = await db.ExternalActionDeclarations
+                .AsNoTracking()
+                .Where(a => a.OccurredAt >= from && a.OccurredAt <= to
+                            && (environmentId == null || a.EnvironmentId == environmentId))
+                .ToListAsync(ct);
+
+            evenements.AddRange(actionsExternes.Select(a => new HistoryEvent
+            {
+                At = a.OccurredAt,
+                Kind = HistoryKind.ActionExterne,
+                Title = a.ComponentName is { Length: > 0 } n ? $"Sur {n}" : "Action déclarée",
+                Detail = a.Description,
+                Actor = a.DeclaredBy,
+                Outcome = "déclarée",
+                Severity = HistorySeverity.Attention
+            }));
+        }
+
         // --- Administration -------------------------------------------------
         if (filter is HistoryFilter.Tout or HistoryFilter.Administration)
         {
@@ -200,12 +221,13 @@ public sealed class HistoryService(IDbContextFactory<N4SentinelDbContext> dbFact
         sb.AppendLine();
         sb.AppendLine("Ce dossier rassemble ce que N4 Sentinel a **enregistré** sur la période : "
                     + "opérations lancées depuis l'application, alertes de supervision, sessions de "
-                    + "diagnostic et actions d'administration.");
+                    + "diagnostic, actions manuelles hors application **déclarées** par un opérateur, et "
+                    + "actions d'administration.");
         sb.AppendLine();
         sb.AppendLine("Il ne couvre pas :");
         sb.AppendLine();
-        sb.AppendLine("- les actions menées **hors de l'application** — arrêt manuel d'un service, "
-                    + "intervention directe sur un serveur, modification de configuration N4 ;");
+        sb.AppendLine("- les actions menées **hors de l'application et jamais déclarées** — N4 Sentinel ne "
+                    + "peut pas les détecter automatiquement ; seule une déclaration les intègre à ce dossier ;");
         sb.AppendLine("- les composants qui ne sont **pas déclarés** au référentiel ;");
         sb.AppendLine("- les périodes pendant lesquelles la supervision n'a pas pu joindre un serveur.");
         sb.AppendLine();
@@ -230,8 +252,8 @@ public sealed class HistoryService(IDbContextFactory<N4SentinelDbContext> dbFact
         if (page.Events.Count == 0)
         {
             sb.AppendLine("> **Aucun événement enregistré sur cette période.** "
-                        + "Cela ne signifie pas qu'il ne s'est rien passé : les actions menées hors de "
-                        + "l'application n'y figurent pas.");
+                        + "Cela ne signifie pas qu'il ne s'est rien passé : une action manuelle hors de "
+                        + "l'application, jamais déclarée, resterait invisible ici.");
             sb.AppendLine();
         }
 
@@ -293,6 +315,34 @@ public sealed class HistoryService(IDbContextFactory<N4SentinelDbContext> dbFact
             }
         }
 
+        // --- Fichiers et empreintes (FR-067) ---------------------------------
+        var sessionIdsPeriode = await db.Sessions.AsNoTracking()
+            .Where(s => s.CreatedAt >= from && s.CreatedAt <= to
+                        && (environmentId == null || s.EnvironmentId == environmentId))
+            .Select(s => s.Id)
+            .ToListAsync(ct);
+
+        var sourcesIncluses = sessionIdsPeriode.Count == 0
+            ? []
+            : await db.Sources.AsNoTracking()
+                .Where(s => sessionIdsPeriode.Contains(s.SessionId) && s.ContentHash != null)
+                .ToListAsync(ct);
+
+        if (sourcesIncluses.Count > 0)
+        {
+            sb.AppendLine("## Fichiers inclus et empreintes");
+            sb.AppendLine();
+            sb.AppendLine("Empreinte SHA-256 du contenu déjà masqué (jamais du brut) — permet de vérifier "
+                        + "qu'un extrait cité dans ce dossier correspond bien à ce qui a été collecté.");
+            sb.AppendLine();
+            sb.AppendLine("| Fichier | Composant | Collecté le | Empreinte SHA-256 |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var s in sourcesIncluses.OrderBy(s => s.CreatedAt))
+                sb.AppendLine($"| {Cellule(s.FileName)} | {Cellule(s.ComponentName ?? "—")} "
+                            + $"| {s.CreatedAt.ToLocalTime():dd/MM HH:mm} | `{s.ContentHash}` |");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("---");
         sb.AppendLine();
         sb.AppendLine($"_N4 Sentinel — dossier produit le {DateTimeOffset.Now:dd/MM/yyyy à HH:mm} "
@@ -309,6 +359,7 @@ public sealed class HistoryService(IDbContextFactory<N4SentinelDbContext> dbFact
         HistoryKind.Incident => "alerte",
         HistoryKind.Diagnostic => "diagnostic",
         HistoryKind.Administration => "administration",
+        HistoryKind.ActionExterne => "action externe déclarée",
         _ => k.ToString()
     };
 
@@ -330,7 +381,8 @@ public enum HistoryKind
     Operation = 0,
     Incident = 1,
     Diagnostic = 2,
-    Administration = 3
+    Administration = 3,
+    ActionExterne = 4
 }
 
 public enum HistorySeverity

@@ -128,10 +128,20 @@ public class WorkflowStep : AuditableEntity
     /// <summary>Durée normale indicative, affichée pendant l'attente.</summary>
     public int ExpectedSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// Au-delà, l'étape est signalée en avertissement dans l'écran d'exécution
+    /// (FR-004) sans être interrompue — c'est un signal précoce, distinct du
+    /// timeout qui, lui, met fin à l'étape.
+    /// </summary>
+    public int WarningThresholdSeconds { get; set; } = 120;
+
     /// <summary>Au-delà, l'étape est en échec ou passe la main, selon la politique.</summary>
     public int TimeoutSeconds { get; set; } = 1800;
 
     public int MaxRetries { get; set; }
+
+    /// <summary>Attente entre deux tentatives, automatiques ou décidées par l'opérateur (FR-004).</summary>
+    public int RetryDelaySeconds { get; set; } = 30;
 
     /// <summary>
     /// Nouvelle tentative automatique. INTERDITE sur une action mutative sauf
@@ -150,6 +160,13 @@ public class WorkflowStep : AuditableEntity
 
     /// <summary>Confirmation explicite de l'opérateur avant exécution.</summary>
     public bool RequiresConfirmation { get; set; }
+
+    /// <summary>
+    /// Preuve jointe obligatoire pour confirmer une intervention manuelle
+    /// (FR-026). Ne s'applique qu'aux étapes <see cref="StepAction.InterventionManuelle"/> ;
+    /// sans elle, la confirmation est refusée tant qu'aucun fichier n'est joint.
+    /// </summary>
+    public bool RequiresEvidenceFile { get; set; }
 
     /// <summary>
     /// Étape déclarée indépendante, donc parallélisable. Par défaut faux : les

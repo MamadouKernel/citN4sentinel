@@ -36,8 +36,11 @@ public sealed class OrchestrationBackgroundService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Laisser la base et les migrations se mettre en place avant de
-        // prononcer un verdict sur des executions en cours.
-        await Task.Delay(TimeSpan.FromSeconds(8), stoppingToken);
+        // prononcer un verdict sur des executions en cours. Un arrêt du service
+        // durant cette attente est normal (redémarrage, recyclage) — jamais une
+        // erreur à journaliser comme telle.
+        try { await Task.Delay(TimeSpan.FromSeconds(8), stoppingToken); }
+        catch (OperationCanceledException) { return; }
 
         try
         {

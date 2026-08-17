@@ -185,6 +185,131 @@ public sealed class KnowledgeService(
     }
 
     // -----------------------------------------------------------------------
+    // Signalement de réponse incorrecte (FR-087)
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Un opérateur ne corrige pas la documentation lui-même : il signale
+    /// qu'un passage cité ne répond pas correctement, pour qu'un
+    /// administrateur du référentiel documentaire le revoie.
+    /// </summary>
+    public async Task ReportIncorrectAsync(
+        Guid documentId, Guid sectionId, string question, string? comment, string? proposedCorrection,
+        string reportedBy, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        db.KnowledgeFeedback.Add(new KnowledgeFeedback
+        {
+            DocumentId = documentId,
+            SectionId = sectionId,
+            Question = question,
+            Comment = comment,
+            ProposedCorrection = string.IsNullOrWhiteSpace(proposedCorrection) ? null : proposedCorrection.Trim(),
+            ReportedBy = reportedBy
+        });
+
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "Réponse signalée incorrecte par {Acteur} sur la section {SectionId} du document {DocumentId}.",
+            reportedBy, sectionId, documentId);
+    }
+
+    /// <summary>Signalements NON résolus d'un document, pour l'écran de revue (FR-087).</summary>
+    public async Task<List<KnowledgeFeedback>> GetOpenFeedbackAsync(Guid documentId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.KnowledgeFeedback
+            .AsNoTracking()
+            .Where(f => f.DocumentId == documentId && !f.Resolved)
+            .OrderByDescending(f => f.CreatedAt)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Accepte la correction proposée (FR-087) : elle remplace le contenu de
+    /// la section citée, et le signalement passe à Acceptée. Refusée pour les
+    /// documents GuideEditeur — « fait autorité, ne se réécrit pas » — où
+    /// l'acceptation ne fait qu'acter le constat, sans toucher au contenu
+    /// (la correction réelle passe par l'éditeur, hors application).
+    /// </summary>
+    public async Task<string?> AcceptFeedbackAsync(
+        Guid feedbackId, string actor, string? note, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var signalement = await db.KnowledgeFeedback
+            .Include(f => f.Section).ThenInclude(s => s!.Document)
+            .FirstOrDefaultAsync(f => f.Id == feedbackId, ct);
+        if (signalement is null) return "Signalement introuvable.";
+
+        if (signalement.ReviewStatus != FeedbackReviewStatus.EnAttente)
+            return $"Ce signalement a déjà été traité ({signalement.ReviewStatus}).";
+
+        var section = signalement.Section;
+        var estAutoritaire = section?.Document?.Kind == DocumentKind.GuideEditeur;
+
+        if (section is not null && signalement.ProposedCorrection is { Length: > 0 } correction && !estAutoritaire)
+        {
+            section.Content = correction;
+            section.SearchText = Normaliser(correction);
+        }
+
+        signalement.ReviewStatus = FeedbackReviewStatus.Acceptee;
+        signalement.ReviewNote = estAutoritaire && signalement.ProposedCorrection is { Length: > 0 }
+            ? $"{note} (Document éditeur : constat acté, correction à porter par l'éditeur, contenu non modifié.)".Trim()
+            : note;
+        signalement.ReviewedBy = actor;
+        signalement.ReviewedAt = DateTimeOffset.UtcNow;
+        signalement.Resolved = true;
+        signalement.ResolvedAt = signalement.ReviewedAt;
+        signalement.ResolvedBy = actor;
+
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Modification, AuditOutcome.Succes, actor,
+            entityType: nameof(KnowledgeFeedback), entityId: signalement.Id.ToString(),
+            entityLabel: signalement.Question,
+            reason: $"Correction acceptée" + (note is { Length: > 0 } ? $" — {note}" : string.Empty), ct: ct);
+
+        return null;
+    }
+
+    /// <summary>Rejette le signalement (FR-087) : le contenu reste inchangé, la décision est motivée et tracée.</summary>
+    public async Task<string?> RejectFeedbackAsync(
+        Guid feedbackId, string actor, string note, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(note))
+            return "Un rejet sans motif n'est pas un rejet motivé, c'est un trou dans la traçabilité.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var signalement = await db.KnowledgeFeedback.FirstOrDefaultAsync(f => f.Id == feedbackId, ct);
+        if (signalement is null) return "Signalement introuvable.";
+
+        if (signalement.ReviewStatus != FeedbackReviewStatus.EnAttente)
+            return $"Ce signalement a déjà été traité ({signalement.ReviewStatus}).";
+
+        signalement.ReviewStatus = FeedbackReviewStatus.Rejetee;
+        signalement.ReviewNote = note.Trim();
+        signalement.ReviewedBy = actor;
+        signalement.ReviewedAt = DateTimeOffset.UtcNow;
+        signalement.Resolved = true;
+        signalement.ResolvedAt = signalement.ReviewedAt;
+        signalement.ResolvedBy = actor;
+
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Modification, AuditOutcome.Succes, actor,
+            entityType: nameof(KnowledgeFeedback), entityId: signalement.Id.ToString(),
+            entityLabel: signalement.Question, reason: $"Correction rejetée — {note}", ct: ct);
+
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
     // Recherche
     // -----------------------------------------------------------------------
     /// <summary>
@@ -196,12 +321,14 @@ public sealed class KnowledgeService(
     {
         if (string.IsNullOrWhiteSpace(question) || question.Trim().Length < 3)
             return KnowledgeAnswer.SansReponse(
-                question, "La question est trop courte pour être recherchée.");
+                question, "La question est trop courte pour être recherchée.",
+                "Reformulez avec au moins quelques mots précis (composant, message d'erreur, procédure).");
 
         var termes = Termes(question);
         if (termes.Count == 0)
             return KnowledgeAnswer.SansReponse(
-                question, "La question ne contient aucun terme exploitable.");
+                question, "La question ne contient aucun terme exploitable.",
+                "Reformulez avec des termes concrets plutôt que des mots outils.");
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -234,12 +361,22 @@ public sealed class KnowledgeService(
                   + "L'application ne compose pas de réponse à partir d'autre chose que de vos documents : "
                   + "elle n'a pas de connaissance propre.";
 
-            return KnowledgeAnswer.SansReponse(question, motif);
+            // FR-085 : une question qui trouve un corpus mais aucun passage
+            // pertinent mérite une escalade explicite, pas seulement l'aveu
+            // d'absence de source — sans quoi l'opérateur pourrait conclure
+            // seul sur un point que personne n'a validé.
+            var recommandation = corpusVide
+                ? "Versez et validez la documentation pertinente avant de rechercher à nouveau."
+                : "Aucune réponse fondée ne peut être composée : escaladez vers le support Navis ou "
+                  + "l'équipe Infrastructure plutôt que de décider sans source établie.";
+
+            return KnowledgeAnswer.SansReponse(question, motif, recommandation);
         }
 
         var passages = scores.Select(x => new KnowledgePassage
         {
             DocumentId = x.Section.DocumentId,
+            SectionId = x.Section.Id,
             DocumentReference = x.Section.Document!.Reference,
             DocumentTitle = x.Section.Document.Title,
             DocumentKind = x.Section.Document.Kind,
@@ -426,6 +563,7 @@ public sealed record IndexResult
 public sealed record KnowledgePassage
 {
     public Guid DocumentId { get; init; }
+    public Guid SectionId { get; init; }
     public string DocumentReference { get; init; } = string.Empty;
     public string DocumentTitle { get; init; } = string.Empty;
     public DocumentKind DocumentKind { get; init; }
@@ -457,6 +595,13 @@ public sealed record KnowledgeAnswer
     public string? Explanation { get; init; }
 
     /// <summary>
+    /// FR-085 : recommandation explicite de vérification/escalade quand
+    /// aucune réponse n'a pu être composée — l'absence de source ne doit
+    /// jamais se lire comme une invitation à conclure seul.
+    /// </summary>
+    public string? EscalationRecommendation { get; init; }
+
+    /// <summary>
     /// Rappel affiché avec toute réponse : la documentation conseille, elle
     /// n'exécute pas (FR-084, FR-085).
     /// </summary>
@@ -465,6 +610,15 @@ public sealed record KnowledgeAnswer
         + "ils ne la prennent pas : aucune action n'est déclenchée depuis cet écran. "
         + "Toute opération passe par un workflow validé, avec ses propres contrôles préalables.";
 
-    public static KnowledgeAnswer SansReponse(string question, string motif) =>
-        new() { Question = question.Trim(), Answered = false, Explanation = motif };
+    public static KnowledgeAnswer SansReponse(string question, string motif, string? recommandation = null) =>
+        new()
+        {
+            Question = question.Trim(),
+            Answered = false,
+            Explanation = motif,
+            EscalationRecommendation = recommandation
+                ?? "Vérifiez la formulation ou consultez directement la documentation versée. "
+                 + "Si le doute porte sur une action à mener, n'improvisez pas : escaladez vers le support "
+                 + "Navis ou l'équipe Infrastructure plutôt que de décider sans source établie."
+        };
 }

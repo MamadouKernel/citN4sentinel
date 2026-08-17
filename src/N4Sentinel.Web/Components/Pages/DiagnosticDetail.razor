@@ -5,13 +5,19 @@
 @using N4Sentinel.Infrastructure.Diagnostic
 @using N4Sentinel.Infrastructure.Procedures
 @using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Security
 @attribute [Authorize(Policy = N4Policies.PeutDiagnostiquer)]
 @rendermode InteractiveServer
 @inject DiagnosticSessionService Sessions
 @inject LogAnalysisService Analyse
+@inject DiagnosticSettingsService DiagSettings
 @inject ReferentialService Referential
 @inject SopService Sop
+@inject N4Sentinel.Infrastructure.Reporting.ReportDocumentService Documents
+@inject N4Sentinel.Infrastructure.Reporting.IncidentReportService IncidentReport
+@inject N4Sentinel.Infrastructure.Security.DocumentAntivirusScanner Antivirus
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>@(_s?.Title ?? "Diagnostic") — N4 Sentinel</PageTitle>
 
@@ -51,11 +57,139 @@ else
 
                 @if (_s.HasBeenAnalysed)
                 {
-                    <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
-                            @onclick="TelechargerRapport">
-                        <i class="bi bi-file-earmark-text"></i> Rapport
-                    </button>
+                    <div class="inline-flex rounded-xl overflow-hidden border border-slate-700">
+                        <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                                @onclick="TelechargerRapport" title="Markdown">
+                            <i class="bi bi-file-earmark-text"></i> Rapport
+                        </button>
+                        <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border-l border-slate-700"
+                                @onclick="TelechargerRapportPdf" title="PDF">
+                            PDF
+                        </button>
+                        <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border-l border-slate-700"
+                                @onclick="TelechargerRapportWord" title="Word">
+                            Word
+                        </button>
+                    </div>
                 }
+            </div>
+        </div>
+
+        <!-- Cycle de traitement en 8 phases (§3.10.1) -->
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3 text-xs">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-diagram-3 text-sky-400"></i> Cycle de traitement
+            </h3>
+            <div class="flex flex-wrap gap-1.5">
+                @foreach (var p in _phases)
+                {
+                    <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold @(p == _s.Phase ? "bg-sky-500/20 text-sky-300 border border-sky-500/40" : "bg-slate-900/60 text-slate-500 border border-slate-800")">
+                        @DiagnosticSessionService.LibellePhase(p)
+                    </span>
+                }
+            </div>
+            <p class="text-[11px] text-slate-500">
+                Le cycle n'est pas linéaire : un retour vers une phase déjà visitée reste possible et s'ajoute
+                à l'historique ci-dessous, il ne l'efface jamais.
+            </p>
+
+            <div class="flex flex-wrap items-end gap-3 pt-2 border-t border-slate-800">
+                <div class="flex-1 min-w-56">
+                    <label class="block text-slate-400 font-semibold mb-1">Passer à la phase</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_phaseChoisie">
+                        @foreach (var p in _phases)
+                        {
+                            <option value="@p">@DiagnosticSessionService.LibellePhase(p)</option>
+                        }
+                    </select>
+                </div>
+                <div class="flex-[2] min-w-64">
+                    <label class="block text-slate-400 font-semibold mb-1">
+                        Note
+                        @if (_phaseChoisie == DiagnosticPhase.ClotureEtCapitalisation)
+                        {
+                            <span class="text-rose-400">— obligatoire : qu'est-ce qui a été vérifié ?</span>
+                        }
+                    </label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Ce qui justifie ce passage (facultatif sauf pour la clôture)." @bind="_phaseNote" />
+                </div>
+                <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
+                        disabled="@_enCoursPhase" @onclick="ChangerPhase">
+                    <i class="bi bi-arrow-right-circle"></i> Enregistrer
+                </button>
+            </div>
+
+            @if (_phaseChoisie == DiagnosticPhase.ClotureEtCapitalisation
+                && _s.HasBeenAnalysed && _s.VerdictEstInconcluant && string.IsNullOrWhiteSpace(_s.EscalatedTo))
+            {
+                <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-2">
+                    <p class="text-[11px] text-amber-200 leading-relaxed">
+                        <i class="bi bi-exclamation-triangle-fill"></i> Ce diagnostic n'aboutit à aucune cause
+                        établie (verdict actuel : @DiagnosticSessionService.LibelleVerdict(_s.Verdict)).
+                        Précisez à qui il est escaladé avant de pouvoir clôturer.
+                    </p>
+                    <input class="w-full bg-slate-900 border border-amber-700/60 rounded-xl px-3 py-2 text-white text-xs"
+                           placeholder="Escaladé vers (ex. Support Navis, équipe Infrastructure)…" @bind="_escaladeVers" />
+                </div>
+            }
+            @if (_s.EscalatedTo is { Length: > 0 })
+            {
+                <p class="text-[11px] text-slate-500">
+                    <i class="bi bi-arrow-up-right-circle"></i> Escaladé vers <strong class="text-slate-300">@_s.EscalatedTo</strong>
+                    par @_s.EscalatedBy le @_s.EscalatedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                </p>
+            }
+
+            @if (_s.PhaseTransitions.Count > 0)
+            {
+                <details class="pt-2">
+                    <summary class="cursor-pointer text-theme-primary hover:underline select-none text-[11px]">
+                        Historique des passages (@_s.PhaseTransitions.Count)
+                    </summary>
+                    <ul class="mt-2 space-y-1.5">
+                        @foreach (var t in _s.PhaseTransitions.OrderByDescending(t => t.EnteredAt))
+                        {
+                            <li class="text-[11px] text-slate-400">
+                                <span class="font-mono text-slate-500">@t.EnteredAt.ToLocalTime().ToString("dd/MM HH:mm")</span>
+                                — <span class="font-semibold text-slate-300">@DiagnosticSessionService.LibellePhase(t.Phase)</span>
+                                par @t.EnteredBy
+                                @if (t.Note is { Length: > 0 })
+                                {
+                                    <span> — @t.Note</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </details>
+            }
+        </div>
+
+        <!-- Rapport d'incident automatique (FR-096) -->
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+            <div>
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-file-earmark-medical text-sky-400"></i> Rapport d'incident
+                </h3>
+                <p class="text-[11px] text-slate-500 mt-1 max-w-2xl">
+                    Assemble la chronologie (détection, prise en charge, fin), les composants concernés, la cause
+                    retenue, les preuves et le SOP éventuellement exécuté. D'autant plus complet que la session a
+                    progressé dans le cycle ci-dessus.
+                </p>
+            </div>
+            <div class="inline-flex rounded-xl overflow-hidden border border-slate-700 shrink-0">
+                <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                        @onclick="TelechargerRapportIncident" title="Markdown">
+                    Markdown
+                </button>
+                <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border-l border-slate-700"
+                        @onclick="TelechargerRapportIncidentPdf" title="PDF">
+                    PDF
+                </button>
+                <button class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border-l border-slate-700"
+                        @onclick="TelechargerRapportIncidentWord" title="Word">
+                    Word
+                </button>
             </div>
         </div>
 
@@ -113,62 +247,230 @@ else
                     <i class="bi bi-arrow-left-right text-sky-400"></i> Comparaison à une référence
                 </h3>
 
-                <div class="flex flex-wrap items-end gap-3">
-                    <div class="flex-1 min-w-56">
-                        <label class="block text-slate-400 font-semibold mb-1">Session de référence (saine, validée)</label>
-                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_referenceChoisie" @bind:after="AppliquerReference">
-                            <option value="@Guid.Empty">Aucune</option>
-                            @foreach (var r in _referencesDisponibles)
+                <div class="flex-1 min-w-56">
+                    <label class="block text-slate-400 font-semibold mb-1">Mode de comparaison</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_referenceKindChoisi" @bind:after="ChangerModeReference">
+                        <option value="@ReferenceKind.PeriodeSaine">Une période saine validée</option>
+                        <option value="@ReferenceKind.ExecutionReussie">Une exécution précédente réussie</option>
+                        <option value="@ReferenceKind.ValeursHabituellesComposant">Les valeurs habituelles du composant</option>
+                        <option value="@ReferenceKind.NoeudPair">Un autre nœud comparable</option>
+                    </select>
+                </div>
+
+                @if (_referenceKindChoisi == ReferenceKind.PeriodeSaine)
+                {
+                    <div class="flex flex-wrap items-end gap-3">
+                        <div class="flex-1 min-w-56">
+                            <label class="block text-slate-400 font-semibold mb-1">Session de référence (saine, validée)</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_referenceChoisie" @bind:after="AppliquerReference">
+                                <option value="@Guid.Empty">Aucune</option>
+                                @foreach (var r in _referencesDisponibles)
+                                {
+                                    <option value="@r.Id">@r.Title — @r.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_comparaison is not null)
+                    {
+                        @if (_comparaison.IsStale)
+                        {
+                            <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                Référence vieille de @_comparaison.ReferenceAgeDays jour(s) — à utiliser avec prudence,
+                                l'environnement a pu évoluer depuis.
+                            </div>
+                        }
+                        @if (_comparaison.ReferenceScopeIncomplete)
+                        {
+                            <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                Certaines sources de la référence n'avaient pas pu être collectées : sa couverture est incomplète.
+                            </div>
+                        }
+
+                        <p class="text-slate-400">
+                            Référence du @_comparaison.Reference.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                            — @_comparaison.Reference.Sources.Count(s => s.Succeeded) journal(aux) analysé(s).
+                        </p>
+
+                        @if (_comparaison.NewFindings.Count == 0)
+                        {
+                            <div class="text-emerald-400"><i class="bi bi-check-circle-fill"></i> Aucun constat absent de la référence.</div>
+                        }
+                        else
+                        {
+                            <div>
+                                <div class="font-semibold text-slate-300 mb-1">@_comparaison.NewFindings.Count constat(s) absent(s) de la référence :</div>
+                                <ul class="space-y-1">
+                                    @foreach (var f in _comparaison.NewFindings.Take(10))
+                                    {
+                                        <li class="text-slate-300">
+                                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold @PastilleSeverite(f.Severity)">@f.Severity</span>
+                                            @f.Title
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    }
+                }
+                else if (_referenceKindChoisi == ReferenceKind.ExecutionReussie)
+                {
+                    <div class="flex flex-wrap items-end gap-3">
+                        <div class="flex-1 min-w-56">
+                            <label class="block text-slate-400 font-semibold mb-1">Exécution de référence (terminée avec succès)</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_executionChoisie" @bind:after="AppliquerReferenceExecution">
+                                <option value="@Guid.Empty">Aucune</option>
+                                @foreach (var e in _executionsDisponibles)
+                                {
+                                    <option value="@e.Id">@e.WorkflowName — @(e.EndedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "date inconnue")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_comparaisonExecution is not null)
+                    {
+                        @if (_comparaisonExecution.IsStale)
+                        {
+                            <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                Référence vieille de @_comparaisonExecution.ReferenceAgeDays jour(s) — à utiliser avec prudence.
+                            </div>
+                        }
+                        <p class="text-slate-400">
+                            @_comparaisonExecution.WorkflowName (v@_comparaisonExecution.WorkflowVersion) —
+                            @(_comparaisonExecution.StartedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—")
+                            → @(_comparaisonExecution.EndedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—")
+                            @if (_comparaisonExecution.Duration is { } d)
                             {
-                                <option value="@r.Id">@r.Title — @r.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</option>
+                                <text> (@d.ToString(@"hh\hmm"))</text>
+                            }
+                        </p>
+                        @if (_comparaisonExecution.SharedIncidentComponentNames.Count > 0)
+                        {
+                            <div class="text-slate-300">
+                                <div class="font-semibold text-slate-300 mb-1">Composants de l'incident déjà touchés par cette exécution réussie :</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach (var c in _comparaisonExecution.SharedIncidentComponentNames)
+                                    {
+                                        <span class="px-2 py-0.5 rounded bg-slate-900/60 border border-slate-700/60 text-[11px]">@c</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-slate-500">Aucun composant de l'incident en cours ne figure dans cette exécution.</div>
+                        }
+                    }
+                }
+                else
+                {
+                    <div class="flex-1 min-w-56">
+                        <label class="block text-slate-400 font-semibold mb-1">Composant à examiner (présent dans cet incident)</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_composantSessionChoisi" @bind:after="ChangerComposantSession">
+                            <option value="@Guid.Empty">Choisir…</option>
+                            @foreach (var c in _composantsSession)
+                            {
+                                <option value="@c.ComponentId">@c.ComponentName</option>
                             }
                         </select>
                     </div>
-                </div>
 
-                @if (_comparaison is not null)
-                {
-                    @if (_comparaison.IsStale)
+                    @if (_referenceKindChoisi == ReferenceKind.NoeudPair && _composantSessionChoisi != Guid.Empty)
                     {
-                        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
-                            <i class="bi bi-exclamation-triangle-fill"></i>
-                            Référence vieille de @_comparaison.ReferenceAgeDays jour(s) — à utiliser avec prudence,
-                            l'environnement a pu évoluer depuis.
-                        </div>
-                    }
-                    @if (_comparaison.ReferenceScopeIncomplete)
-                    {
-                        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
-                            <i class="bi bi-exclamation-triangle-fill"></i>
-                            Certaines sources de la référence n'avaient pas pu être collectées : sa couverture est incomplète.
-                        </div>
-                    }
-
-                    <p class="text-slate-400">
-                        Référence du @_comparaison.Reference.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
-                        — @_comparaison.Reference.Sources.Count(s => s.Succeeded) journal(aux) analysé(s).
-                    </p>
-
-                    @if (_comparaison.NewFindings.Count == 0)
-                    {
-                        <div class="text-emerald-400"><i class="bi bi-check-circle-fill"></i> Aucun constat absent de la référence.</div>
-                    }
-                    else
-                    {
-                        <div>
-                            <div class="font-semibold text-slate-300 mb-1">@_comparaison.NewFindings.Count constat(s) absent(s) de la référence :</div>
-                            <ul class="space-y-1">
-                                @foreach (var f in _comparaison.NewFindings.Take(10))
+                        <div class="flex-1 min-w-56">
+                            <label class="block text-slate-400 font-semibold mb-1">Nœud pair (même rôle, même environnement)</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_pairChoisi" @bind:after="AppliquerReferencePair">
+                                <option value="@Guid.Empty">Aucun</option>
+                                @foreach (var p in _pairsDisponibles)
                                 {
-                                    <li class="text-slate-300">
-                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold @PastilleSeverite(f.Severity)">@f.Severity</span>
-                                        @f.Title
-                                    </li>
+                                    <option value="@p.Id">@p.LogicalName</option>
                                 }
-                            </ul>
+                            </select>
                         </div>
+                    }
+
+                    var comparaisonSignaux = _referenceKindChoisi == ReferenceKind.ValeursHabituellesComposant ? _comparaisonHabituelle : _comparaisonPair;
+                    @if (comparaisonSignaux is not null)
+                    {
+                        @if (comparaisonSignaux.IsIncomplete)
+                        {
+                            <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px]">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                Historique insuffisant pour établir une référence fiable — ne pas s'y fier seul.
+                            </div>
+                        }
+                        <p class="text-slate-400">@comparaisonSignaux.ReferenceLabel</p>
+
+                        @if (comparaisonSignaux.Signals.Count == 0)
+                        {
+                            <div class="text-slate-500">Aucun signal comparable trouvé.</div>
+                        }
+                        else
+                        {
+                            <div class="table-wrap">
+                                <table class="w-full text-[11px]">
+                                    <thead>
+                                        <tr class="text-slate-500 text-left">
+                                            <th class="py-1 pr-3">Signal</th>
+                                            <th class="py-1 pr-3">Référence</th>
+                                            <th class="py-1 pr-3">Observé (incident)</th>
+                                            <th class="py-1">Écart</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var sig in comparaisonSignaux.Signals)
+                                        {
+                                            <tr class="border-t border-slate-800">
+                                                <td class="py-1 pr-3 text-slate-300">@sig.SignalType</td>
+                                                <td class="py-1 pr-3 text-slate-400">@sig.ReferenceValue <span class="text-slate-600">(@sig.ReferenceSampleCount éch.)</span></td>
+                                                <td class="py-1 pr-3 text-slate-300">@(sig.ObservedValue ?? "—")</td>
+                                                <td class="py-1">
+                                                    @if (sig.Differs)
+                                                    {
+                                                        <span class="text-amber-400"><i class="bi bi-exclamation-triangle-fill"></i> Diffère</span>
+                                                    }
+                                                    else if (sig.ObservedValue is not null)
+                                                    {
+                                                        <span class="text-emerald-400"><i class="bi bi-check-circle-fill"></i> Conforme</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
                     }
                 }
+            </div>
+        }
+
+        <!-- Évolution temporelle (FR-073) -->
+        @if (_histogramme.Count > 0)
+        {
+            var maxNombre = _histogramme.Max(h => h.Nombre);
+            <div class="glass-card rounded-2xl border border-slate-800 p-5">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2 mb-1">
+                    <i class="bi bi-bar-chart-fill text-sky-400"></i> Évolution temporelle
+                </h3>
+                <p class="text-[11px] text-slate-500 mb-3">
+                    Première occurrence de chaque constat, par heure — jamais chaque répétition individuelle
+                    (voir le regroupement des occurrences identiques).
+                </p>
+                <div class="flex items-end gap-1 h-24">
+                    @foreach (var h in _histogramme)
+                    {
+                        <div class="flex-1 flex flex-col items-center justify-end gap-1" title="@($"{h.Heure.ToLocalTime():dd/MM HH'h'} — {h.Nombre} constat(s)")">
+                            <div class="w-full bg-sky-500/60 rounded-t" style="height:@(Math.Max(4, h.Nombre * 100 / maxNombre))%"></div>
+                            <div class="text-[9px] text-slate-600 font-mono">@h.Heure.ToLocalTime().ToString("HH'h'")</div>
+                        </div>
+                    }
+                </div>
             </div>
         }
 
@@ -210,6 +512,65 @@ else
             </div>
         }
 
+        <!-- Actions manuelles hors N4 Sentinel (§3.19) -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-person-exclamation text-amber-400"></i> Actions manuelles hors N4 Sentinel
+                    </h3>
+                    <p class="text-[11px] text-slate-500 mt-1 max-w-2xl">
+                        N4 Sentinel ne peut pas détecter une intervention directe sur un serveur (RDP, console,
+                        script manuel). Déclarez-la ici pour qu'elle rejoigne la chronologie et le journal d'audit.
+                    </p>
+                </div>
+                <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer">
+                    <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition"
+                            @onclick="() => _declarationOuverte = !_declarationOuverte">
+                        <i class="bi bi-plus-lg"></i> Déclarer
+                    </button>
+                </AuthorizeView>
+            </div>
+
+            @if (_declarationOuverte)
+            {
+                <div class="p-4 border-b border-slate-800 space-y-2 text-xs">
+                    <textarea rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                              placeholder="Ce qui a été fait, sur quel composant, et pourquoi." @bind="_declarationTexte"></textarea>
+                    <div class="flex items-center gap-2">
+                        <input type="datetime-local" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               @bind="_declarationQuand" />
+                        <button class="px-3 py-1.5 rounded-lg btn-theme-primary text-white font-bold text-xs transition" @onclick="DeclarerActionExterne">
+                            Confirmer
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @if (_s.ExternalActions.Count == 0)
+            {
+                <div class="p-6 text-center text-slate-500 text-xs">Aucune action externe déclarée.</div>
+            }
+            else
+            {
+                <div class="divide-y divide-slate-800/60 text-xs">
+                    @foreach (var a in _s.ExternalActions.OrderBy(a => a.OccurredAt))
+                    {
+                        <div class="p-3.5">
+                            <div class="text-slate-200">@a.Description</div>
+                            <div class="text-[10px] text-slate-500 mt-0.5">
+                                @a.OccurredAt.ToLocalTime().ToString("dd/MM HH:mm") &middot; déclaré par @a.DeclaredBy
+                                @if (a.ComponentName is { Length: > 0 })
+                                {
+                                    <span> &middot; @a.ComponentName</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
         <!-- Collecte -->
         <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
             <div class="p-5 border-b border-slate-800">
@@ -248,7 +609,7 @@ else
                         Ou verser un fichier
                     </label>
                     <div class="flex flex-wrap items-center gap-3">
-                        <InputFile OnChange="Verser" accept=".log,.txt,.out" disabled="@_enCours"
+                        <InputFile OnChange="Verser" accept=".log,.txt,.out,.zip" multiple disabled="@_enCours"
                                    class="text-slate-300 text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200 file:font-bold file:cursor-pointer disabled:opacity-40" />
                         <select class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_composantImport">
                             <option value="@Guid.Empty">Composant non précisé</option>
@@ -301,6 +662,10 @@ else
                                             @if (!src.Succeeded)
                                             {
                                                 <span class="text-rose-300">@src.Error</span>
+                                                @if (src.FailureReason is { } motif)
+                                                {
+                                                    <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/15 text-rose-300">@LibelleMotifEchec(motif)</span>
+                                                }
                                             }
                                             else if (src.Truncated)
                                             {
@@ -329,6 +694,18 @@ else
                                                     @if (src.DetectedVersion is { Length: > 0 } v)
                                                     {
                                                         <span>version @v (détectée)</span>
+                                                    }
+                                                    @if (src.DetectedLogType is { Length: > 0 } t)
+                                                    {
+                                                        <span><i class="bi bi-file-earmark-code"></i> @t</span>
+                                                    }
+                                                    @if (src.DetectedTimeZone is { Length: > 0 } tz)
+                                                    {
+                                                        <span><i class="bi bi-clock"></i> fuseau @tz (détecté)</span>
+                                                    }
+                                                    @if (src.CorrelationId is { Length: > 0 } corr)
+                                                    {
+                                                        <span title="Identifiant de corrélation"><i class="bi bi-link-45deg"></i> @corr</span>
                                                     }
                                                 </div>
                                             </td>
@@ -374,10 +751,10 @@ else
                                 </div>
                                 <div class="flex items-center gap-2 shrink-0">
                                     <div class="w-24 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                                        <div class="h-full rounded-full @(h.EstEtablie ? "bg-emerald-500" : "bg-amber-500")"
+                                        <div class="h-full rounded-full @(h.EstEtablie(_seuilEtablie) ? "bg-emerald-500" : "bg-amber-500")"
                                              style="width:@h.Confidence%"></div>
                                     </div>
-                                    <span class="font-mono text-[11px] @(h.EstEtablie ? "text-emerald-400" : "text-amber-400")">
+                                    <span class="font-mono text-[11px] @(h.EstEtablie(_seuilEtablie) ? "text-emerald-400" : "text-amber-400")">
                                         @h.Confidence %
                                     </span>
                                 </div>
@@ -385,7 +762,7 @@ else
 
                             <p class="text-slate-200 leading-relaxed">@h.Statement</p>
 
-                            @if (!h.EstEtablie)
+                            @if (!h.EstEtablie(_seuilEtablie))
                             {
                                 <p class="text-[11px] text-amber-300/80">
                                     Confiance insuffisante pour conclure : à traiter comme une piste.
@@ -393,6 +770,22 @@ else
                             }
 
                             <p class="text-slate-400"><strong>Sur quoi elle repose.</strong> @h.Evidence</p>
+
+                            @if (h.CounterEvidence is { Length: > 0 })
+                            {
+                                <p class="text-slate-400"><strong>Ce qui la contredirait.</strong> @h.CounterEvidence</p>
+                            }
+
+                            <div class="flex flex-wrap gap-x-4 text-[10px] text-slate-600 font-mono">
+                                @if (h.EvidenceObservedAt is not null)
+                                {
+                                    <span>dernière observation : @h.EvidenceObservedAt.Value.ToLocalTime().ToString("dd/MM HH:mm:ss")</span>
+                                }
+                                @if (h.RuleVersion is { Length: > 0 })
+                                {
+                                    <span>règle : @h.RuleVersion</span>
+                                }
+                            </div>
 
                             @if (h.Recommendation is { Length: > 0 })
                             {
@@ -436,6 +829,19 @@ else
                                             <span class="text-rose-400 ml-2">@stats.Abandonne abandonnée(s)</span>
                                         }
                                         <span class="ml-2 text-slate-500">sur @stats.Total au total</span>
+                                        @if (stats.SuccessRatePercent is { } taux)
+                                        {
+                                            <span class="ml-2 px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold"
+                                                  title="@($"{stats.OutcomesAttestes} résultat(s) attesté(s) par un opérateur — jamais déduit du seul fait que la procédure ait été suivie jusqu'au bout.")">
+                                                @taux % de réussite attestée
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ml-2 text-slate-600" title="Aucun opérateur n'a encore attesté du résultat réel d'une exécution de ce SOP.">
+                                                taux de réussite non attesté
+                                            </span>
+                                        }
                                     }
                                 </div>
                             </div>
@@ -455,13 +861,55 @@ else
 
                 @if (_s.Findings.Count > 0)
                 {
-                    <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
-                            @bind="_filtreGravite">
-                        <option value="-1">Toutes gravités</option>
-                        <option value="3">Critique seulement</option>
-                        <option value="2">Erreur et au-dessus</option>
-                        <option value="1">Avertissement et au-dessus</option>
-                    </select>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                                @bind="_filtreGravite">
+                            <option value="-1">Toutes gravités</option>
+                            <option value="3">Critique seulement</option>
+                            <option value="2">Erreur et au-dessus</option>
+                            <option value="1">Avertissement et au-dessus</option>
+                        </select>
+                        <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                                @bind="_filtreDomaineConstat">
+                            <option value="-1">Tous domaines</option>
+                            @foreach (var d in Enum.GetValues<DiagnosticDomain>())
+                            {
+                                <option value="@((int)d)">@LogAnalysisService.Libelle(d)</option>
+                            }
+                        </select>
+                        <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                                @bind="_filtreComposantConstat">
+                            <option value="">Tous composants</option>
+                            @foreach (var nom in NomsComposantsVus())
+                            {
+                                <option value="@nom">@nom</option>
+                            }
+                        </select>
+                        <input type="datetime-local" title="À partir de"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                               @bind="_filtreDe" />
+                        <span class="text-slate-500">—</span>
+                        <input type="datetime-local" title="Jusqu'à"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                               @bind="_filtreA" />
+                        <select class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                                @bind="_filtreServeur">
+                            <option value="">Tous serveurs</option>
+                            @foreach (var srv in ServeursVus())
+                            {
+                                <option value="@srv">@srv</option>
+                            }
+                        </select>
+                        <input type="text" placeholder="Code (ex. AMQ-CORRUPT)"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-40"
+                               @bind="_filtreCode" @bind:event="oninput" />
+                        <input type="text" placeholder="Id. de corrélation"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-40"
+                               @bind="_filtreCorrelation" @bind:event="oninput" />
+                        <input type="text" placeholder="Rechercher un texte..."
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-48"
+                               @bind="_filtreTexte" @bind:event="oninput" />
+                    </div>
                 }
             </div>
 
@@ -480,6 +928,16 @@ else
                 <div class="divide-y divide-slate-800">
                     @foreach (var f in _s.Findings
                         .Where(x => _filtreGravite < 0 || (int)x.Severity >= _filtreGravite)
+                        .Where(x => _filtreDomaineConstat < 0 || (int)x.Domain == _filtreDomaineConstat)
+                        .Where(x => string.IsNullOrEmpty(_filtreComposantConstat) || NomComposant(x) == _filtreComposantConstat)
+                        .Where(x => _filtreDe is null || x.FirstSeenAt is null || x.FirstSeenAt >= new DateTimeOffset(_filtreDe.Value))
+                        .Where(x => _filtreA is null || x.LastSeenAt is null || x.LastSeenAt <= new DateTimeOffset(_filtreA.Value))
+                        .Where(x => string.IsNullOrEmpty(_filtreServeur) || ServeurConstat(x) == _filtreServeur)
+                        .Where(x => string.IsNullOrEmpty(_filtreCode) || (x.SignatureCode ?? "").Contains(_filtreCode, StringComparison.OrdinalIgnoreCase))
+                        .Where(x => string.IsNullOrEmpty(_filtreCorrelation) || (CorrelationConstat(x) ?? "").Contains(_filtreCorrelation, StringComparison.OrdinalIgnoreCase))
+                        .Where(x => string.IsNullOrEmpty(_filtreTexte)
+                                 || x.Title.Contains(_filtreTexte, StringComparison.OrdinalIgnoreCase)
+                                 || x.SampleLine.Contains(_filtreTexte, StringComparison.OrdinalIgnoreCase))
                         .OrderByDescending(x => x.Severity).ThenByDescending(x => x.OccurrenceCount))
                     {
                         <div class="p-5 space-y-2 text-xs">
@@ -496,6 +954,7 @@ else
 
                             <div class="text-slate-500">
                                 @LogAnalysisService.Libelle(f.Domain)
+                                <span class="font-mono"> &middot; @NomComposant(f)</span>
                                 @if (f.SignatureCode is { Length: > 0 })
                                 {
                                     <span class="font-mono"> &middot; @f.SignatureCode</span>
@@ -509,6 +968,24 @@ else
                                     <span> &middot; de @f.FirstSeenAt.Value.ToString("HH:mm:ss") à @f.LastSeenAt?.ToString("HH:mm:ss")</span>
                                 }
                             </div>
+
+                            @if (f.ThreadName is not null || f.LoggerClass is not null || f.TransactionId is not null)
+                            {
+                                <div class="text-[10px] text-slate-600 font-mono flex flex-wrap gap-x-3">
+                                    @if (f.ThreadName is not null)
+                                    {
+                                        <span>thread: @f.ThreadName</span>
+                                    }
+                                    @if (f.LoggerClass is not null)
+                                    {
+                                        <span>classe: @f.LoggerClass</span>
+                                    }
+                                    @if (f.TransactionId is not null)
+                                    {
+                                        <span>transaction: @f.TransactionId</span>
+                                    }
+                                </div>
+                            }
 
                             @if (f.Meaning is { Length: > 0 })
                             {
@@ -546,6 +1023,20 @@ else
     private Guid _composantId;
     private Guid _composantImport;
     private int _filtreGravite = -1;
+
+    /// <summary>Filtrage des constats par domaine, composant et plage temporelle (FR-077).</summary>
+    private int _filtreDomaineConstat = -1;
+    private string _filtreComposantConstat = string.Empty;
+    private DateTime? _filtreDe;
+    private DateTime? _filtreA;
+    private string _filtreServeur = string.Empty;
+    private string _filtreCode = string.Empty;
+    private string _filtreCorrelation = string.Empty;
+    private string _filtreTexte = string.Empty;
+
+    /// <summary>FR-065 : seuil administrable, plus jamais figé à 70.</summary>
+    private int _seuilEtablie = 70;
+
     private bool _enCours;
 
     /// <summary>
@@ -563,26 +1054,75 @@ else
 
     // --- FR-061/066 ------------------------------------------------------
     private List<TimelineEntry> _chronologie = [];
+    private List<(DateTimeOffset Heure, int Nombre)> _histogramme = [];
+    private bool _declarationOuverte;
+    private string _declarationTexte = string.Empty;
+    private DateTime _declarationQuand = DateTime.Now;
     private List<DiagnosticSession> _referencesDisponibles = [];
     private Guid _referenceChoisie;
     private ReferenceComparison? _comparaison;
+    private ReferenceKind _referenceKindChoisi;
+    private List<WorkflowExecution> _executionsDisponibles = [];
+    private Guid _executionChoisie;
+    private ExecutionReferenceComparison? _comparaisonExecution;
+    private List<(Guid ComponentId, string ComponentName)> _composantsSession = [];
+    private Guid _composantSessionChoisi;
+    private ComponentSignalComparison? _comparaisonHabituelle;
+    private List<N4Component> _pairsDisponibles = [];
+    private Guid _pairChoisi;
+    private ComponentSignalComparison? _comparaisonPair;
 
     // --- FR-089D/AC-23 : SOP validés suggérés pour les composants/signatures de cette session ---
     private List<(Domain.Sop Sop, SopUsageStats Stats)> _sopSuggeres = [];
 
+    // --- §3.10.1 : cycle en 8 phases ---------------------------------------
+    private static readonly DiagnosticPhase[] _phases = Enum.GetValues<DiagnosticPhase>();
+    private DiagnosticPhase _phaseChoisie;
+    private string _phaseNote = string.Empty;
+    private string _escaladeVers = string.Empty;
+    private bool _enCoursPhase;
+
     protected override async Task OnParametersSetAsync()
     {
         await Charger();
+        _seuilEtablie = (await DiagSettings.GetAsync()).HypothesisEstablishedThreshold;
         if (_s is not null)
         {
+            _phaseChoisie = _s.Phase;
             _composants = await Referential.GetComponentsAsync(_s.EnvironmentId);
             _referencesDisponibles = (await Sessions.GetBaselineCandidatesAsync(_s.EnvironmentId))
                 .Where(r => r.Id != _s.Id)
                 .ToList();
             _referenceChoisie = _s.ReferenceSessionId ?? Guid.Empty;
             _chronologie = DiagnosticSessionService.BuildTimeline(_s);
+            _histogramme = DiagnosticSessionService.BuildHourlyHistogram(_s);
             _comparaison = _s.ReferenceSessionId is not null
                 ? await Sessions.CompareToReferenceAsync(_s.Id)
+                : null;
+
+            // --- FR-066 : 3 modes de comparaison supplémentaires -------------
+            _referenceKindChoisi = _s.ReferenceKind;
+
+            _composantsSession = await Sessions.GetSessionComponentsAsync(_s.Id);
+            if (_composantSessionChoisi == Guid.Empty && _composantsSession.Count == 1)
+                _composantSessionChoisi = _composantsSession[0].ComponentId;
+
+            _executionsDisponibles = await Sessions.GetSuccessfulExecutionCandidatesAsync(_s.EnvironmentId);
+            _executionChoisie = _s.ReferenceExecutionId ?? Guid.Empty;
+            _comparaisonExecution = _s.ReferenceKind == ReferenceKind.ExecutionReussie && _s.ReferenceExecutionId is not null
+                ? await Sessions.CompareToSuccessfulExecutionAsync(_s.Id)
+                : null;
+
+            _comparaisonHabituelle = _s.ReferenceKind == ReferenceKind.ValeursHabituellesComposant && _s.ReferenceComponentId is { } composantHabituelId
+                ? await Sessions.CompareToUsualValuesAsync(_s.Id, composantHabituelId)
+                : null;
+
+            _pairChoisi = _s.ReferenceKind == ReferenceKind.NoeudPair ? (_s.ReferenceComponentId ?? Guid.Empty) : Guid.Empty;
+            _pairsDisponibles = _composantSessionChoisi != Guid.Empty
+                ? await Sessions.GetPeerCandidatesAsync(_composantSessionChoisi)
+                : [];
+            _comparaisonPair = _s.ReferenceKind == ReferenceKind.NoeudPair && _composantSessionChoisi != Guid.Empty && _s.ReferenceComponentId is { } pairId
+                ? await Sessions.CompareToPeerNodeAsync(_s.Id, _composantSessionChoisi, pairId)
                 : null;
 
             await ChargerSuggestionsSopAsync();
@@ -620,6 +1160,22 @@ else
 
     private async Task Charger() => _s = await Sessions.GetAsync(Id);
 
+    private async Task DeclarerActionExterne()
+    {
+        if (_s is null || string.IsNullOrWhiteSpace(_declarationTexte)) return;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        await Sessions.DeclareExternalActionAsync(
+            Id, _declarationTexte, new DateTimeOffset(_declarationQuand), acteur,
+            componentId: null, componentName: null);
+
+        _declarationTexte = string.Empty;
+        _declarationOuverte = false;
+        await Charger();
+    }
+
     private async Task BasculerReference()
     {
         if (_s is null) return;
@@ -635,12 +1191,134 @@ else
         await OnParametersSetAsync();
     }
 
+    private async Task ChangerPhase()
+    {
+        if (_s is null) return;
+
+        _enCoursPhase = true;
+        _message = null;
+
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+        var erreur = await Sessions.AdvancePhaseAsync(
+            _s.Id, _phaseChoisie, acteur, string.IsNullOrWhiteSpace(_phaseNote) ? null : _phaseNote,
+            string.IsNullOrWhiteSpace(_escaladeVers) ? null : _escaladeVers);
+
+        _enCoursPhase = false;
+
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        _phaseNote = string.Empty;
+        _escaladeVers = string.Empty;
+        _message = $"Phase enregistrée : {DiagnosticSessionService.LibellePhase(_phaseChoisie)}.";
+        _messageClass = "bg-emerald-500/10 border-emerald-500/20 text-emerald-300";
+        await Charger();
+    }
+
+    private static string LibelleMotifEchec(LogCollectionFailureReason motif) => motif switch
+    {
+        LogCollectionFailureReason.AccesRefuse => "accès refusé",
+        LogCollectionFailureReason.ConnecteurIndisponible => "connecteur indisponible",
+        LogCollectionFailureReason.Timeout => "timeout",
+        LogCollectionFailureReason.SourceAbsente => "source absente",
+        LogCollectionFailureReason.FormatNonReconnu => "format non reconnu",
+        LogCollectionFailureReason.ControleNonConfigure => "contrôle non configuré",
+        _ => motif.ToString()
+    };
+
     private async Task AppliquerReference()
     {
         if (_s is null) return;
 
         var erreur = await Sessions.SetReferenceAsync(
             _s.Id, _referenceChoisie == Guid.Empty ? null : _referenceChoisie);
+
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+
+    private async Task ChangerModeReference()
+    {
+        if (_s is null) return;
+
+        var erreur = await Sessions.SetReferenceKindAsync(_s.Id, _referenceKindChoisi);
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+
+    private async Task AppliquerReferenceExecution()
+    {
+        if (_s is null) return;
+
+        var erreur = await Sessions.SetReferenceExecutionAsync(
+            _s.Id, _executionChoisie == Guid.Empty ? null : _executionChoisie);
+
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+
+    /// <summary>
+    /// Change quel composant de cet incident est examiné — recharge les
+    /// nœuds pairs candidats, et si le mode actif est « valeurs habituelles »,
+    /// applique directement ce composant comme référence.
+    /// </summary>
+    private async Task ChangerComposantSession()
+    {
+        _pairsDisponibles = _composantSessionChoisi != Guid.Empty
+            ? await Sessions.GetPeerCandidatesAsync(_composantSessionChoisi)
+            : [];
+
+        if (_s is not null && _referenceKindChoisi == ReferenceKind.ValeursHabituellesComposant)
+            await AppliquerReferenceComposant();
+    }
+
+    private async Task AppliquerReferenceComposant()
+    {
+        if (_s is null) return;
+
+        var erreur = await Sessions.SetReferenceComponentAsync(
+            _s.Id, _composantSessionChoisi == Guid.Empty ? null : _composantSessionChoisi);
+
+        if (erreur is not null)
+        {
+            _message = erreur;
+            _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300";
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+
+    private async Task AppliquerReferencePair()
+    {
+        if (_s is null) return;
+
+        var erreur = await Sessions.SetReferenceComponentAsync(
+            _s.Id, _pairChoisi == Guid.Empty ? null : _pairChoisi);
 
         if (erreur is not null)
         {
@@ -672,25 +1350,58 @@ else
         Signaler(r);
     }
 
+    /// <summary>FR-070 : un ou plusieurs fichiers, ou une archive — chacun scanné avant tout traitement.</summary>
+    private const int NombreMaxFichiers = 20;
+
     private async Task Verser(InputFileChangeEventArgs e)
     {
         _enCours = true;
         _message = null;
+        var composantChoisi = _composantImport == Guid.Empty ? (Guid?)null : _composantImport;
+        var resultats = new List<(string Fichier, SourceResult Resultat)>();
 
         try
         {
-            var fichier = e.File;
+            foreach (var fichier in e.GetMultipleFiles(NombreMaxFichiers))
+            {
+                using var tampon = new MemoryStream();
+                await using (var flux = fichier.OpenReadStream(TailleMaximale))
+                    await flux.CopyToAsync(tampon);
 
-            using var flux = fichier.OpenReadStream(TailleMaximale);
-            using var lecteur = new StreamReader(flux);
-            var contenu = await lecteur.ReadToEndAsync();
+                var octets = tampon.ToArray();
 
-            var r = await Analyse.ImportAsync(
-                Id, fichier.Name, contenu,
-                _composantImport == Guid.Empty ? null : _composantImport);
+                var scan = await Antivirus.ScanAsync(octets);
+                if (scan.Verdict == ScanVerdict.Infecte)
+                {
+                    resultats.Add((fichier.Name, SourceResult.Failed(
+                        $"Versement refusé : menace détectée par l'antivirus"
+                        + (scan.ThreatName is { Length: > 0 } m ? $" ({m})" : ".") + ".")));
+                    continue;
+                }
+
+                if (fichier.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var archive = new System.IO.Compression.ZipArchive(
+                        new MemoryStream(octets), System.IO.Compression.ZipArchiveMode.Read);
+
+                    foreach (var entree in archive.Entries.Where(en => en.Length > 0))
+                    {
+                        using var lecteurEntree = new StreamReader(entree.Open());
+                        var contenuEntree = await lecteurEntree.ReadToEndAsync();
+                        var rEntree = await Analyse.ImportAsync(Id, entree.Name, contenuEntree, composantChoisi);
+                        resultats.Add((entree.Name, rEntree));
+                    }
+                    continue;
+                }
+
+                using var lecteur = new StreamReader(new MemoryStream(octets));
+                var contenu = await lecteur.ReadToEndAsync();
+                var r = await Analyse.ImportAsync(Id, fichier.Name, contenu, composantChoisi);
+                resultats.Add((fichier.Name, r));
+            }
 
             await Charger();
-            Signaler(r);
+            SignalerLot(resultats);
         }
         catch (IOException)
         {
@@ -702,6 +1413,23 @@ else
         {
             _enCours = false;
         }
+    }
+
+    private void SignalerLot(List<(string Fichier, SourceResult Resultat)> resultats)
+    {
+        if (resultats.Count == 0) { _message = "Aucun fichier exploitable dans l'archive."; _messageClass = "bg-rose-500/10 border-rose-500/20 text-rose-300"; return; }
+        if (resultats.Count == 1) { Signaler(resultats[0].Resultat); return; }
+
+        var reussis = resultats.Count(x => x.Resultat.Succeeded);
+        var echecs = resultats.Where(x => !x.Resultat.Succeeded).ToList();
+
+        _message = $"{reussis}/{resultats.Count} fichier(s) versé(s) avec succès."
+                 + (echecs.Count > 0
+                     ? $" En échec : {string.Join(", ", echecs.Select(x => $"{x.Fichier} ({x.Resultat.Error})"))}"
+                     : string.Empty);
+        _messageClass = echecs.Count == 0
+            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+            : "bg-amber-500/10 border-amber-500/20 text-amber-300";
     }
 
     private async Task Conclure()
@@ -728,6 +1456,62 @@ else
         await JS.InvokeVoidAsync("n4TelechargerTexte", nom, Convert.ToBase64String(octets));
     }
 
+    private async Task TelechargerRapportPdf()
+    {
+        var markdown = await Sessions.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var octets = Documents.RenderPdf($"Diagnostic — {_s!.Title}", markdown);
+        var nom = $"N4Sentinel-diagnostic-{_s.EnvironmentCode}-{_s.CreatedAt:yyyyMMdd-HHmm}.pdf";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets), "application/pdf");
+    }
+
+    private async Task TelechargerRapportWord()
+    {
+        var markdown = await Sessions.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var octets = Documents.RenderDocx($"Diagnostic — {_s!.Title}", markdown);
+        var nom = $"N4Sentinel-diagnostic-{_s.EnvironmentCode}-{_s.CreatedAt:yyyyMMdd-HHmm}.docx";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    }
+
+    private async Task TelechargerRapportIncident()
+    {
+        var markdown = await IncidentReport.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var nom = $"N4Sentinel-incident-{_s!.EnvironmentCode}-{_s.CreatedAt:yyyyMMdd-HHmm}.md";
+        await JS.InvokeVoidAsync("n4TelechargerTexte", nom,
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(markdown)));
+    }
+
+    private async Task TelechargerRapportIncidentPdf()
+    {
+        var markdown = await IncidentReport.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var octets = Documents.RenderPdf($"Rapport d'incident — {_s!.Title}", markdown);
+        var nom = $"N4Sentinel-incident-{_s.EnvironmentCode}-{_s.CreatedAt:yyyyMMdd-HHmm}.pdf";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets), "application/pdf");
+    }
+
+    private async Task TelechargerRapportIncidentWord()
+    {
+        var markdown = await IncidentReport.BuildMarkdownAsync(Id);
+        if (markdown is null) return;
+
+        var octets = Documents.RenderDocx($"Rapport d'incident — {_s!.Title}", markdown);
+        var nom = $"N4Sentinel-incident-{_s.EnvironmentCode}-{_s.CreatedAt:yyyyMMdd-HHmm}.docx";
+
+        await JS.InvokeVoidAsync("n4TelechargerFichier", nom, Convert.ToBase64String(octets),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    }
+
     private void Signaler(SourceResult r)
     {
         if (!r.Succeeded)
@@ -747,17 +1531,21 @@ else
 
     private string BordureVerdict() => _s!.Verdict switch
     {
+        DiagnosticVerdict.CauseConfirmee => "border-emerald-500/40 bg-emerald-500/10",
         DiagnosticVerdict.CauseCaracterisee => "border-emerald-500/30 bg-emerald-500/5",
         DiagnosticVerdict.PisteSerieuse => "border-sky-500/30 bg-sky-500/5",
         DiagnosticVerdict.AnomaliesSansCause => "border-amber-500/30 bg-amber-500/5",
+        DiagnosticVerdict.InformationsInsuffisantes => "border-slate-600 bg-slate-900/60",
         _ => "border-slate-700 bg-slate-900/40"
     };
 
     private string IconeVerdict() => _s!.Verdict switch
     {
+        DiagnosticVerdict.CauseConfirmee => "bi-patch-check-fill text-emerald-400",
         DiagnosticVerdict.CauseCaracterisee => "bi-check-circle-fill text-emerald-400",
         DiagnosticVerdict.PisteSerieuse => "bi-signpost-split-fill text-sky-400",
         DiagnosticVerdict.AnomaliesSansCause => "bi-question-circle-fill text-amber-400",
+        DiagnosticVerdict.InformationsInsuffisantes => "bi-slash-circle text-slate-400",
         _ => "bi-dash-circle text-slate-400"
     };
 
@@ -768,4 +1556,30 @@ else
         SignatureSeverity.Avertissement => "bg-amber-500/15 text-amber-300",
         _ => "bg-slate-800 text-slate-400"
     };
+
+    /// <summary>
+    /// Un constat n'a pas de composant en propre : il l'hérite de la source
+    /// où il a été relevé (FR-077). Sans source retrouvée ou sans composant
+    /// identifié sur celle-ci, on le dit tel quel plutôt que de l'omettre.
+    /// </summary>
+    private string NomComposant(LogFinding f) =>
+        _s?.Sources.FirstOrDefault(src => src.Id == f.SourceId)?.ComponentName ?? "(composant non identifié)";
+
+    private IEnumerable<string> NomsComposantsVus() =>
+        _s is null
+            ? []
+            : _s.Sources.Select(s => s.ComponentName).Where(n => n is { Length: > 0 }).Distinct().OrderBy(n => n)!;
+
+    /// <summary>FR-077 : serveur source d'un constat, hérité de la source où il a été relevé.</summary>
+    private string? ServeurConstat(LogFinding f) =>
+        _s?.Sources.FirstOrDefault(src => src.Id == f.SourceId)?.HostName;
+
+    /// <summary>FR-077 : identifiant de corrélation hérité de la source où le constat a été relevé.</summary>
+    private string? CorrelationConstat(LogFinding f) =>
+        _s?.Sources.FirstOrDefault(src => src.Id == f.SourceId)?.CorrelationId;
+
+    private IEnumerable<string> ServeursVus() =>
+        _s is null
+            ? []
+            : _s.Sources.Select(s => s.HostName).Where(n => n is { Length: > 0 }).Distinct().OrderBy(n => n)!;
 }

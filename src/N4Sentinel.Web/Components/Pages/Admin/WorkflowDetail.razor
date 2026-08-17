@@ -247,6 +247,11 @@ else
                                     <p class="text-[10px] text-slate-500 mt-1">
                                         Une intervention manuelle sans consigne reporte le travail sur l'opérateur au pire moment.
                                     </p>
+                                    <label class="flex items-center gap-2 mt-2 text-slate-300 cursor-pointer">
+                                        <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                                               checked="@etape.RequiresEvidenceFile" @onchange="e => etape.RequiresEvidenceFile = (bool)e.Value!" />
+                                        <span>Preuve jointe obligatoire pour confirmer (FR-026)</span>
+                                    </label>
                                 </div>
                             }
 
@@ -255,6 +260,13 @@ else
                                     <label class="block text-slate-500 font-semibold mb-1">Durée normale (s)</label>
                                     <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
                                            value="@etape.ExpectedSeconds" @onchange="e => etape.ExpectedSeconds = ToInt(e.Value, 60)" />
+                                </div>
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1" title="Au-delà, l'étape est signalée « durée anormale » à l'écran d'exécution, sans être interrompue (FR-004).">
+                                        Seuil d'avertissement (s)
+                                    </label>
+                                    <input type="number" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                           value="@etape.WarningThresholdSeconds" @onchange="e => etape.WarningThresholdSeconds = ToInt(e.Value, 120)" />
                                 </div>
                                 <div>
                                     <label class="block text-slate-500 font-semibold mb-1">Délai maximal (s)</label>
@@ -270,6 +282,24 @@ else
                                         <option value="@StepFailurePolicy.DemanderALOperateur">Suspendre et demander</option>
                                     </select>
                                 </div>
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">Tentatives max</label>
+                                    <input type="number" min="0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                           value="@etape.MaxRetries" @onchange="e => etape.MaxRetries = ToInt(e.Value, 0)" />
+                                </div>
+                                <div>
+                                    <label class="block text-slate-500 font-semibold mb-1">Délai entre tentatives (s)</label>
+                                    <input type="number" min="0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                                           value="@etape.RetryDelaySeconds" @onchange="e => etape.RetryDelaySeconds = ToInt(e.Value, 30)" />
+                                </div>
+                                <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer"
+                                       title="Interdite sur une action d'arrêt ou de redémarrage (FR-004) : réessayer sans comprendre pourquoi l'action a échoué est le meilleur moyen d'aggraver un incident.">
+                                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
+                                           checked="@etape.AutomaticRetry"
+                                           disabled="@(etape.Action is StepAction.Arreter or StepAction.Redemarrer)"
+                                           @onchange="e => etape.AutomaticRetry = (bool)e.Value!" />
+                                    <span>Nouvelle tentative automatique</span>
+                                </label>
                                 <label class="flex items-center gap-2 pt-6 text-slate-300 cursor-pointer">
                                     <input type="checkbox" class="rounded bg-slate-900 border-slate-700"
                                            checked="@etape.IsSkippable" @onchange="e => etape.IsSkippable = (bool)e.Value!" />
@@ -380,12 +410,15 @@ else
             ComponentId = s.ComponentId,
             Instruction = s.Instruction,
             ExpectedSeconds = s.ExpectedSeconds,
+            WarningThresholdSeconds = s.WarningThresholdSeconds,
             TimeoutSeconds = s.TimeoutSeconds,
             MaxRetries = s.MaxRetries,
             AutomaticRetry = s.AutomaticRetry,
+            RetryDelaySeconds = s.RetryDelaySeconds,
             FailurePolicy = s.FailurePolicy,
             IsSkippable = s.IsSkippable,
             RequiresConfirmation = s.RequiresConfirmation,
+            RequiresEvidenceFile = s.RequiresEvidenceFile,
             CanRunInParallel = s.CanRunInParallel,
             Notes = s.Notes
         }).ToList();

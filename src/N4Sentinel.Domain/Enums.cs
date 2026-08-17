@@ -100,25 +100,6 @@ public enum DependencyKind
 }
 
 /// <summary>
-/// Nature d'un controle de sante. Un composant est confirme operationnel par
-/// PLUSIEURS signaux, jamais par le seul statut de son service (CdC, principe
-/// "Preuve technique").
-/// </summary>
-public enum HealthCheckKind
-{
-    ServiceWindows = 0,
-    Processus = 1,
-    PortTcp = 2,
-    EndpointHttp = 3,
-    MarqueurDeLog = 4,
-    EspaceDisque = 5,
-    EcartHorloge = 6,
-    DossierPartage = 7,
-    ConnectiviteBase = 8,
-    Heartbeat = 9
-}
-
-/// <summary>
 /// Etat consolide d'un composant (FR-052). Inconnu est un etat de premiere
 /// classe : quand les signaux manquent ou se contredisent, la solution
 /// l'affiche au lieu de conclure.
@@ -165,7 +146,10 @@ public enum AuditAction
     TestDeConfiguration = 6,
     TentativeNonAutorisee = 7,
     ExecutionOperation = 8,
-    Contournement = 9
+    Contournement = 9,
+
+    /// <summary>Arrêt forcé d'une étape bloquée en StopPending (FR-029B). Jamais automatique.</summary>
+    ArretForce = 10
 }
 
 /// <summary>

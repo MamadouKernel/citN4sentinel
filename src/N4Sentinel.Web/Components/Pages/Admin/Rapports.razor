@@ -201,6 +201,85 @@
                 </table>
             </div>
         </div>
+
+        <!-- FR-094 : taux de réussite par opération, étapes lentes, causes récurrentes -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div class="glass-card rounded-2xl border border-slate-800/80 overflow-hidden">
+                <div class="p-4 border-b border-slate-800/80">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-percent text-sky-400"></i> Taux de réussite par opération
+                    </h3>
+                </div>
+                @if (_report.SuccessRateByOperation.Count == 0)
+                {
+                    <p class="p-5 text-xs text-slate-500 italic">Aucune exécution terminée sur la période.</p>
+                }
+                else
+                {
+                    <div class="divide-y divide-slate-800/60">
+                        @foreach (var o in _report.SuccessRateByOperation)
+                        {
+                            <div class="p-3.5 text-xs flex items-center justify-between gap-2">
+                                <span class="text-slate-300 truncate">@o.WorkflowName</span>
+                                <span class="font-bold shrink-0 @(o.SuccessRatePercentage >= 90 ? "text-emerald-400" : o.SuccessRatePercentage >= 70 ? "text-amber-400" : "text-rose-400")">
+                                    @o.SuccessRatePercentage.ToString("F0")% (@o.SuccessfulExecutions/@o.TotalExecutions)
+                                </span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="glass-card rounded-2xl border border-slate-800/80 overflow-hidden">
+                <div class="p-4 border-b border-slate-800/80">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-hourglass-split text-amber-400"></i> Étapes lentes
+                    </h3>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Au-delà du seuil d'avertissement déclaré sur l'étape.</p>
+                </div>
+                @if (_report.SlowSteps.Count == 0)
+                {
+                    <p class="p-5 text-xs text-slate-500 italic">Aucune étape n'a dépassé son seuil d'avertissement.</p>
+                }
+                else
+                {
+                    <div class="divide-y divide-slate-800/60">
+                        @foreach (var s in _report.SlowSteps)
+                        {
+                            <div class="p-3.5 text-xs space-y-0.5">
+                                <div class="text-slate-300 truncate">@s.StepName @(s.ComponentName is { Length: > 0 } ? $"({s.ComponentName})" : "")</div>
+                                <div class="font-mono text-amber-400">@s.ActualSeconds.ToString("F0") s <span class="text-slate-500">(attendu @s.ExpectedSeconds s)</span></div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="glass-card rounded-2xl border border-slate-800/80 overflow-hidden">
+                <div class="p-4 border-b border-slate-800/80">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-arrow-repeat text-rose-400"></i> Causes récurrentes
+                    </h3>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Au moins deux occurrences sur la période — une seule n'est jamais une récurrence.</p>
+                </div>
+                @if (_report.RecurringCauses.Count == 0)
+                {
+                    <p class="p-5 text-xs text-slate-500 italic">Aucune cause d'échec ne s'est répétée sur la période.</p>
+                }
+                else
+                {
+                    <div class="divide-y divide-slate-800/60">
+                        @foreach (var c in _report.RecurringCauses)
+                        {
+                            <div class="p-3.5 text-xs flex items-center justify-between gap-2">
+                                <span class="text-slate-300 truncate">@c.Cause</span>
+                                <span class="font-bold text-rose-400 shrink-0">×@c.OccurrenceCount</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
     }
     else
     {

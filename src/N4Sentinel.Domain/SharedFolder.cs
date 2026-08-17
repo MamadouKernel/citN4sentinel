@@ -37,9 +37,26 @@ public class SharedFolderSnapshot : AuditableEntity
     // --- FR-059B : contrôles de santé
     public bool? CanWrite { get; set; }
 
+    /// <summary>Temps de réponse du test d'écriture non destructif. Null si non mesuré (dossier inaccessible).</summary>
+    public double? WriteLatencyMs { get; set; }
+
+    /// <summary>
+    /// FR-059B : vitesse de croissance entre ce relevé et le précédent,
+    /// calculée uniquement quand un relevé antérieur existe pour ce même
+    /// composant — jamais estimée sur un seul point de mesure.
+    /// </summary>
+    public double? GrowthBytesPerHour { get; set; }
+
     /// <summary>Null = sans objet (aucun fichier obligatoire connu pour cette catégorie).</summary>
     public bool? MandatoryFilesPresent { get; set; }
     public List<string> MissingMandatoryFiles { get; set; } = [];
+
+    /// <summary>
+    /// FR-059B : croissance anormale ou latence excessive, jugées contre les
+    /// seuils DÉCLARÉS sur <see cref="SharedFolderProfile"/> — sans seuil
+    /// déclaré, rien n'est signalé plutôt que d'inventer une limite.
+    /// </summary>
+    public List<string> HealthWarnings { get; set; } = [];
 
     // --- FR-059D : indices de corruption (jamais un verdict)
     public List<string> CorruptionIndicators { get; set; } = [];

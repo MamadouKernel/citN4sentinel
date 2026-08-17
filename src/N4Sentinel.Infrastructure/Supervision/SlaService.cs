@@ -20,6 +20,39 @@ public class SlaReportDto
     public int SuccessfulExecutions { get; set; }
     public int FailedExecutions { get; set; }
     public List<ComponentSlaMetricDto> ComponentMetrics { get; set; } = new();
+
+    /// <summary>FR-094 : taux de réussite PAR OPÉRATION (workflow), pas seulement toutes opérations confondues.</summary>
+    public List<OperationSuccessRateDto> SuccessRateByOperation { get; set; } = new();
+
+    /// <summary>FR-094 : étapes dont la durée réelle a nettement dépassé la durée attendue.</summary>
+    public List<SlowStepDto> SlowSteps { get; set; } = new();
+
+    /// <summary>FR-094 : causes d'échec qui se répètent, classées par fréquence — jamais une seule occurrence isolée.</summary>
+    public List<RecurringCauseDto> RecurringCauses { get; set; } = new();
+}
+
+public class OperationSuccessRateDto
+{
+    public string WorkflowName { get; set; } = string.Empty;
+    public int TotalExecutions { get; set; }
+    public int SuccessfulExecutions { get; set; }
+    public double SuccessRatePercentage { get; set; }
+}
+
+public class SlowStepDto
+{
+    public string StepName { get; set; } = string.Empty;
+    public string? ComponentName { get; set; }
+    public int ExpectedSeconds { get; set; }
+    public double ActualSeconds { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+}
+
+public class RecurringCauseDto
+{
+    public string Cause { get; set; } = string.Empty;
+    public StepErrorType? ErrorType { get; set; }
+    public int OccurrenceCount { get; set; }
 }
 
 public class ComponentSlaMetricDto
@@ -82,6 +115,7 @@ public class SlaService
 
         // Récupérer les exécutions de workflows sur la période
         var executions = await db.Executions
+            .Include(w => w.Steps)
             .Where(w => w.EnvironmentId == environmentId && w.StartedAt >= depuis.DateTime)
             .ToListAsync();
 
@@ -129,6 +163,52 @@ public class SlaService
             });
         }
 
+        // FR-094 : taux de réussite par opération, distinct du taux global —
+        // une opération peu fiable ne doit pas se noyer dans la moyenne des autres.
+        var tauxParOperation = executions
+            .Where(e => e.IsFinished)
+            .GroupBy(e => e.WorkflowName)
+            .Select(g => new OperationSuccessRateDto
+            {
+                WorkflowName = g.Key,
+                TotalExecutions = g.Count(),
+                SuccessfulExecutions = g.Count(e => e.Status == ExecutionStatus.TermineSucces),
+                SuccessRatePercentage = Math.Round(100.0 * g.Count(e => e.Status == ExecutionStatus.TermineSucces) / g.Count(), 1)
+            })
+            .OrderBy(o => o.SuccessRatePercentage)
+            .ToList();
+
+        // FR-094 : une étape "lente" dépasse son seuil d'avertissement DÉCLARÉ
+        // (WarningThresholdSeconds), pas une estimation arbitraire — c'est le
+        // même seuil qui déclenche déjà l'avertissement pendant l'exécution.
+        var etapesLentes = executions
+            .SelectMany(e => e.Steps)
+            .Where(s => s.StartedAt is not null && s.EndedAt is not null && s.WarningThresholdSeconds > 0
+                     && (s.EndedAt.Value - s.StartedAt!.Value).TotalSeconds > s.WarningThresholdSeconds)
+            .Select(s => new SlowStepDto
+            {
+                StepName = s.Name,
+                ComponentName = s.ComponentName,
+                ExpectedSeconds = s.ExpectedSeconds,
+                ActualSeconds = Math.Round((s.EndedAt!.Value - s.StartedAt!.Value).TotalSeconds, 1),
+                OccurredAt = s.StartedAt!.Value
+            })
+            .OrderByDescending(s => s.ActualSeconds)
+            .Take(20)
+            .ToList();
+
+        // FR-094 : cause récurrente = classée (ErrorType si connu, sinon le
+        // message brut) puis comptée — une seule occurrence n'est jamais
+        // présentée comme une récurrence.
+        var causesRecurrentes = executions
+            .SelectMany(e => e.Steps)
+            .Where(s => s.State == ExecutionStepState.Echec && s.Error is { Length: > 0 })
+            .GroupBy(s => s.ErrorType is { } t ? (Cause: LibelleTypeErreur(t), Type: (StepErrorType?)t) : (Cause: s.Error!, Type: (StepErrorType?)null))
+            .Where(g => g.Count() > 1)
+            .Select(g => new RecurringCauseDto { Cause = g.Key.Cause, ErrorType = g.Key.Type, OccurrenceCount = g.Count() })
+            .OrderByDescending(c => c.OccurrenceCount)
+            .ToList();
+
         return new SlaReportDto
         {
             EnvironmentId = env.Id,
@@ -144,7 +224,20 @@ public class SlaService
             TotalExecutions = executions.Count,
             SuccessfulExecutions = executions.Count(e => e.Status == ExecutionStatus.TermineSucces),
             FailedExecutions = executions.Count(e => e.Status == ExecutionStatus.Echec),
-            ComponentMetrics = componentMetrics.OrderBy(c => c.SlaPercentage).ToList()
+            ComponentMetrics = componentMetrics.OrderBy(c => c.SlaPercentage).ToList(),
+            SuccessRateByOperation = tauxParOperation,
+            SlowSteps = etapesLentes,
+            RecurringCauses = causesRecurrentes
         };
     }
+
+    private static string LibelleTypeErreur(StepErrorType t) => t switch
+    {
+        StepErrorType.CommandeRefusee => "Commande refusée",
+        StepErrorType.TimeoutAttente => "Délai dépassé",
+        StepErrorType.ComportementConnuStopPending => "StopPending connu",
+        StepErrorType.ComposantNonConfigure => "Référentiel incomplet",
+        StepErrorType.PrerequisNonSatisfait => "Prérequis non satisfait",
+        _ => "Non classé"
+    };
 }

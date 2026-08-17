@@ -27,6 +27,7 @@ public sealed class LogAnalysisService(
     ConnectorTargetFactory targetFactory,
     IN4Connector connector,
     SignatureCatalogue catalogue,
+    Observability.MetricsService metrics,
     ILogger<LogAnalysisService> logger)
 {
     /// <summary>
@@ -65,30 +66,35 @@ public sealed class LogAnalysisService(
             ComponentRole = composant.Role,
             HostName = composant.Server?.HostName,
             Origin = LogOriginKind.CollecteCiblee,
-            FileName = composant.Readiness.LogPath ?? "(aucun chemin configuré)"
+            FileName = composant.Readiness.LogPath ?? "(aucun chemin configuré)",
+            // §3.18 : rattache la collecte au ticket de l'incident/opération à
+            // l'origine de cette session, quand il y en a un.
+            CorrelationId = session.TicketReference
         };
 
         if (string.IsNullOrWhiteSpace(composant.Readiness.LogPath))
-            return await EchouerAsync(db, source,
+            return await EchouerAsync(db, source, LogCollectionFailureReason.ControleNonConfigure,
                 $"Aucun chemin de journal n'est configuré pour « {composant.LogicalName} ». "
                 + "Renseignez-le sur la fiche du composant, ou versez le fichier manuellement.", ct);
 
         if (composant.Server is null)
-            return await EchouerAsync(db, source,
+            return await EchouerAsync(db, source, LogCollectionFailureReason.ControleNonConfigure,
                 $"Aucun serveur n'est rattaché à « {composant.LogicalName} ».", ct);
 
         var resolution = await targetFactory.CreateAsync(composant.Server, ct);
         if (!resolution.Succeeded)
-            return await EchouerAsync(db, source, $"Serveur inaccessible : {resolution.Error}", ct);
+            return await EchouerAsync(db, source, LogCollectionFailureReason.ConnecteurIndisponible,
+                $"Serveur inaccessible : {resolution.Error}", ct);
 
         var delta = await connector.ReadLogDeltaAsync(
             resolution.Target!, composant.Readiness.LogPath!, 0, TailleMaximale, ct);
 
         if (!delta.Succeeded)
-            return await EchouerAsync(db, source, $"Lecture impossible : {delta.Error}", ct);
+            return await EchouerAsync(db, source, ClasserEchecConnecteur(delta.Failure),
+                $"Lecture impossible : {delta.Error}", ct);
 
         if (delta.Value is not { Exists: true })
-            return await EchouerAsync(db, source,
+            return await EchouerAsync(db, source, LogCollectionFailureReason.SourceAbsente,
                 $"Aucun fichier ne correspond à « {composant.Readiness.LogPath} » sur "
                 + $"{composant.Server.HostName}. Le journal a peut-être été déplacé, ou n'a jamais été écrit.", ct);
 
@@ -176,6 +182,11 @@ public sealed class LogAnalysisService(
         // MASQUAGE D'ABORD. Rien de ce qui suit ne doit voir le contenu brut.
         var (contenu, masques) = SecretMasker.Masquer(contenuBrut);
         source.MaskedSecretCount = masques;
+
+        // §3.18/FR-067 : empreinte du contenu deja masque - jamais du brut,
+        // jamais le contenu lui-meme conserve.
+        source.ContentHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(contenu)));
 
         var lignes = contenu.Split('\n');
         source.LineCount = lignes.Length;
@@ -294,18 +305,37 @@ public sealed class LogAnalysisService(
     /// </summary>
     private static void CalculerResume(string[] lignes, LogSource source)
     {
+        // FR-071 : le type de journal se reconnaît sur un échantillon, pas
+        // ligne par ligne — un motif structurel a besoin de plusieurs lignes
+        // pour être affirmé sans ambiguïté.
+        source.DetectedLogType = DetecterTypeJournal(string.Join('\n', lignes.Take(80)));
+
         foreach (var ligneBrute in lignes)
         {
             var ligne = ligneBrute.TrimEnd('\r');
             if (ligne.Length == 0) continue;
 
-            var horodatage = ExtraireHorodatage(ligne);
-            if (horodatage is not null)
+            var m = MotifHorodatage.Match(ligne);
+            if (m.Success)
             {
-                if (source.EarliestEntryAt is null || horodatage < source.EarliestEntryAt)
-                    source.EarliestEntryAt = horodatage;
-                if (source.LatestEntryAt is null || horodatage > source.LatestEntryAt)
-                    source.LatestEntryAt = horodatage;
+                var texte = $"{m.Groups["d"].Value} {m.Groups["t"].Value}";
+                if (DateTime.TryParseExact(texte, "yyyy-MM-dd HH:mm:ss",
+                        CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var d))
+                {
+                    var horodatage = new DateTimeOffset(d);
+                    if (source.EarliestEntryAt is null || horodatage < source.EarliestEntryAt)
+                        source.EarliestEntryAt = horodatage;
+                    if (source.LatestEntryAt is null || horodatage > source.LatestEntryAt)
+                        source.LatestEntryAt = horodatage;
+                }
+
+                // FR-071 : fuseau horaire — seulement s'il est EXPLICITEMENT
+                // écrit dans l'horodatage. La plupart des journaux N4
+                // n'en portent aucun ; on ne le devine jamais (voir
+                // ClockSkewSecondsAtCollection, la mesure live qui comble
+                // cette absence pour la collecte ciblée).
+                if (source.DetectedTimeZone is null && m.Groups["tz"].Success)
+                    source.DetectedTimeZone = m.Groups["tz"].Value == "Z" ? "UTC" : m.Groups["tz"].Value;
             }
 
             var niveau = MotifNiveau.Match(ligne);
@@ -326,13 +356,26 @@ public sealed class LogAnalysisService(
     }
 
     private static async Task<SourceResult> EchouerAsync(
-        N4SentinelDbContext db, LogSource source, string erreur, CancellationToken ct)
+        N4SentinelDbContext db, LogSource source, LogCollectionFailureReason motif, string erreur, CancellationToken ct)
     {
         source.Error = erreur;
+        source.FailureReason = motif;
         db.Sources.Add(source);
         await db.SaveChangesAsync(ct);
         return SourceResult.Failed(erreur);
     }
+
+    /// <summary>§3.18 : reclasse l'échec bas niveau du connecteur dans la taxonomie exacte exigée.</summary>
+    private static LogCollectionFailureReason ClasserEchecConnecteur(Connectors.ConnectorFailure echec) => echec switch
+    {
+        Connectors.ConnectorFailure.AccesRefuse or Connectors.ConnectorFailure.AuthentificationRefusee
+            => LogCollectionFailureReason.AccesRefuse,
+        Connectors.ConnectorFailure.Timeout => LogCollectionFailureReason.Timeout,
+        Connectors.ConnectorFailure.CibleIntrouvable or Connectors.ConnectorFailure.NomNonResolu
+            => LogCollectionFailureReason.SourceAbsente,
+        Connectors.ConnectorFailure.Injoignable => LogCollectionFailureReason.ConnecteurIndisponible,
+        _ => LogCollectionFailureReason.ConnecteurIndisponible
+    };
 
     // -----------------------------------------------------------------------
     // Analyse
@@ -379,7 +422,7 @@ public sealed class LogAnalysisService(
                     continue;
                 }
 
-                parSignature[signature.Code] = new LogFinding
+                var nouveauConstat = new LogFinding
                 {
                     SessionId = session.Id,
                     SourceId = source.Id,
@@ -397,6 +440,8 @@ public sealed class LogAnalysisService(
                     Remediation = signature.Remediation,
                     DocumentReference = signature.DocumentReference
                 };
+                EnrichirConstat(nouveauConstat, ligne);
+                parSignature[signature.Code] = nouveauConstat;
             }
 
             if (reconnue) continue;
@@ -417,7 +462,7 @@ public sealed class LogAnalysisService(
                 continue;
             }
 
-            parMessage[cle] = new LogFinding
+            var constatGroupe = new LogFinding
             {
                 SessionId = session.Id,
                 SourceId = source.Id,
@@ -432,6 +477,8 @@ public sealed class LogAnalysisService(
                 Meaning = "Erreur non répertoriée au catalogue. Elle est signalée parce qu'elle a la forme "
                         + "d'une erreur, sans que son sens soit connu de l'application."
             };
+            EnrichirConstat(constatGroupe, ligne);
+            parMessage[cle] = constatGroupe;
         }
 
         return parSignature.Values
@@ -487,6 +534,8 @@ public sealed class LogAnalysisService(
         var sourcesEnEchec = session.Sources.Count(s => !s.Succeeded);
 
         var signatures = await db.Signatures.AsNoTracking().ToListAsync(ct);
+        // FR-065 : seuils administrables plutôt que codés en dur.
+        var parametres = await db.DiagnosticSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new DiagnosticSettings();
         var hypotheses = ConstruireHypotheses(constats, signatures, session.Id);
 
         db.Hypotheses.AddRange(hypotheses);
@@ -499,33 +548,66 @@ public sealed class LogAnalysisService(
 
         var limites = Limites(session, sourcesLues, sourcesEnEchec);
 
-        if (constats.Count == 0)
+        // FR-069 : "informations insuffisantes" (rien n'a pu etre lu) est une
+        // affirmation differente de "aucune anomalie detectee" (tout a ete lu,
+        // rien trouve) - les confondre efface une nuance que le texte exige.
+        if (constats.Count == 0 && (sourcesLues == 0 || sourcesEnEchec > 0))
+        {
+            session.Verdict = DiagnosticVerdict.InformationsInsuffisantes;
+            session.VerdictExplanation =
+                "Aucune anomalie n'a été relevée, mais une partie de ce qui devait être analysé n'a pas "
+                + "pu être lue. Impossible de dire s'il n'y avait rien à trouver, ou si le signal se trouvait "
+                + "précisément dans ce qui n'a pas été collecté. "
+                + limites + " "
+                // FR-064 : recommandation differenciee - le manque tient a la
+                // collecte elle-meme, la reponse est donc de la completer.
+                + "Recommandation : relancer une collecte complémentaire sur les sources en échec avant "
+                + "toute autre conclusion.";
+        }
+        else if (constats.Count == 0)
         {
             session.Verdict = DiagnosticVerdict.RienDeConcluant;
             session.VerdictExplanation =
                 "Aucune anomalie n'a été relevée dans ce qui a été analysé. "
                 + "CE N'EST PAS UN CERTIFICAT DE BONNE SANTÉ : la panne peut se situer hors de la fenêtre "
                 + "examinée, dans un journal qui n'a pas été collecté, ou ne rien écrire du tout. "
-                + limites;
+                + limites + " "
+                // FR-064 : ici la collecte a reussi - la reponse est d'elargir
+                // la fenetre ou de comparer a une periode saine, pas de relire.
+                + "Recommandation : si le symptôme persiste, élargissez la fenêtre d'analyse ou comparez "
+                + "avec une période saine connue (FR-066).";
         }
         else if (concluantes.Count > 0)
         {
             var principale = concluantes.OrderByDescending(f => f.Severity)
                                         .ThenByDescending(f => f.OccurrenceCount).First();
 
-            session.Verdict = DiagnosticVerdict.CauseCaracterisee;
+            // FR-069 : "cause confirmee" reste exceptionnel - poids maximal,
+            // seule signature concluante, aucune autre hypothese de domaine
+            // different en concurrence. Le cas ordinaire reste "tres probable".
+            var domainesConcluants = concluantes.Select(f => f.Domain).Distinct().Count();
+            var estConfirmee = principale.OccurrenceCount >= 1
+                && signatures.FirstOrDefault(s => s.Id == principale.SignatureId)?.ConfidenceWeight >= parametres.ConclusiveSignatureConfidenceWeight
+                && domainesConcluants == 1
+                && concluantes.Count == concluantes.Count(f => f.Domain == principale.Domain);
+
+            session.Verdict = estConfirmee ? DiagnosticVerdict.CauseConfirmee : DiagnosticVerdict.CauseCaracterisee;
             session.VerdictExplanation =
                 $"Une signature connue a été reconnue : « {principale.Title} » "
                 + $"({principale.OccurrenceCount} occurrence(s)). {principale.Meaning} "
                 + limites;
         }
-        else if (hypotheses.Count > 0 && hypotheses[0].Confidence >= 50)
+        else if (hypotheses.Count > 0 && hypotheses[0].Confidence >= parametres.SeriousLeadConfidenceThreshold)
         {
             session.Verdict = DiagnosticVerdict.PisteSerieuse;
             session.VerdictExplanation =
                 $"Aucune signature connue n'établit de cause, mais les anomalies convergent vers un "
                 + $"domaine : {Libelle(hypotheses[0].Domain)}. C'est une piste, pas une conclusion. "
-                + limites;
+                + limites + " "
+                // FR-064 : la piste appelle un controle complementaire cible
+                // sur le domaine identifie, pas une nouvelle collecte generale.
+                + $"Recommandation : un contrôle complémentaire ciblé sur {Libelle(hypotheses[0].Domain)} "
+                + "confirmerait ou écarterait cette piste.";
         }
         else
         {
@@ -533,11 +615,18 @@ public sealed class LogAnalysisService(
             session.VerdictExplanation =
                 $"{constats.Count} anomalie(s) relevée(s), mais elles ne dessinent aucune cause. "
                 + "Elles sont présentées telles quelles : établir un lien entre elles serait une invention. "
-                + limites;
+                + limites + " "
+                // FR-064 : sans convergence de domaine, l'automatisation a
+                // atteint sa limite - controle manuel, eventuellement escalade.
+                + "Recommandation : un contrôle manuel des anomalies listées ci-dessous est nécessaire ; "
+                + "envisagez une escalade vers l'équipe Infrastructure ou le support Navis si elles persistent.";
         }
 
         session.AnalysedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+
+        // NFR-008 : distribution des verdicts, consultable sans grep un fichier de log.
+        metrics.RecordDiagnosticVerdict(session.Verdict);
 
         logger.LogInformation("Diagnostic {Session} conclu : {Verdict}, {Hypotheses} hypothèse(s).",
             session.Title, session.Verdict, hypotheses.Count);
@@ -596,6 +685,7 @@ public sealed class LogAnalysisService(
             var confiance = Math.Min(95, poidsMax + convergence);
 
             var principal = membres[0];
+            var signaturePrincipale = signatures.FirstOrDefault(s => s.Id == principal.SignatureId);
 
             hypotheses.Add(new DiagnosticHypothesis
             {
@@ -605,6 +695,14 @@ public sealed class LogAnalysisService(
                 Statement = Formuler(groupe.Key, membres),
                 Evidence = string.Join(" · ", membres.Take(4)
                     .Select(f => $"{f.Title} ({f.OccurrenceCount}×, ligne {f.FirstLineNumber})")),
+                // FR-063 : ce qui contredirait l'hypothese, quand la signature
+                // le documente ; dit explicitement quand rien n'a ete releve,
+                // plutot que de laisser le champ silencieusement vide.
+                CounterEvidence = signaturePrincipale?.CounterEvidence
+                    ?? "Aucune preuve à l'encontre identifiée pour la signature retenue.",
+                EvidenceObservedAt = membres.Where(f => f.LastSeenAt is not null).Select(f => f.LastSeenAt)
+                    .DefaultIfEmpty(null).Max(),
+                RuleVersion = signaturePrincipale is not null ? $"{signaturePrincipale.Code} v{signaturePrincipale.Version}" : null,
                 Recommendation = principal.Remediation
             });
         }
@@ -638,15 +736,74 @@ public sealed class LogAnalysisService(
         DiagnosticDomain.Securite => "sécurité",
         DiagnosticDomain.Horloge => "synchronisation d'horloge",
         DiagnosticDomain.Applicatif => "applicatif",
+        DiagnosticDomain.Systeme => "système ou VM",
+        DiagnosticDomain.Services => "services",
+        DiagnosticDomain.N4Cluster => "N4 Cluster",
+        DiagnosticDomain.CenterStandby => "Center/Standby",
+        DiagnosticDomain.ActiveMqKahaDb => "ActiveMQ/KahaDB",
+        DiagnosticDomain.BridgeXps => "Bridge/XPS",
+        DiagnosticDomain.Ecn4Ecn4Web => "ECN4/ECN4Web",
+        DiagnosticDomain.SharedFolders => "Shared Folders",
+        DiagnosticDomain.EdiInterfaces => "EDI et interfaces",
         _ => "domaine indéterminé"
     };
 
     // -----------------------------------------------------------------------
     // Analyse de ligne
     // -----------------------------------------------------------------------
-    private static readonly Regex MotifHorodatage = new(
-        @"(?<d>\d{4}-\d{2}-\d{2})[ T](?<t>\d{2}:\d{2}:\d{2})(?:[.,](?<ms>\d{1,3}))?",
+    // FR-072 : thread, classe et identifiant de transaction, quand le format
+    // du journal les porte. Best-effort — un format non reconnu laisse ces
+    // champs vides plutôt que d'inventer une correspondance.
+    private static readonly Regex MotifThread = new(
+        @"\[(?<thread>[\w][\w\-\.\/ ]{0,60})\]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex MotifClasse = new(
+        @"\b(?<classe>(?:[a-z][a-z0-9]*\.){2,}[A-Z][A-Za-z0-9_$]*)\b",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex MotifTransaction = new(
+        @"(?:trans(?:action)?[_-]?id|txn[_-]?id|correlation[_-]?id|request[_-]?id)[\s:=]+[""']?(?<id>[\w\-]{6,})",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static void EnrichirConstat(LogFinding constat, string ligne)
+    {
+        var thread = MotifThread.Match(ligne);
+        if (thread.Success) constat.ThreadName = thread.Groups["thread"].Value;
+
+        var classe = MotifClasse.Match(ligne);
+        if (classe.Success) constat.LoggerClass = classe.Groups["classe"].Value;
+
+        var transaction = MotifTransaction.Match(ligne);
+        if (transaction.Success) constat.TransactionId = transaction.Groups["id"].Value;
+    }
+
+    private static readonly Regex MotifHorodatage = new(
+        @"(?<d>\d{4}-\d{2}-\d{2})[ T](?<t>\d{2}:\d{2}:\d{2})(?:[.,](?<ms>\d{1,3}))?" +
+        @"(?<tz>Z|[+-]\d{2}:?\d{2})?",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// FR-071 : reconnaît le format d'un journal aux marqueurs structurels
+    /// qu'il porte — jamais deviné depuis le seul nom de fichier, qui peut
+    /// mentir. Retourne null plutôt que d'inventer un type non reconnu.
+    /// </summary>
+    private static readonly Regex MotifJournalN4 = new(
+        @"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}[.,]\d+\s+(INFO|WARN|DEBUG|ERROR|FATAL)\s+\[",
+        RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+
+    private static readonly Regex MotifJournalIis = new(
+        @"^#Fields:|^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+ (GET|POST|PUT|DELETE) ",
+        RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+
+    private static string? DetecterTypeJournal(string echantillon)
+    {
+        if (MotifJournalN4.IsMatch(echantillon)) return "Journal applicatif N4 (log4j)";
+        if (MotifJournalIis.IsMatch(echantillon)) return "Journal IIS (W3C)";
+        if (echantillon.Contains("<Event xmlns=", StringComparison.OrdinalIgnoreCase))
+            return "Journal d'événements Windows (XML)";
+        return null;
+    }
 
     private static readonly Regex MotifErreur = new(
         @"\b(?:ERROR|SEVERE|FATAL|ERREUR|Exception|Caused by)\b",

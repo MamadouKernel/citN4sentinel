@@ -11,20 +11,22 @@
 @inject AlertService Alertes
 @inject DiagnosticSessionService Diagnostics
 @inject ReferentialService Referential
+@inject SharedFolderHealthService SharedFolders
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthProvider
 
-<PageTitle>EDI — N4 Sentinel</PageTitle>
+<PageTitle>EDI et dossiers partagés — N4 Sentinel</PageTitle>
 
 <div class="space-y-6">
 
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Intégrations EDI</h1>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">EDI et dossiers partagés</h1>
             <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
-                Fichiers reçus, intégrés, en attente ou rejetés (FR-059H). Partenaire et type de message
-                n'apparaissent que si un motif d'extraction a été déclaré sur le composant — sinon, ils
-                restent honnêtement <span class="text-slate-500">non classifiés</span>.
+                Fichiers EDI reçus, intégrés, en attente ou rejetés (FR-059H), et santé de tous les dossiers
+                partagés de l'environnement — les deux sont liés : un dossier EDI dégradé explique souvent un
+                blocage d'échange. Partenaire et type de message n'apparaissent que si un motif d'extraction a
+                été déclaré sur le composant — sinon, ils restent honnêtement <span class="text-slate-500">non classifiés</span>.
             </p>
         </div>
 
@@ -166,6 +168,78 @@
             apparaissent au <a href="/alertes" class="text-sky-400 hover:underline">Centre d'alertes</a>,
             avec un accès direct au diagnostic du composant concerné.
         </div>
+
+        <!-- Dossiers partagés (toutes catégories) : un dossier EDI dégradé -->
+        <!-- explique souvent un blocage d'échange, l'un éclaire l'autre. -->
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="bi bi-folder2-open text-teal-400"></i> Dossiers partagés (@_dossiersResultats.Count)
+                </h3>
+                <button class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] transition disabled:opacity-50"
+                        disabled="@_dossiersEnCours" @onclick="ControlerDossiersAsync">
+                    <i class="bi bi-arrow-clockwise @(_dossiersEnCours ? "animate-spin" : "")"></i>
+                    @(_dossiersEnCours ? "Contrôle…" : "Contrôler")
+                </button>
+            </div>
+
+            @if (_dossiersResultats.Count == 0)
+            {
+                <div class="p-6 text-center text-slate-400 text-xs">
+                    @(_dossiersEnCours ? "Contrôle en cours…" : "Aucun dossier partagé déclaré dans cet environnement, ou contrôle jamais lancé.")
+                </div>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                            <tr>
+                                <th class="py-2 px-4 font-bold">Dossier</th>
+                                <th class="py-2 px-4 font-bold">Catégorie</th>
+                                <th class="py-2 px-4 font-bold">Accessibilité</th>
+                                <th class="py-2 px-4 font-bold">Indices</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            @foreach (var (composant, releve) in _dossiersResultats)
+                            {
+                                <tr>
+                                    <td class="py-2.5 px-4 font-bold text-white">@composant.LogicalName</td>
+                                    <td class="py-2.5 px-4">@LibelleCategorieDossier(composant.SharedFolder.Category)</td>
+                                    <td class="py-2.5 px-4">
+                                        @if (releve.Reachable == true)
+                                        {
+                                            <span class="text-emerald-400 font-semibold"><i class="bi bi-check-circle-fill"></i> Accessible</span>
+                                        }
+                                        else if (releve.Reachable == false)
+                                        {
+                                            <span class="text-rose-400 font-semibold" title="@releve.UnreachableReason"><i class="bi bi-x-circle-fill"></i> Inaccessible</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-slate-500">Non mesuré</span>
+                                        }
+                                    </td>
+                                    <td class="py-2.5 px-4">
+                                        @if (releve.SuspectedCorruption)
+                                        {
+                                            <span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-bold">
+                                                SUSPICION — @releve.CorruptionIndicators.Count indice(s)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-emerald-400">Aucun</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
     }
 </div>
 
@@ -181,6 +255,9 @@
     private string _messageClass = string.Empty;
     private Guid? _diagnosticEnCours;
 
+    private List<(N4Component Composant, SharedFolderSnapshot Releve)> _dossiersResultats = [];
+    private bool _dossiersEnCours;
+
     private List<(N4Component Composant, EdiFile Fichier)> _tousLesFichiers =>
         _parComposant.SelectMany(p => p.Fichiers.Select(f => (p.Composant, f))).ToList();
 
@@ -193,6 +270,7 @@
     private async Task Recharger()
     {
         _message = null;
+        _dossiersResultats = [];
         if (_envId == Guid.Empty)
         {
             _composants = [];
@@ -209,6 +287,38 @@
             resultats.Add((c, await Suivi.GetForComponentAsync(c.Id)));
         _parComposant = resultats;
     }
+
+    /// <summary>Santé de TOUS les dossiers partagés déclarés, pas seulement ceux de catégorie EDI.</summary>
+    private async Task ControlerDossiersAsync()
+    {
+        if (_envId == Guid.Empty) return;
+
+        _dossiersEnCours = true;
+        _dossiersResultats = [];
+        StateHasChanged();
+        try
+        {
+            var tous = await Referential.GetComponentsAsync(_envId);
+            var resultats = new List<(N4Component, SharedFolderSnapshot)>();
+            foreach (var c in tous.Where(c => c.SharedFolder.IsConfigured))
+                resultats.Add((c, await SharedFolders.EvaluateAsync(c)));
+            _dossiersResultats = resultats;
+        }
+        finally
+        {
+            _dossiersEnCours = false;
+        }
+    }
+
+    private static string LibelleCategorieDossier(SharedFolderCategory c) => c switch
+    {
+        SharedFolderCategory.ConfigurationN4 => "Configuration N4",
+        SharedFolderCategory.ActiveMqKahaDb => "ActiveMQ / KahaDB",
+        SharedFolderCategory.EchangeEdi => "Échange EDI",
+        SharedFolderCategory.Archives => "Archives",
+        SharedFolderCategory.DossiersErreur => "Dossier d'erreur",
+        _ => "Autre"
+    };
 
     private async Task SynchroniserAsync()
     {
