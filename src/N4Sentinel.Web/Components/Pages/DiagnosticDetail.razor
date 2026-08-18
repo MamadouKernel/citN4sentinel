@@ -662,6 +662,22 @@ else
                                             {
                                                 <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/15 text-sky-400" title="Identifié automatiquement depuis le nom du fichier (FR-071)">auto</span>
                                             }
+                                            @* FR-071 : le contenu désigne un composant, mais rien n'est
+                                               rattaché. C'est une question posée, pas une conclusion. *@
+                                            @if (src.SuggestedComponentName is { Length: > 0 } sugg)
+                                            {
+                                                <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-500/15 text-violet-300"
+                                                      title="Le contenu du journal évoque ce composant. Rien n'est rattaché : à confirmer par un opérateur.">
+                                                    ? @sugg
+                                                </span>
+                                            }
+                                            else if (src.OriginAmbiguous)
+                                            {
+                                                <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300"
+                                                      title="Le contenu désigne plusieurs composants : aucune suggestion ne serait honnête.">
+                                                    origine ambiguë
+                                                </span>
+                                            }
                                         </td>
                                         <td class="py-2 text-slate-400">
                                             @(src.Origin == LogOriginKind.CollecteCiblee ? "collecte" : "import")
@@ -720,6 +736,15 @@ else
                                                         <span title="Identifiant de corrélation"><i class="bi bi-link-45deg"></i> @corr</span>
                                                     }
                                                 </div>
+                                                @* FR-071 : montrer l'indice, pas seulement la conclusion —
+                                                   l'opérateur doit pouvoir juger sur pièce. *@
+                                                @if (src.SuggestionEvidence is { Length: > 0 } indice)
+                                                {
+                                                    <div class="mt-1 text-[10px] text-slate-500 italic">
+                                                        <i class="bi bi-search"></i> Origine devinée d'après le contenu : @indice
+                                                        <span class="not-italic text-slate-600">— non rattaché tant qu'un opérateur n'a pas confirmé.</span>
+                                                    </div>
+                                                }
                                             </td>
                                         </tr>
                                     }

@@ -443,6 +443,33 @@ public class LogSource : AuditableEntity
     public string? DetectedTimeZone { get; set; }
 
     /// <summary>
+    /// FR-071 : composant que le CONTENU désigne, quand le nom de fichier n'a
+    /// rien donné. Volontairement distinct de <see cref="ComponentId"/> : le
+    /// contenu n'est qu'un indice, il ne rattache rien tout seul. Le journal
+    /// reste non rattaché tant qu'un opérateur n'a pas confirmé, sans quoi une
+    /// erreur d'attribution silencieuse enverrait tout le diagnostic sur le
+    /// mauvais serveur.
+    /// </summary>
+    public Guid? SuggestedComponentId { get; set; }
+
+    /// <summary>FR-071 : nom du composant suggéré, figé au moment de l'analyse.</summary>
+    public string? SuggestedComponentName { get; set; }
+
+    /// <summary>
+    /// FR-071 : ce qui a motivé la suggestion — extrait masqué du journal et
+    /// nature du signal. L'opérateur doit pouvoir juger l'indice, pas
+    /// seulement lire une conclusion.
+    /// </summary>
+    public string? SuggestionEvidence { get; set; }
+
+    /// <summary>
+    /// FR-071 : vrai quand le contenu désigne PLUSIEURS composants. Rien n'est
+    /// alors suggéré, mais l'ambiguïté est dite : « plusieurs candidats » et
+    /// « aucun indice » sont deux situations différentes pour l'opérateur.
+    /// </summary>
+    public bool OriginAmbiguous { get; set; }
+
+    /// <summary>
     /// §3.18/FR-077/NFR-008 : identifiant de l'incident ou de l'opération à
     /// l'origine de cette collecte, quand elle en découle une — permet de
     /// filtrer et de relier un journal à ce qui l'a fait collecter, jamais

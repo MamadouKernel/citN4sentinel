@@ -212,10 +212,34 @@ public sealed class LogAnalysisService(
         // TOUT le fichier, pas seulement les lignes retenues comme anomalies.
         CalculerResume(lignes, source);
 
+        var toutesSignatures = await catalogue.GetActiveAsync(ct);
+
+        // FR-071 : le nom de fichier n'a rien donné — interroger le CONTENU.
+        // Sur l'échantillon MASQUÉ, jamais sur le brut : l'indice retenu est
+        // stocké puis affiché à l'opérateur.
+        if (source.ComponentId is null)
+        {
+            var composants = await db.Components.AsNoTracking()
+                .Include(c => c.Server)
+                .Where(c => c.EnvironmentId == session.EnvironmentId)
+                .ToListAsync(ct);
+
+            var indice = OriginHeuristic.Deviner(composants, toutesSignatures, contenu);
+
+            source.SuggestedComponentId = indice.ComponentId;
+            source.SuggestedComponentName = indice.ComponentName;
+            // Le message d'ambiguite enumere des candidats : borner pour ne pas
+            // depasser la colonne quand le referentiel en compte beaucoup.
+            source.SuggestionEvidence = indice.Evidence is { Length: > 600 } trop
+                ? trop[..599] + "…"
+                : indice.Evidence;
+            source.OriginAmbiguous = indice.Ambiguous;
+        }
+
         db.Sources.Add(source);
         await db.SaveChangesAsync(ct);
 
-        var signatures = (await catalogue.GetActiveAsync(ct))
+        var signatures = toutesSignatures
             .Where(s => s.AppliesToRole is null || role is null || s.AppliesToRole == role)
             .ToList();
 
@@ -283,16 +307,7 @@ public sealed class LogAnalysisService(
     /// s'attribue à tort un fichier "ecn4web-...".
     /// </summary>
     private static bool ContientCommeUnite(string haystack, string needle)
-    {
-        if (string.IsNullOrEmpty(needle)) return false;
-        var idx = haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return false;
-
-        var avant = idx > 0 ? haystack[idx - 1] : '\0';
-        var finIdx = idx + needle.Length;
-        var apres = finIdx < haystack.Length ? haystack[finIdx] : '\0';
-        return !char.IsLetterOrDigit(avant) && !char.IsLetterOrDigit(apres);
-    }
+        => OriginHeuristic.ContientCommeUnite(haystack, needle);
 
     private static ComponentRole? DeviserRoleParNomFichier(string fileName)
     {

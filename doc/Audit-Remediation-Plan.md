@@ -5,10 +5,18 @@ a évalué 148 exigences numérotées à 75 Fait / 59 Partiel / 14 Absent.
 Ce document convertit chaque écart en action concrète, organisée en phases,
 pour fermer les 73 exigences Partiel/Absent une par une.
 
-**État au 18/08/2026** : **Phase I est terminée — les 14 items sont faits.**
-Les 4 qui restaient bloqués (3, 4, 6, 7) le sont désormais : l'autre session a
-committé (`c10b66c`), ce qui a levé les deux verrous — le modèle EF n'a plus de
-changement non migré, et `Login.razor` est stabilisé.
+**État au 18/08/2026** : **Phase I terminée (14/14), Phase II terminée (11/11).**
+Les 4 items de Phase I qui restaient bloqués (3, 4, 6, 7) le sont désormais :
+l'autre session a committé (`c10b66c`), ce qui a levé les deux verrous — le
+modèle EF n'a plus de changement non migré, et `Login.razor` est stabilisé.
+L'item 10 (FR-087), lui aussi marqué bloqué, est livré.
+
+Sur la Phase II, l'essentiel était déjà livré par l'autre session ; **le seul
+écart réel était FR-071**, et il n'était pas là où le plan le situait. La
+détection de version, de type de journal et de fuseau existait ; ce qui
+manquait était l'inférence du composant **à partir du contenu**, que le code
+refusait explicitement de tenter. Livré, avec la prudence que le sujet exige
+(voir la section FR-071 ci-dessous).
 
 > **Le blocage migration est levé.** `dotnet ef migrations
 > has-pending-model-changes` répond désormais « No changes have been made to the
@@ -60,7 +68,7 @@ Knowledge, Sop, Identity) que l'autre session ne touche pas actuellement.
 | 7 | ✅ | SEC-008 / NFR-008 | Connexion, échec d'authentification et déconnexion écrits dans `AuditEntry` via `AuditWriter` | `Login.razor` |
 | 8 | ✅ | FR-091 | `AuditAction.ChangementDeStatut` écrit dans `KnowledgeService.ValidateAsync/RevokeAsync`, `SopService.ChangeStatusAsync`, `WorkflowService.ChangeStatusAsync` (actor ajouté à `RevokeAsync`/les deux `ChangeStatusAsync`, qui ne le portaient pas) | 3 fichiers Infrastructure + 2 pages Razor — 3 tests dédiés |
 | 9 | ✅ | AC-07 | Tentative de lancement bloquée (en attente d'approbation, pré-check bloquant) auditée via `TentativeNonAutorisee`, pas seulement le lancement réussi | `ExecutionService.cs` — 1 test |
-| 10 | ⛔ migration bloquée | FR-087 | Bouton « Signaler une réponse incorrecte » — nécessite une entité de correction proposée | `Knowledge.cs`, `KnowledgeService.cs`, `Documentation.razor` |
+| 10 | ✅ | FR-087 | Bouton « Signaler une réponse incorrecte » avec correction proposée facultative, **soumise à validation et jamais appliquée directement** ; revue des signalements sur la fiche document. Entité `KnowledgeCorrection`, migration `MaintenanceEtCorrectionsAudit` — le blocage de migration signalé le 18/08 est levé | `Knowledge.cs`, `KnowledgeService.cs`, `Documentation.razor`, `DocumentDetail.razor` |
 | 11 | ✅ | FR-089D / AC-23 | `SuggestForReuseAsync` appelé depuis `DiagnosticDetail.razor` (composants + signatures observés dans la session) ; `GetUsageStatsAsync` ajouté — compte Terminé/Abandonné réel, **pas** de taux de réussite inventé | `SopService.cs`, `DiagnosticDetail.razor` — 4 tests |
 | 12 | ✅ | FR-059I | Nouveau `AlertKind.EchecsEdiRepetes` (≥3 échecs consécutifs sur un même fichier), distinct du retard d'ancienneté | `AlertService.cs`, `Alert.cs` — 3 tests |
 | 13 | ✅ | FR-059J | `DiagnosticSessionService.CreateFromEdiFileAsync` — session nommant explicitement le fichier/partenaire/statut ; bouton « Diagnostiquer » par ligne dans `Edi.razor` | `DiagnosticSessionService.cs`, `Edi.razor` — 1 test |
@@ -83,36 +91,55 @@ cahier des charges exige des règles qui combinent plusieurs signaux
 (battement de vie **et** statut de service contradictoires, taille de file
 positive **et** zéro consommateur, etc.).
 
-1. **FR-065 / §3.10.4** : étendre `DiagnosticSignature` d'un type de règle
-   (`Motif` existant, nouveau `Correlation`) qui référence plusieurs sources/
-   signaux avec un opérateur (ET/OU/seuil), pas seulement une regex. Ajouter
-   version + statut de validation (Brouillon/Testé/Production) avec passage
-   obligatoire sur un jeu de données de référence avant activation.
-2. **FR-061** : relier `ClockSkewSeconds` (déjà calculé côté Vitalité) à
-   `DiagnosticSession` — construire une chronologie unifiée qui réordonne les
-   événements de plusieurs sources selon l'écart d'horloge détecté.
-3. **FR-063** : ajouter `ContradictingEvidence` et un identifiant de règle
-   versionné sur `DiagnosticHypothesis`.
-4. **FR-066** : nouveau concept de « période de référence » — marquer une
-   session/exécution comme saine, comparer les mêmes signaux à une session
-   courante, écran de différence.
-5. **FR-067** : empaqueter le rapport d'escalade en archive avec empreinte
-   (hash) des fichiers inclus.
-6. **FR-068** : déclencher `CollectFromServerAsync` automatiquement quand une
-   alerte critique est levée (lier `AlertService` → `DiagnosticSessionService`).
-7. **FR-069** : ajouter le 5e verdict (« plusieurs causes possibles »),
-   déclenché quand deux hypothèses ont une confiance proche.
-8. **FR-071** : heuristique de détection composant/serveur/version à partir du
-   contenu importé (motifs déjà connus du catalogue).
-9. **FR-072/073/077** : champs structurés (niveau, thread, classe,
-   transaction), résumé de session (volumes par niveau, évolution), filtres
-   composant/serveur/code/texte libre.
-10. **FR-070/079/079B** : support d'archive .zip à l'import, politique de
-    rétention configurable, filtre temporel appliqué à la collecte plutôt
-    qu'après coup.
-11. **Cycle incident (8 phases)** : ajouter `AlertId` sur `DiagnosticSession`
-    pour relier détection → diagnostic, et des champs de suivi pour
-    sécurisation/remise en service.
+**État au 18/08 : 11/11.**
+
+| # | Fait | Exigence | Vérification |
+|---|---|---|---|
+| 1 | ✅ | FR-065 / §3.10.4 | Entité `CorrelationRule` (opérateur ET/OU/seuil sur plusieurs signaux), version et statut de validation sur `DiagnosticSignature` — migration `ReglesCorrelation` |
+| 2 | ✅ | FR-061 | `ClockSkewSecondsAtCollection` sur `LogSource`, alimenté par la mesure live du connecteur ; la chronologie multi-sources en tient compte et le signale. Non mesurable sur un import manuel — et l'écran le dit plutôt que de supposer zéro |
+| 3 | ✅ | FR-063 | `CounterEvidence` **et** `RuleVersion` sur `DiagnosticHypothesis` (et sur `DiagnosticSignature`) |
+| 4 | ✅ | FR-066 | Période de référence + modes de comparaison — migration `ModesDeComparaisonReference` |
+| 5 | ✅ | FR-067 | Archive d'escalade avec empreinte SHA-256 par fichier inclus (`HistoryService`) |
+| 6 | ✅ | FR-068 | `SourceAlertId` sur `DiagnosticSession` ; collecte déclenchée depuis l'alerte critique |
+| 7 | ✅ | FR-069 | `DiagnosticVerdict` compte 7 valeurs, dont `PlusieursCausesPossibles` et `InformationsInsuffisantes` |
+| 8 | ✅ | **FR-071** | **Livré le 18/08** — voir ci-dessous |
+| 9 | ✅ | FR-072/073/077 | Champs structurés (niveau, thread, classe, transaction) — migration `FR072_LogStructure` ; résumé par niveau et filtres présents |
+| 10 | ✅ | FR-070/079/079B | Import d'archive `.zip` (`DiagnosticDetail.razor`), politique de rétention configurable — migration `PolitiqueRetention` ; fenêtre temporelle appliquée à la collecte |
+| 11 | ✅ | Cycle incident (8 phases) | Migration `CycleDiagnostic8Phases`, `SourceAlertId` reliant détection → diagnostic |
+
+### FR-071 — deviner l'origine d'un journal versé manuellement
+
+L'infrastructure existait déjà (version, type de journal, fuseau détectés ;
+identification du composant par le **nom de fichier**). Le manque réel était
+l'inférence à partir du **contenu**, que le code refusait explicitement de
+tenter.
+
+Livré dans `Infrastructure/Diagnostic/OriginHeuristic.cs` (15 tests,
+`OrigineJournalTests.cs`), migration `FR071_SuggestionOrigineJournal` :
+
+- Trois signaux, du plus fiable au plus faible : **nom d'hôte déclaré**, puis
+  **nom de composant déclaré**, puis **motif du catalogue de signatures**
+  rattaché à un rôle (`AppliesToRole`). Les motifs ne sont pas codés en dur :
+  ce que l'exploitation a appris de ses propres journaux sert à les
+  reconnaître.
+- **On suggère, on ne rattache pas.** Les champs `SuggestedComponentId` /
+  `SuggestionEvidence` / `OriginAmbiguous` sont volontairement distincts de
+  `ComponentId`. Un journal mal attribué est pire qu'un journal non attribué :
+  il envoie la chronologie, la corrélation et l'intervention sur le mauvais
+  serveur, sans que rien ne signale que c'était une supposition.
+- **« Plusieurs candidats » et « aucun indice » restent deux états distincts.**
+  Deux composants nommés dans le même journal (un composant en cite un autre —
+  c'est banal) ne produisent aucune suggestion, mais l'ambiguïté est affichée.
+- L'indice justificatif est montré à l'opérateur, extrait à l'appui, et il est
+  prélevé sur le contenu **déjà masqué**.
+- Règle de reconnaissance durcie pour le contenu : le nom doit former un jeton
+  à lui seul. Les bornes « non alphanumériques » suffisent pour un nom de
+  fichier, mais sur du contenu elles attribuaient « XPS » à tout journal
+  mentionnant `SRV-N4-XPS` ou `com.navis.xps.Dispatcher`.
+- Correctif attenant : `ContientCommeUnite` n'examinait que la **première**
+  occurrence. Sur un journal entier, « ECN4 » apparaît le plus souvent d'abord
+  au sein d'« ECN4Web » puis seul quelques lignes plus bas — le composant
+  n'était alors jamais reconnu.
 
 ---
 

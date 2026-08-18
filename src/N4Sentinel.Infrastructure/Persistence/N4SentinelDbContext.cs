@@ -680,6 +680,14 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.HostName).HasMaxLength(255);
             e.Property(x => x.Error).HasMaxLength(2000);
             e.Property(x => x.DetectedVersion).HasMaxLength(100);
+
+            // FR-071 : suggestion d'origine. Aucune cle etrangere vers
+            // Components — une suggestion ne doit pas empecher la suppression
+            // d'un composant du referentiel, ni etre confondue avec un
+            // rattachement reel.
+            e.Property(x => x.SuggestedComponentName).HasMaxLength(150);
+            e.Property(x => x.SuggestionEvidence).HasMaxLength(600);
+
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.Succeeded);
 
