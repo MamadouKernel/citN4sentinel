@@ -41,6 +41,8 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<KnowledgeDocument> Documents => Set<KnowledgeDocument>();
     public DbSet<DocumentSection> DocumentSections => Set<DocumentSection>();
     public DbSet<KnowledgeFeedback> KnowledgeFeedback => Set<KnowledgeFeedback>();
+    public DbSet<CorrelationRule> CorrelationRules => Set<CorrelationRule>();
+    public DbSet<CorrelationCondition> CorrelationConditions => Set<CorrelationCondition>();
     public DbSet<Sop> Sops => Set<Sop>();
     public DbSet<SopStep> SopSteps => Set<SopStep>();
     public DbSet<SopAssociation> SopAssociations => Set<SopAssociation>();
@@ -54,6 +56,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<ComponentSignal> ComponentSignals => Set<ComponentSignal>();
     public DbSet<ExternalActionDeclaration> ExternalActionDeclarations => Set<ExternalActionDeclaration>();
     public DbSet<ApprovalMatrixRule> ApprovalMatrixRules => Set<ApprovalMatrixRule>();
+    public DbSet<PasswordHistoryRecord> PasswordHistoryRecords => Set<PasswordHistoryRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -78,6 +81,17 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             (a, b) => a != null && b != null && a.SequenceEqual(b),
             v => v.Aggregate(0, (h, s) => HashCode.Combine(h, s.GetHashCode())),
             v => v.ToList());
+
+        builder.Entity<PasswordHistoryRecord>(e =>
+        {
+            e.ToTable("PasswordHistoryRecords");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.PasswordHash).HasMaxLength(1000).IsRequired();
+
+            e.HasOne(x => x.User).WithMany()
+             .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         builder.Entity<N4Environment>(e =>
         {
@@ -712,6 +726,29 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Session).WithMany(x => x.Hypotheses)
              .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<CorrelationRule>(e =>
+        {
+            e.ToTable("CorrelationRules");
+            e.Property(x => x.Code).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(300).IsRequired();
+            e.Property(x => x.HypothesisStatement).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.Recommendation).HasMaxLength(2000);
+
+            e.HasIndex(x => x.Code).IsUnique();
+        });
+
+        builder.Entity<CorrelationCondition>(e =>
+        {
+            e.ToTable("CorrelationConditions");
+            e.Property(x => x.SignalSourceId).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(500).IsRequired();
+
+            e.HasOne(x => x.Rule)
+             .WithMany(x => x.Conditions)
+             .HasForeignKey(x => x.RuleId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         // -------------------------------------------------------------------

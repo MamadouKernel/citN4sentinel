@@ -30,7 +30,10 @@ public enum StepAction
     InterventionManuelle = 4,
 
     /// <summary>Temporisation explicite, motivée. À utiliser avec parcimonie.</summary>
-    Attendre = 5
+    Attendre = 5,
+
+    /// <summary>Arrêt forcé explicite (FR-029B).</summary>
+    ArretForce = 6
 }
 
 /// <summary>Conduite à tenir quand une étape n'aboutit pas.</summary>

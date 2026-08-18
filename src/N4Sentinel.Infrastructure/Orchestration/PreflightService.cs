@@ -57,6 +57,38 @@ public sealed class PreflightService(
 
         if (cible is null) return rapport;
 
+        // SEC-001, item 4 du plan : le second facteur est EXIGE pour agir en
+        // Production, quel que soit le reglage global.
+        //
+        // Le controle ne peut pas vivre dans une politique d'autorisation :
+        // une politique ne connait pas l'environnement vise, elle ne voit que
+        // des roles. Le pre-check, lui, sait sur quoi porte l'operation - c'est
+        // donc ici, et nulle part ailleurs, que la distinction est exprimable.
+        //
+        // La simulation en est dispensee : elle n'emet aucune commande.
+        if (!cible.IsSimulation)
+        {
+            var environnement = await lecture.Environments.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == cible.EnvironmentId, ct);
+
+            if (environnement?.IsProduction == true && !ASecondFacteur(demandeur))
+            {
+                logger.LogWarning(
+                    "Exécution {Correlation} refusée : second facteur absent pour une action en Production.",
+                    cible.CorrelationId);
+
+                rapport.Checks.Insert(0, PreflightCheck.Echec(
+                    "Second facteur en Production",
+                    "Cette session n'a pas été ouverte avec un second facteur, et l'opération vise la "
+                    + $"Production (« {cible.EnvironmentCode} »).",
+                    "Activez l'authentificateur depuis votre profil, puis reconnectez-vous. "
+                    + "Un mot de passe seul ne suffit pas à autoriser l'arrêt d'un terminal.",
+                    bloquant: true));
+
+                return rapport;
+            }
+        }
+
         // Une simulation n'emet aucune commande : la consultation suffit.
         var decision = cible.IsSimulation
             ? await acces.CanViewAsync(demandeur, cible.EnvironmentId, ct)
@@ -88,6 +120,19 @@ public sealed class PreflightService(
     public Task<PreflightReport> RunAsync(Guid executionId, CancellationToken ct = default) =>
         RunInterneAsync(executionId, ct);
 
+    /// <summary>
+    /// Vrai si la session courante a été ouverte avec un second facteur.
+    ///
+    /// La revendication <c>amr = mfa</c> est posée par Identity au moment de la
+    /// connexion à deux facteurs. Elle prouve que CETTE session a franchi le
+    /// second facteur — ce qui est plus fort que de constater que le compte
+    /// l'a activé quelque part.
+    /// </summary>
+    public static bool ASecondFacteur(System.Security.Claims.ClaimsPrincipal utilisateur) =>
+        utilisateur.FindAll("amr").Any(c =>
+            string.Equals(c.Value, "mfa", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(c.Value, "otp", StringComparison.OrdinalIgnoreCase));
+
     private async Task<PreflightReport> RunInterneAsync(Guid executionId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -107,6 +152,8 @@ public sealed class PreflightService(
 
         var composants = await ChargerComposantsAsync(db, execution, ct);
 
+        ControlerFenetreIntervention(execution, controles);
+        ControlerTicketProduction(execution, controles);
         ControlerPilotabilite(execution, composants, controles);
         ControlerMarqueurs(execution, composants, controles);
         await ControlerPrerequisAsync(db, execution, composants, controles, ct);
@@ -174,6 +221,68 @@ public sealed class PreflightService(
             + $"à {verrou.AcquiredAt.ToLocalTime():HH:mm}.",
             "Attendez qu'elle se termine, ou demandez à son auteur de l'annuler.",
             bloquant: true));
+    }
+
+    private static void ControlerFenetreIntervention(WorkflowExecution execution, List<PreflightCheck> controles)
+    {
+        if (execution.StartWindow is null && execution.EndWindow is null)
+        {
+            controles.Add(PreflightCheck.NonApplicable(
+                "Fenêtre d'intervention",
+                "Aucune fenêtre d'intervention n'a été spécifiée pour cette opération."));
+            return;
+        }
+
+        var maintenant = DateTimeOffset.UtcNow;
+
+        if (execution.StartWindow is not null && maintenant < execution.StartWindow)
+        {
+            controles.Add(PreflightCheck.Echec(
+                "Fenêtre d'intervention",
+                $"L'opération ne peut pas commencer avant {execution.StartWindow.Value.ToLocalTime():g}.",
+                "Attendez le début de la fenêtre d'intervention.",
+                bloquant: true));
+            return;
+        }
+
+        if (execution.EndWindow is not null && maintenant > execution.EndWindow)
+        {
+            controles.Add(PreflightCheck.Echec(
+                "Fenêtre d'intervention",
+                $"La fenêtre d'intervention autorisée s'est terminée à {execution.EndWindow.Value.ToLocalTime():g}.",
+                "L'opération est hors délai. Demandez une nouvelle fenêtre.",
+                bloquant: true));
+            return;
+        }
+
+        controles.Add(PreflightCheck.Reussi(
+            "Fenêtre d'intervention",
+            "L'heure actuelle respecte la fenêtre d'intervention autorisée."));
+    }
+
+    private static void ControlerTicketProduction(WorkflowExecution execution, List<PreflightCheck> controles)
+    {
+        if (execution.Environment is null || !execution.Environment.IsProduction)
+        {
+            controles.Add(PreflightCheck.NonApplicable(
+                "Ticket ITSM (Production)",
+                "Ce contrôle s'applique uniquement aux environnements de Production."));
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(execution.TicketReference))
+        {
+            controles.Add(PreflightCheck.Echec(
+                "Ticket ITSM (Production)",
+                "Une référence de ticket ITSM est obligatoire pour toute opération en Production (FR-012).",
+                "Renseignez la référence du ticket d'incident ou de changement approuvé.",
+                bloquant: true));
+            return;
+        }
+
+        controles.Add(PreflightCheck.Reussi(
+            "Ticket ITSM (Production)",
+            $"Référence de ticket renseignée : {execution.TicketReference}."));
     }
 
     private static void ControlerPilotabilite(

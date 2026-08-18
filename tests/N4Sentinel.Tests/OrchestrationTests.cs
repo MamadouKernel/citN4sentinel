@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -47,8 +48,8 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
@@ -145,7 +146,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // ORC-01 — Versionnement
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Un_Workflow_Jamais_Execute_Se_Modifie_Sur_Place()
     {
         var id = await CreerWorkflowAsync("DEM", WorkflowKind.DemarrageComplet);
@@ -159,7 +160,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal(id, r.WorkflowId);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Workflow_Deja_Execute_Produit_Une_Nouvelle_Version()
     {
         var id = await CreerWorkflowAsync("DEM", WorkflowKind.DemarrageComplet);
@@ -187,7 +188,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal("Démarrage complet", v1.Name);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Reste_Rattache_A_La_Version_Qui_A_Tourne()
     {
         var id = await CreerWorkflowAsync("DEM", WorkflowKind.DemarrageComplet);
@@ -206,7 +207,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal("Démarrer le Bridge", execution.Steps.First().Name);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Nouvelle_Tentative_Automatique_Sur_Un_Arret_Est_Refusee()
     {
         var id = await CreerWorkflowAsync("ARR", WorkflowKind.ArretComplet);
@@ -227,7 +228,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("arrêt qui échoue doit être compris", r.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Intervention_Manuelle_Sans_Consigne_Est_Refusee()
     {
         var id = await CreerWorkflowAsync("MAN", WorkflowKind.OperationPartielle);
@@ -239,7 +240,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("sans dire lequel", r.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Les_Sequences_Generees_Sont_En_Brouillon()
     {
         var r = await _workflows.GenerateDefaultsAsync(_envId);
@@ -254,7 +255,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Empty(await _workflows.GetRunnableAsync(_envId));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task L_Ordre_D_Arret_N_Est_Pas_L_Inverse_De_L_Ordre_De_Demarrage()
     {
         await _workflows.GenerateDefaultsAsync(_envId);
@@ -272,7 +273,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
             w.Steps.First(s => s.ComponentId == composantId).Order;
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task L_Ordre_D_Arret_Suit_La_Prescription_De_L_Editeur()
     {
         // Guide Kaleris « N4 IT Administrator - Day 1 », module 1.8 :
@@ -331,7 +332,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Status = LifecycleStatus.Valide
     };
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Sequence_Generee_Respecte_Le_Graphe_De_Dependances()
     {
         await _workflows.GenerateDefaultsAsync(_envId);
@@ -345,7 +346,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Les_Sequences_Ne_Sont_Pas_Regenerees_Par_Dessus_Les_Existantes()
     {
         await _workflows.GenerateDefaultsAsync(_envId);
@@ -358,7 +359,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // ORC-04 — Verrou d'environnement (recette AC-12)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Une_Seconde_Operation_Mutative_Est_Refusee()
     {
         var premier = await _locks.AcquireAsync(_envId, Guid.NewGuid(), "op1", "Arrêt complet");
@@ -371,7 +372,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("diagnostics en lecture restent possibles", second.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Verrou_Expire_Est_Repris()
     {
         var executionId = Guid.NewGuid();
@@ -391,7 +392,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.True(second.Succeeded, second.Error);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Simulation_Ne_Prend_Pas_Le_Verrou()
     {
         var id = await CreerWorkflowAsync("DEM", WorkflowKind.DemarrageComplet);
@@ -403,7 +404,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Null(await _locks.GetAsync(_envId));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Verrou_Est_Libere_A_La_Fin()
     {
         var executionId = Guid.NewGuid();
@@ -417,7 +418,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // ORC-05 — Motif, approbation, contournement
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Une_Execution_Sans_Motif_Est_Refusee()
     {
         var id = await CreerWorkflowAsync("DEM", WorkflowKind.DemarrageComplet);
@@ -429,7 +430,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("motif est obligatoire", prep.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Demandeur_Ne_Peut_Pas_Approuver_Sa_Propre_Operation()
     {
         var id = await CreerWorkflowAsync("ARR", WorkflowKind.ArretComplet, approbation: true);
@@ -483,7 +484,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.NotNull(apresSeconde.SecondApprovedAt);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Operation_En_Attente_D_Approbation_Ne_Se_Lance_Pas()
     {
         var id = await CreerWorkflowAsync("ARR", WorkflowKind.ArretComplet, approbation: true);
@@ -516,7 +517,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal("op1", trace.Actor);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Etape_Non_Contournable_Ne_Peut_Etre_Ignoree_Par_Personne()
     {
         var executionId = await PreparerExecutionAsync();
@@ -531,7 +532,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("quel que soit le profil", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Contournement_Sans_Justification_Est_Refuse()
     {
         var executionId = await PreparerExecutionAsync(contournable: true);
@@ -545,7 +546,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("trou dans la traçabilité", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Contournement_Justifie_Enregistre_Qui_Et_Pourquoi()
     {
         var executionId = await PreparerExecutionAsync(contournable: true);
@@ -566,7 +567,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("déjà arrêté manuellement", etape.SkipReason!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Contournement_Est_Trace_Dans_Le_Journal_Audit()
     {
         var executionId = await PreparerExecutionAsync(contournable: true);
@@ -592,7 +593,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // FR-026 — Preuve jointe obligatoire pour une intervention manuelle
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task ConfirmStepAsync_Refuse_Sans_Preuve_Quand_Obligatoire()
     {
         var executionId = await PreparerExecutionAsync();
@@ -614,7 +615,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("exige une preuve jointe", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task ConfirmStepAsync_Accepte_Avec_Preuve_Jointe()
     {
         var executionId = await PreparerExecutionAsync();
@@ -644,7 +645,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // FR-013 / FR-027 — Matrice de criticité
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task PrepareAsync_La_Matrice_Exige_Une_Approbation_Non_Prevue_Par_Le_Workflow()
     {
         await _matrix.SaveAsync(new ApprovalMatrixRule
@@ -665,7 +666,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal(ExecutionStatus.EnAttenteApprobation, execution!.Status);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task PrepareAsync_Une_Regle_Desactivee_N_A_Aucun_Effet()
     {
         var regle = new ApprovalMatrixRule
@@ -686,7 +687,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal(ExecutionStatus.EnPreparation, execution!.Status);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task SkipStepAsync_En_Production_Avec_Regle_Double_Approbation_Reste_En_Attente()
     {
         await using (var db = _factory.CreateDbContext())
@@ -741,7 +742,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // FR-029 — Diagnostic relié à une étape bloquée
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task OuvrirDiagnostic_Refuse_Hors_Etat_Bloque()
     {
         var executionId = await PreparerExecutionAsync();
@@ -754,7 +755,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Null(sessionId);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task OuvrirDiagnostic_Renvoie_La_Session_Deja_Reliee_Sans_En_Recreer_Une()
     {
         var executionId = await PreparerExecutionAsync();
@@ -779,7 +780,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // FR-029B — Arrêt forcé sur blocage StopPending
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Un_Arret_Force_Sans_Justification_Est_Refuse()
     {
         var executionId = await PreparerExecutionAsync();
@@ -801,7 +802,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("trou dans la traçabilité", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Arret_Force_Est_Refuse_Hors_Blocage_StopPending_Connu()
     {
         var executionId = await PreparerExecutionAsync();
@@ -823,7 +824,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("blocage StopPending connu", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Arret_Force_Refuse_Une_Etape_Qui_N_Est_Pas_Un_Arret()
     {
         var executionId = await PreparerExecutionAsync();
@@ -954,7 +955,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.False(await verif.Executions.AnyAsync(e => e.WorkflowId == workflowId));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task L_Annulation_Avant_Lancement_Est_Immediate()
     {
         var executionId = await PreparerExecutionAsync();
@@ -970,7 +971,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // REF-10 / FR-044 — Refus des séquences invalides
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Demarrer_XPS_Avant_Le_Bridge_Est_Refuse()
     {
         var violations = await _validator.ValidateAsync(_envId,
@@ -985,7 +986,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("Bridge", bloquante.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Demarrer_Le_Bridge_Puis_XPS_Est_Accepte()
     {
         var violations = await _validator.ValidateAsync(_envId,
@@ -997,7 +998,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.DoesNotContain(violations, v => v.Blocking);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Arreter_Le_Bridge_Avant_XPS_Est_Refuse()
     {
         // L'ordre d'arret n'est pas l'inverse mecanique de l'ordre de
@@ -1012,7 +1013,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains(violations, v => v.Blocking && v.Message.Contains("privé de son prérequis"));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Prerequis_Absent_De_La_Sequence_Est_Signale_Sans_Bloquer()
     {
         var violations = await _validator.ValidateAsync(_envId,
@@ -1023,7 +1024,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("n'est pas démarré par cette séquence", signalement.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Deux_Noeuds_Cluster_En_Parallele_Sont_Refuses()
     {
         var e1 = EtapeDemarrage("Démarrer Cluster 1", _cluster1Id, 1);
@@ -1047,7 +1048,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains(violations, v => v.Blocking && v.Message.Contains("UN PAR UN") && v.Message.Contains("quorum"));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Dependance_Circulaire_Est_Detectee()
     {
         // Bridge dependrait de XPS, qui depend deja du Bridge.
@@ -1057,7 +1058,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("cycle", message!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Dependance_Sur_Soi_Meme_Est_Refusee()
     {
         var message = await _validator.DetectCycleAsync(_envId, _bridgeId, _bridgeId);
@@ -1066,7 +1067,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("lui-même", message!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Dependance_Acceptable_Ne_Declenche_Aucun_Cycle()
     {
         var message = await _validator.DetectCycleAsync(_envId, _xpsId, _cluster1Id);
@@ -1076,7 +1077,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // NFR-002 — Reprise après redémarrage
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Une_Etape_En_Vol_Au_Moment_De_L_Arret_Impose_Une_Reconciliation()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1103,7 +1104,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("impossible de savoir si l'action a été émise", execution.Outcome!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Interruption_Entre_Deux_Etapes_Reprend_Sans_Reconciliation()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1130,7 +1131,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal(ExecutionStatus.EnCours, execution!.Status);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Reprise_Apres_Reconciliation_Repart_De_L_Etape_Suspendue()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1161,7 +1162,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // ORC-07 — Pré-check (FR-012)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Une_Execution_Sans_Pre_Check_Ne_Se_Lance_Pas()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1172,7 +1173,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("contrôles préalables n'ont pas été passés", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Echec_Bloquant_Interdit_Le_Lancement_Sans_Contournement_Possible()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1192,7 +1193,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("ne se contourne pas", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Pre_Check_Sans_Echec_Bloquant_Autorise_Le_Lancement()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1208,7 +1209,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Null(await _executions.StartAsync(executionId, "op1"));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Lancement_Reussi_Est_Trace_Dans_Le_Journal_Audit()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1235,7 +1236,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Equal(nameof(WorkflowExecution), entree.EntityType);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Composant_Non_Pilotable_Fait_Echouer_Le_Pre_Check()
     {
         // Le Bridge repasse en brouillon : le referentiel n'autorise plus
@@ -1259,7 +1260,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("Bridge", controle.Detail);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Composant_Sans_Marqueur_Produit_Une_Reserve_Et_Non_Un_Blocage()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1307,7 +1308,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.False(rapport.HasBlockingFailure);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_De_Pre_Check_Est_Conserve_Avec_L_Execution()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1323,7 +1324,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.NotEmpty(relu);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Simulation_Ne_Bute_Pas_Sur_Le_Verrou()
     {
         // Verrou pose par une autre operation.
@@ -1478,7 +1479,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // ORC-10 — Opérations ponctuelles (FR-040 à FR-045)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task L_Analyse_D_Impact_Nomme_Ce_Qui_Tombe_Avec_Le_Composant_Arrete()
     {
         // XPS depend du Bridge : arreter le Bridge rend XPS inoperant.
@@ -1489,7 +1490,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains(impact.Collateral, c => c.Id == _xpsId);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task L_Analyse_D_Impact_Signale_Un_Prerequis_Absent_De_La_Selection()
     {
         var impact = await _adhoc.AnalyseImpactAsync(_envId, [_xpsId], StepAction.Demarrer);
@@ -1497,7 +1498,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains(impact.MissingPrerequisites, c => c.Id == _bridgeId);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Operation_Ponctuelle_Sur_Un_Composant_Non_Pilotable_Est_Refusee()
     {
         await using (var db = _factory.CreateDbContext())
@@ -1513,7 +1514,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("pas pilotables", r.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Redemarrage_Tournant_Traite_Les_Noeuds_Un_Par_Un()
     {
         var r = await _adhoc.BuildAsync(
@@ -1536,7 +1537,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.All(etapes, e => Assert.False(e.CanRunInParallel));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Operation_Ponctuelle_Passe_Par_Le_Moteur_Comme_Les_Autres()
     {
         var r = await _adhoc.BuildAsync(_envId, [_bridgeId], StepAction.Arreter, AdHocShape.Unitaire, "op1");
@@ -1553,7 +1554,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
     // =======================================================================
     // ORC-11 — Rapport d'exécution (FR-028, AC-14)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Nomme_Qui_A_Contourne_Une_Etape_Et_Pourquoi()
     {
         var executionId = await PreparerExecutionAsync(contournable: true);
@@ -1572,7 +1573,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("1 contournée(s)", rapport);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Distingue_Une_Etape_Prouvee_D_Une_Etape_A_Confirmer()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1591,7 +1592,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("sans que le résultat ait pu être prouvé", rapport);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Dit_Qu_Une_Sequence_Interrompue_N_Est_Pas_Defaite()
     {
         var executionId = await PreparerExecutionAsync();
@@ -1603,7 +1604,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.Contains("ne sont PAS défaites", rapport);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Reprend_Les_Controles_Prealables()
     {
         var executionId = await PreparerExecutionAsync();

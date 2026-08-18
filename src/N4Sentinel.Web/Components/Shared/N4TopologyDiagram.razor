@@ -204,13 +204,6 @@
                             }
                         </div>
 
-                        <!-- Share Folder -->
-                        <div @onclick='() => OpenStaticNodeModal("Share Folder", "Dossier Partagé N4", "N4CLUSTER01", "\\\\N4CLUSTER01\\NavisShared", "NavisShareService")'
-                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-emerald-400 transition cursor-pointer text-center space-y-0.5 mt-2 @(IsMatchQuery("Share") ? "ring-2 ring-emerald-400" : "")">
-                            <i class="bi bi-folder-fill text-emerald-400 text-base"></i>
-                            <div class="text-xs font-bold text-white">Share Folder</div>
-                            <div class="text-[10px] font-mono text-slate-400">\\\\N4CLUSTER01\\NavisShared</div>
-                        </div>
                     </div>
 
                     <!-- BOX 3: XPS / BRIDGE & ECN4 (Columns 10-12) -->
@@ -237,13 +230,6 @@
                             }
                         </div>
 
-                        <!-- VMT Terminal -->
-                        <div @onclick='() => OpenStaticNodeModal("VMT (Vehicle Mounted Terminal)", "Terminal Embarqué Engins", "VMT-NODE-01", "10.88.192.15", "VmtConnectorDaemon")'
-                             class="p-3 rounded-xl bg-slate-900 border border-slate-700 hover:border-purple-400 transition cursor-pointer text-center space-y-0.5 mt-2 @(IsMatchQuery("VMT") ? "ring-2 ring-purple-400" : "")">
-                            <i class="bi bi-tablet-landscape-fill text-purple-400 text-base"></i>
-                            <div class="text-xs font-bold text-white">VMT Terminal</div>
-                            <div class="text-[10px] font-mono text-slate-400">Engins &amp; Reefers</div>
-                        </div>
                     </div>
                 </div>
 
@@ -275,48 +261,16 @@
             </div>
         </div>
 
-        <!-- BOTTOM ROW: EXTERNAL SYSTEMS (VBS, HYPERION, REEFER RUNNER & DGPS) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800">
-            <!-- Vehicle Booking System -->
-            <div @onclick='() => OpenStaticNodeModal("Vehicle Booking System (VBS)", "Système de Réservation Camions", "SRV-VBS-01", "10.88.190.20", "VbsReservationDaemon")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("VBS") ? "ring-2 ring-amber-400" : "")">
-                <div class="w-8 h-8 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center mx-auto text-base">
-                    <i class="bi bi-truck-front-fill"></i>
-                </div>
-                <div class="text-xs font-bold text-white">Vehicle Booking System</div>
-                <div class="text-[10px] font-mono text-slate-400">VBS / Camions</div>
+        <!-- BOTTOM ROW: EXTERNAL SYSTEMS -->
+        @if (GetExternalNodes().Count > 0)
+        {
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800">
+                @foreach (var c in GetExternalNodes())
+                {
+                    @RenderInteractiveNode(c)
+                }
             </div>
-
-            <!-- Hyperion -->
-            <div @onclick='() => OpenStaticNodeModal("Hyperion Report Engine", "Serveur de Reporting Hyperion", "SRV-HYP-REP01", "10.88.190.30", "HyperionReportingService")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-teal-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("Hyperion") ? "ring-2 ring-teal-400" : "")">
-                <div class="w-8 h-8 rounded-xl bg-slate-800 text-teal-400 flex items-center justify-center mx-auto text-base">
-                    <i class="bi bi-pie-chart-fill"></i>
-                </div>
-                <div class="text-xs font-bold text-white">Hyperion</div>
-                <div class="text-[10px] font-mono text-slate-400">Rapports &amp; Statistiques</div>
-            </div>
-
-            <!-- Reefer Runner -->
-            <div @onclick='() => OpenStaticNodeModal("Reefer Runner", "Supervision Conteneurs Frigorifiques", "SRV-REEFER-01", "10.88.190.40", "ReeferRunnerDaemon")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-cyan-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("Reefer") ? "ring-2 ring-cyan-400" : "")">
-                <div class="w-8 h-8 rounded-xl bg-slate-800 text-cyan-400 flex items-center justify-center mx-auto text-base">
-                    <i class="bi bi-snow2"></i>
-                </div>
-                <div class="text-xs font-bold text-white">Reefer Runner</div>
-                <div class="text-[10px] font-mono text-slate-400">Suivi Frigo / Reefer</div>
-            </div>
-
-            <!-- DGPS -->
-            <div @onclick='() => OpenStaticNodeModal("DGPS Position Engine", "Positionnement GPS Différentiel", "SRV-DGPS-01", "10.88.190.50", "DgpsLocationService")'
-                 class="p-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-rose-400 transition cursor-pointer shadow-lg hover:scale-105 text-center space-y-1 @(IsMatchQuery("DGPS") ? "ring-2 ring-rose-400" : "")">
-                <div class="w-8 h-8 rounded-xl bg-slate-800 text-rose-400 flex items-center justify-center mx-auto text-base">
-                    <i class="bi bi-geo-alt-fill"></i>
-                </div>
-                <div class="text-xs font-bold text-white">DGPS</div>
-                <div class="text-[10px] font-mono text-slate-400">Positionnement Engins</div>
-            </div>
-        </div>
+        }
     </div>
 </div>
 
@@ -538,6 +492,7 @@
     private readonly List<N4Component> _databaseNodes = [];
     private readonly List<N4Component> _masterNodes = [];
     private readonly List<N4Component> _xpsNodes = [];
+    private readonly List<N4Component> _externalNodes = [];
 
     private bool _showTelemetryModal;
     private bool _loadingTelemetry;
@@ -696,6 +651,7 @@
         _databaseNodes.Clear();
         _masterNodes.Clear();
         _xpsNodes.Clear();
+        _externalNodes.Clear();
 
         var effective = GetEffectiveComponents();
 
@@ -736,6 +692,15 @@
             {
                 _databaseNodes.Add(c);
             }
+            else if (c.Role == ComponentRole.SystemeExterne ||
+                     c.Role == ComponentRole.InterfaceEdi ||
+                     name.Contains("VBS", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Hyperion", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("Reefer", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("DGPS", StringComparison.OrdinalIgnoreCase))
+            {
+                _externalNodes.Add(c);
+            }
             else
             {
                 _clusterNodes.Add(c);
@@ -747,6 +712,7 @@
     private List<N4Component> GetDatabaseNodes() => _databaseNodes;
     private List<N4Component> GetMasterNodes() => _masterNodes;
     private List<N4Component> GetXpsNodes() => _xpsNodes;
+    private List<N4Component> GetExternalNodes() => _externalNodes;
 
     private RenderFragment RenderInteractiveNode(N4Component comp, bool isLarge = false) => __builder =>
     {

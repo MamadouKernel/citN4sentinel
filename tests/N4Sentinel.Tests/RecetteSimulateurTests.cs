@@ -1,3 +1,4 @@
+using Xunit;
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -62,8 +63,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // -----------------------------------------------------------------------
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
@@ -225,7 +226,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 1 — Simulation : aucune commande n'est émise (AC-01)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_1_Une_Simulation_N_Emet_Aucune_Commande()
     {
         var workflowId = await CreerWorkflowAsync("SIM-DEM", WorkflowKind.DemarrageComplet,
@@ -247,7 +248,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 2 — Démarrage nominal, prouvé par le journal
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_2_Demarrage_Nominal_Prouve_Par_Le_Journal()
     {
         var workflowId = await CreerWorkflowAsync("SIM-NOM", WorkflowKind.DemarrageComplet,
@@ -273,7 +274,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 3 — Le marqueur du démarrage PRÉCÉDENT ne compte pas
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_3_Le_Marqueur_Du_Demarrage_Precedent_Ne_Vaut_Pas_Preuve()
     {
         // LE SCENARIO QUI JUSTIFIE TOUT LE PROJET. Le journal contient deja le
@@ -304,7 +305,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 4 — XPS refuse de démarrer sans Bridge prouvé (FR-044)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_4_XPS_Refuse_De_Demarrer_Sans_Bridge_Prouve()
     {
         var workflowId = await CreerWorkflowAsync("SIM-XPS", WorkflowKind.OperationPartielle,
@@ -325,7 +326,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             c => c.Contains("XPS Service") && c.StartsWith("Demarrer"));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_4bis_XPS_Demarre_Une_Fois_Le_Bridge_Prouve()
     {
         var workflowId = await CreerWorkflowAsync("SIM-SEQ", WorkflowKind.OperationPartielle,
@@ -344,7 +345,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 5 — Arrêt complet
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_5_Arret_Complet_Suit_Sa_Propre_Sequence()
     {
         _connecteur.Demarre("N4Sim XPS Bridge Daemon", "N4Sim Center Node", "N4Sim Cluster Node 1");
@@ -371,7 +372,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // FR-025 — Annulation sûre : recollecte de l'état réel
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Annulation_Apres_Une_Etape_Executee_Recollecte_L_Etat_Reel()
     {
         var workflowId = await CreerWorkflowAsync("SIM-ANN", WorkflowKind.OperationPartielle,
@@ -411,7 +412,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // FR-024 — Nouvelle tentative : recollecte de l'état réel
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task RetryStepAsync_Annule_La_Reprise_Si_L_Etat_Reel_Montre_Que_L_Action_A_Deja_Reussi()
     {
         var marqueur = Journal("Bridge");
@@ -456,7 +457,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 6 — Le service était déjà à l'arrêt
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_6_Un_Service_Deja_Arrete_N_Est_Pas_Un_Echec()
     {
         // Le composant est deja arrete. Ce n'est pas une anomalie : c'est
@@ -476,7 +477,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Scénario 7 — Service bloqué en StopPending
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_7_Un_Service_Bloque_En_StopPending_Est_Nomme()
     {
         // Cas documente du Standby Center Node : le processus ne rend jamais la
@@ -507,7 +508,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     // =======================================================================
     // Bonus — rotation du journal en cours d'attente
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Scenario_8_Une_Rotation_De_Journal_Ne_Perd_Pas_La_Preuve()
     {
         // Le journal est recree pendant l'attente, comme le fait XPS a chaque

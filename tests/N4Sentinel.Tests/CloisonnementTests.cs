@@ -1,3 +1,4 @@
+using Xunit;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -39,8 +40,8 @@ public sealed class CloisonnementTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(
             new DbContextOptionsBuilder<N4SentinelDbContext>().UseSqlServer(cs).Options);
@@ -88,7 +89,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
     // =======================================================================
     // Le défaut d'origine
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Un_Operateur_Habilite_Sur_La_Recette_Ne_Peut_Pas_Agir_En_Production()
     {
         // LE TEST QUI DONNE SON SENS A TOUT LE RESTE.
@@ -104,7 +105,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.Contains("PRD", refus.Reason!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Consulter_Et_Agir_Sont_Deux_Habilitations_Distinctes()
     {
         // Le cas du support N1 : suivre la Production sans pouvoir l'arreter.
@@ -123,7 +124,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
     // =======================================================================
     // Ne pas verrouiller une installation existante
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Sans_Aucune_Habilitation_Declaree_Rien_N_Est_Cloisonne()
     {
         // Une mise a jour ne doit pas mettre tout le monde dehors.
@@ -134,7 +135,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.False(await _acces.IsEnforcedAsync());
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Premiere_Habilitation_Met_Le_Cloisonnement_En_Vigueur()
     {
         var autre = Utilisateur("u-autre", N4Roles.OperateurN4);
@@ -147,7 +148,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.False((await _acces.CanActAsync(autre, _prod)).Allowed);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Mode_Strict_Cloisonne_Des_Le_Depart()
     {
         // Un site qui prefere fermer d'emblee plutot qu'ouvrir puis restreindre.
@@ -161,7 +162,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
     // =======================================================================
     // Cas particuliers
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task L_Administrateur_De_La_Solution_N_Est_Jamais_Cloisonne()
     {
         // Il administre le referentiel : lui interdire un environnement
@@ -174,7 +175,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.Equal(2, (await _acces.VisibleEnvironmentsAsync(admin)).Count);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Habilitation_Expiree_Ne_Vaut_Plus_Rien()
     {
         // Les droits que personne ne retire sont ceux qui s'accumulent.
@@ -190,7 +191,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.Empty(await _acces.VisibleEnvironmentsAsync(prestataire));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Liste_Visible_Se_Limite_Aux_Environnements_Habilites()
     {
         await _acces.GrantAsync("u-op", "operateur", _uat, EnvironmentGrantLevel.Consultation, null, null);
@@ -201,7 +202,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.Equal(_uat, visibles[0]);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Session_Non_Authentifiee_Est_Refusee()
     {
         var anonyme = new ClaimsPrincipal(new ClaimsIdentity());
@@ -211,7 +212,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.Contains("Aucune session", refus.Reason!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Habilitation_Se_Met_A_Jour_Sans_Se_Dupliquer()
     {
         await _acces.GrantAsync("u-op", "operateur", _prod, EnvironmentGrantLevel.Consultation, null, null);
@@ -224,7 +225,7 @@ public sealed class CloisonnementTests : IAsyncLifetime
         Assert.Equal("Promu", habilitations[0].Reason);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Retrait_D_Une_Habilitation_Ferme_L_Acces()
     {
         await _acces.GrantAsync("u-op", "operateur", _prod, EnvironmentGrantLevel.Action, null, null);
@@ -237,6 +238,39 @@ public sealed class CloisonnementTests : IAsyncLifetime
         await _acces.RevokeAsync(habilitation.Id);
 
         Assert.False((await _acces.CanActAsync(operateur, _prod)).Allowed);
+    }
+
+    // =======================================================================
+    // SEC-001 — second facteur exigé pour agir en Production
+    // =======================================================================
+    [Fact]
+    public void Une_Session_Sans_Second_Facteur_Est_Reconnue_Comme_Telle()
+    {
+        // La revendication amr=mfa prouve que CETTE session a franchi le second
+        // facteur — plus fort que de constater qu'un compte l'a activé ailleurs.
+        var sansSecondFacteur = Utilisateur("u-op", N4Roles.OperateurN4);
+
+        Assert.False(
+            N4Sentinel.Infrastructure.Orchestration.PreflightService.ASecondFacteur(sansSecondFacteur));
+    }
+
+    [Theory]
+    [InlineData("mfa")]
+    [InlineData("MFA")]
+    [InlineData("otp")]
+    public void Une_Session_Ouverte_Avec_Un_Second_Facteur_Est_Reconnue(string valeur)
+    {
+        var revendications = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, "u-op"),
+            new(ClaimTypes.Role, N4Roles.OperateurN4),
+            new("amr", valeur)
+        };
+
+        var avecSecondFacteur = new ClaimsPrincipal(new ClaimsIdentity(revendications, "test"));
+
+        Assert.True(
+            N4Sentinel.Infrastructure.Orchestration.PreflightService.ASecondFacteur(avecSecondFacteur));
     }
 
     // =======================================================================

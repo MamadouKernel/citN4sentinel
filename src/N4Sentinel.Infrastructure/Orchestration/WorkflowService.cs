@@ -249,6 +249,61 @@ public sealed class WorkflowService(
             crees.Add("Contrôle complet");
         }
 
+        // FR-043 : Scénarios prédéfinis ciblés
+        if (!existants.Contains("REDEMARRAGE-INTERFACES"))
+        {
+            var ordonnes = composants
+                .Where(c => c.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps)
+                .OrderBy(c => RangArret(c.Role)).ThenBy(c => c.LogicalName).ToList(); // Arrêt
+                
+            var ordonnesDemarrage = composants
+                .Where(c => c.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps)
+                .OrderBy(c => RangDemarrage(c.Role)).ThenBy(c => c.LogicalName).ToList(); // Redémarrage
+
+            if (ordonnes.Count > 0)
+            {
+                await CreerRedemarragePartielAsync(db, environmentId, "REDEMARRAGE-INTERFACES", 
+                    "Redémarrage des interfaces (Bridge, XPS)", WorkflowKind.OperationPartielle, ordonnes, ordonnesDemarrage, ct);
+                crees.Add("Redémarrage Interfaces");
+            }
+        }
+
+        if (!existants.Contains("REDEMARRAGE-PUPITRE"))
+        {
+            var ordonnes = composants
+                .Where(c => c.Role is ComponentRole.Ecn4 or ComponentRole.Ecn4Web)
+                .OrderBy(c => RangArret(c.Role)).ThenBy(c => c.LogicalName).ToList(); // Arrêt
+                
+            var ordonnesDemarrage = composants
+                .Where(c => c.Role is ComponentRole.Ecn4 or ComponentRole.Ecn4Web)
+                .OrderBy(c => RangDemarrage(c.Role)).ThenBy(c => c.LogicalName).ToList(); // Redémarrage
+
+            if (ordonnes.Count > 0)
+            {
+                await CreerRedemarragePartielAsync(db, environmentId, "REDEMARRAGE-PUPITRE", 
+                    "Redémarrage du pupitre (ECN4, ECN4Web)", WorkflowKind.OperationPartielle, ordonnes, ordonnesDemarrage, ct);
+                crees.Add("Redémarrage Pupitre");
+            }
+        }
+
+        // FR-046 : Séquence de bascule Center
+        if (!existants.Contains("BASCULE-CENTER"))
+        {
+            var standby = composants.FirstOrDefault(c => c.Role == ComponentRole.StandbyCenterNode);
+            var center = composants.FirstOrDefault(c => c.Role == ComponentRole.CenterNode);
+
+            if (standby is null || center is null)
+            {
+                logger.LogWarning("Impossible de générer BASCULE-CENTER : l'environnement {Env} n'a pas de Standby ou de Center déclaré.", environmentId);
+            }
+            else
+            {
+                await CreerBasculeCenterAsync(db, environmentId, "BASCULE-CENTER", 
+                    "Bascule du Center (Standby devient Primaire)", standby, center, ct);
+                crees.Add("Bascule Center");
+            }
+        }
+
         if (crees.Count == 0)
             return GenerationResult.Failed(
                 "Les séquences de référence existent déjà pour cet environnement. "
@@ -278,6 +333,36 @@ public sealed class WorkflowService(
         await db.SaveChangesAsync(ct);
 
         var ordre = 1;
+
+        if (nature == WorkflowKind.DemarrageComplet)
+        {
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id,
+                Order = ordre++,
+                Name = "Confirmation préalable client 1",
+                Action = StepAction.InterventionManuelle,
+                Instruction = "Obtenir la confirmation d'entame du démarrage complet auprès du client.",
+                ExpectedSeconds = 60,
+                TimeoutSeconds = 3600,
+                FailurePolicy = StepFailurePolicy.Bloquer,
+                CanRunInParallel = false
+            });
+
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id,
+                Order = ordre++,
+                Name = "Confirmation préalable client 2",
+                Action = StepAction.InterventionManuelle,
+                Instruction = "Double vérification (Confirmation 2) avant le lancement des services critiques.",
+                ExpectedSeconds = 60,
+                TimeoutSeconds = 3600,
+                FailurePolicy = StepFailurePolicy.Bloquer,
+                CanRunInParallel = false
+            });
+        }
+
         foreach (var composant in composants)
         {
             // Un composant non pilotable est CONTROLE, jamais commande : le
@@ -303,11 +388,141 @@ public sealed class WorkflowService(
             });
         }
 
+        if (nature == WorkflowKind.DemarrageComplet)
+        {
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id,
+                Order = ordre++,
+                Name = "Contrôle 10 (Post-Démarrage)",
+                Action = StepAction.InterventionManuelle,
+                Instruction = "Effectuer les vérifications de validation (Contrôle 10) pour confirmer l'opérationnalité globale.",
+                ExpectedSeconds = 300,
+                TimeoutSeconds = 7200,
+                FailurePolicy = StepFailurePolicy.Bloquer,
+                CanRunInParallel = false
+            });
+            
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id,
+                Order = ordre++,
+                Name = "Validation fonctionnelle finale (FR-035)",
+                Action = StepAction.InterventionManuelle,
+                Instruction = "Confirmer avec les équipes métier que les opérations fonctionnelles peuvent reprendre sans risque.",
+                ExpectedSeconds = 300,
+                TimeoutSeconds = 7200,
+                FailurePolicy = StepFailurePolicy.Bloquer,
+                CanRunInParallel = false
+            });
+
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id,
+                Order = ordre++,
+                Name = "Recette technique consolidée (FR-037)",
+                Action = StepAction.InterventionManuelle,
+                Instruction = "Rédiger et joindre la recette technique post-démarrage attestant de la complétude du workflow.",
+                ExpectedSeconds = 300,
+                TimeoutSeconds = 7200,
+                FailurePolicy = StepFailurePolicy.Bloquer,
+                CanRunInParallel = false
+            });
+        }
+
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation(
             "Séquence « {Nom} » générée pour l'environnement {Env} : {Etapes} étapes, en brouillon.",
             nom, environmentId, composants.Count);
+    }
+
+    private async Task CreerRedemarragePartielAsync(
+        N4SentinelDbContext db, Guid environmentId, string code, string nom, WorkflowKind nature,
+        List<N4Component> composantsArret, List<N4Component> composantsDemarrage, CancellationToken ct)
+    {
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId,
+            Code = code,
+            Name = nom,
+            Kind = nature,
+            Version = 1,
+            Status = LifecycleStatus.Brouillon,
+            Description = "Séquence prédéfinie de redémarrage partiel. À RELIRE ET AJUSTER avant validation."
+        };
+
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync(ct);
+
+        var ordre = 1;
+
+        // Arrêt
+        foreach (var composant in composantsArret)
+        {
+            var actionReelle = composant.CanBeControlled ? StepAction.Arreter : StepAction.Verifier;
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id, Order = ordre++, Name = $"Arrêter {composant.LogicalName}",
+                Action = actionReelle, ComponentId = composant.Id, ExpectedSeconds = 60,
+                TimeoutSeconds = composant.Readiness.StopTimeoutSeconds, FailurePolicy = StepFailurePolicy.Bloquer
+            });
+        }
+
+        // Démarrage
+        foreach (var composant in composantsDemarrage)
+        {
+            var actionReelle = composant.CanBeControlled ? StepAction.Demarrer : StepAction.Verifier;
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id, Order = ordre++, Name = $"Démarrer {composant.LogicalName}",
+                Action = actionReelle, ComponentId = composant.Id, ExpectedSeconds = 180,
+                TimeoutSeconds = composant.Readiness.LogReadyTimeoutSeconds, FailurePolicy = StepFailurePolicy.Bloquer
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Séquence « {Nom} » générée pour l'environnement {Env}.", nom, environmentId);
+    }
+
+    private async Task CreerBasculeCenterAsync(
+        N4SentinelDbContext db, Guid environmentId, string code, string nom, N4Component standby, N4Component center, CancellationToken ct)
+    {
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId, Code = code, Name = nom, Kind = WorkflowKind.OperationPartielle,
+            Version = 1, Status = LifecycleStatus.Brouillon, RequiresApproval = true, RequiresDoubleApproval = true,
+            Description = "Séquence complète de bascule du Center Node. (FR-046)"
+        };
+
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync(ct);
+
+        var ordre = 1;
+        
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++, Name = $"Arrêter {standby.LogicalName}",
+            Action = StepAction.Arreter, ComponentId = standby.Id, ExpectedSeconds = 60,
+            TimeoutSeconds = standby.Readiness.StopTimeoutSeconds, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++, Name = "Attente IP Virtuelle / Bascule DNS",
+            Action = StepAction.InterventionManuelle, Instruction = "Vérifier que la bascule de l'IP ou du DNS a bien été effectuée vers le nœud désigné actif.",
+            ExpectedSeconds = 60, TimeoutSeconds = 3600, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++, Name = $"Démarrer {center.LogicalName}",
+            Action = StepAction.Demarrer, ComponentId = center.Id, ExpectedSeconds = 180,
+            TimeoutSeconds = center.Readiness.LogReadyTimeoutSeconds, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Séquence « {Nom} » générée pour l'environnement {Env}.", nom, environmentId);
     }
 
     /// <summary>

@@ -164,12 +164,13 @@ public sealed record ConnectorResult<T>
     public ConnectorFailure Failure { get; init; }
     public TimeSpan Duration { get; init; }
     public DateTimeOffset At { get; init; } = DateTimeOffset.UtcNow;
+    public string? ExecutedCommand { get; init; }
 
-    public static ConnectorResult<T> Ok(T value, TimeSpan duration) =>
-        new() { Succeeded = true, Value = value, Duration = duration };
+    public static ConnectorResult<T> Ok(T value, TimeSpan duration, string? executedCommand = null) =>
+        new() { Succeeded = true, Value = value, Duration = duration, ExecutedCommand = executedCommand };
 
-    public static ConnectorResult<T> Fail(ConnectorFailure failure, string error, TimeSpan duration) =>
-        new() { Succeeded = false, Failure = failure, Error = error, Duration = duration };
+    public static ConnectorResult<T> Fail(ConnectorFailure failure, string error, TimeSpan duration, string? executedCommand = null) =>
+        new() { Succeeded = false, Failure = failure, Error = error, Duration = duration, ExecutedCommand = executedCommand };
 }
 
 /// <summary>

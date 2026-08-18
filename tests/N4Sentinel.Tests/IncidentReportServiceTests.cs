@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,8 +36,8 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
@@ -92,13 +93,13 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
         await _sessions.CreateAsync(_envId, "Center Node injoignable",
             "Le Center Node ne répond plus depuis 09 h.", "INC-2026-0816", "m.konate", null, null);
 
-    [Fact]
+    [SkippableFact]
     public async Task BuildMarkdownAsync_Sur_Session_Inconnue_Renvoie_Null()
     {
         Assert.Null(await _report.BuildMarkdownAsync(Guid.NewGuid()));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task BuildMarkdownAsync_Restitue_La_Chronologie_Reelle_Des_Phases()
     {
         var sessionId = await CreerSessionAsync();
@@ -122,7 +123,7 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
         Assert.Contains("Service redémarré, heartbeat confirmé", markdown);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task BuildMarkdownAsync_Sans_Cloture_Le_Dit_Explicitement()
     {
         var sessionId = await CreerSessionAsync();
@@ -135,7 +136,7 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
         Assert.DoesNotContain("Durée totale", markdown);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task BuildMarkdownAsync_Cite_Le_Sop_Reellement_Associe_A_La_Session()
     {
         var sessionId = await CreerSessionAsync();
@@ -167,7 +168,7 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
         Assert.Contains("m.konate", markdown);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task BuildMarkdownAsync_Sans_Constat_Ni_Hypothese_Le_Dit_Honnetement()
     {
         var sessionId = await CreerSessionAsync();
@@ -184,7 +185,7 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
     /// (hypothèse) pendant l'investigation — le rapport exporté doit
     /// restituer cette même conduite à tenir, pas seulement la cause.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task BuildMarkdownAsync_Restitue_Les_Recommandations_Pour_Eviter_La_Recurrence()
     {
         var sessionId = await CreerSessionAsync();

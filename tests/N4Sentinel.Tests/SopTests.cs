@@ -39,8 +39,8 @@ public sealed class SopTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 

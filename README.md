@@ -89,6 +89,15 @@ d'appliquer les procédures manuelles d'urgence (SEC-010).
 écrits à partir de la documentation éditeur et des procédures internes. À
 éprouver hors production avant tout usage.
 
+## Documentation
+
+- [Procédures d'Orchestration (SOP)](docs/SOP/)
+  - [SOP-N4-001 : Démarrage et Arrêt complet](docs/SOP/SOP-N4-001.md)
+  - [SOP-N4-002 : Bascule Center (Failover)](docs/SOP/SOP-N4-002.md)
+- [Architecture Décisions (ADR)](docs/ADR/)
+  - [ADR-MFA-001 : Choix du MFA TOTP (SEC-001)](docs/ADR/ADR-MFA-001.md)
+- Le journal de décision initial se trouve dans `spec.md`.
+
 ## État d'avancement
 
 Sprint 1 en cours : socle applicatif, référentiel technique, authentification et

@@ -1,3 +1,4 @@
+using Xunit;
 using DocumentFormat.OpenXml.Packaging;
 using N4Sentinel.Infrastructure.Reporting;
 using PdfSharp.Pdf.IO;
@@ -43,7 +44,7 @@ public sealed class ReportDocumentServiceTests
         _N4 Sentinel — rapport produit le 16/08/2026 à 09:00._
         """;
 
-    [Fact]
+    [SkippableFact]
     public void RenderDocx_Produit_Un_Document_Word_Valide_Et_Reouvrable()
     {
         var octets = _service.RenderDocx("Rapport d'exécution — Démarrage complet", MarkdownExemple);
@@ -62,7 +63,7 @@ public sealed class ReportDocumentServiceTests
         Assert.Contains("Interruption totale des mouvements", texte);
     }
 
-    [Fact]
+    [SkippableFact]
     public void RenderPdf_Produit_Un_Document_Pdf_Valide_Et_Reouvrable()
     {
         var octets = _service.RenderPdf("Rapport d'exécution — Démarrage complet", MarkdownExemple);
@@ -75,7 +76,7 @@ public sealed class ReportDocumentServiceTests
         Assert.True(pdf.PageCount >= 1);
     }
 
-    [Fact]
+    [SkippableFact]
     public void RenderPdf_Pagine_Quand_Le_Contenu_Depasse_Une_Page()
     {
         var longMarkdown = "# Rapport très long\n\n"
@@ -89,7 +90,7 @@ public sealed class ReportDocumentServiceTests
         Assert.True(pdf.PageCount > 1, "200 constats doivent déborder sur plusieurs pages.");
     }
 
-    [Fact]
+    [SkippableFact]
     public void RenderDocx_Sur_Table_Sans_Entete_Visible_Conserve_Les_Lignes()
     {
         const string md = """

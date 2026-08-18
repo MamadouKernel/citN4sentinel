@@ -65,8 +65,10 @@ public sealed class ExecutionService(
     /// ensuite.
     /// </summary>
     public async Task<PrepareResult> PrepareAsync(
-        Guid workflowId, string requestedBy, string reason, string? ticketReference,
-        bool isSimulation, CancellationToken ct = default)
+        Guid workflowId, string requestedBy, string reason,
+        string? ticketReference = null, bool isSimulation = false,
+        DateTimeOffset? startWindow = null, DateTimeOffset? endWindow = null,
+        CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -152,7 +154,10 @@ public sealed class ExecutionService(
             // workflow change avant que l'approbation ait lieu.
             RequiresDoubleApproval = approbationRequise
                 && (workflow.RequiresDoubleApproval || regleMatrice?.RequiresDoubleApproval == true),
-            ContinuityChoiceRequired = continuiteRequise
+            ContinuityChoiceRequired = continuiteRequise,
+            StartWindow = startWindow,
+            EndWindow = endWindow,
+            EstimatedTotalDuration = TimeSpan.FromSeconds(workflow.Steps.Sum(s => (double)s.ExpectedSeconds))
         };
 
         foreach (var modele in workflow.Steps.OrderBy(s => s.Order))
@@ -597,6 +602,23 @@ public sealed class ExecutionService(
             }
         }
 
+        // FR-024 : Réinterroger SupervisionService pour les composants impliqués dans les étapes restantes
+        if (supervision is not null)
+        {
+            var remainingComponentIds = execution.Steps
+                .Where(s => s.State is ExecutionStepState.AVenir or ExecutionStepState.EnAttente && s.ComponentId is not null)
+                .Select(s => s.ComponentId!.Value)
+                .Distinct()
+                .ToList();
+
+            foreach (var cid in remainingComponentIds)
+            {
+                ct.ThrowIfCancellationRequested();
+                // Ne bloque pas la reprise, mais met à jour l'état frais en base pour le moteur
+                await supervision.EvaluateComponentAsync(cid, ct);
+            }
+        }
+
         if (!execution.IsSimulation)
         {
             var verrou = await locks.AcquireAsync(
@@ -798,7 +820,7 @@ public sealed class ExecutionService(
     /// réessayer sans avoir compris la cause est le meilleur moyen d'aggraver un
     /// incident. Quelqu'un doit avoir regardé.
     /// </summary>
-    public async Task<string?> RetryStepAsync(Guid stepId, string actor, CancellationToken ct = default)
+    public async Task<string?> RetryStepAsync(Guid stepId, string actor, string? justificationDerogation = null, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -807,6 +829,22 @@ public sealed class ExecutionService(
 
         if (etape.State is not (ExecutionStepState.Bloque or ExecutionStepState.Echec))
             return $"L'étape « {etape.Name} » est en état {etape.State} : il n'y a rien à réessayer.";
+
+        // FR-004 : Dérogation explicite auditée requise pour relancer une action destructrice
+        if (etape.IsDestructive)
+        {
+            if (string.IsNullOrWhiteSpace(justificationDerogation))
+                return "Cette action est destructrice. Une dérogation explicite (justification) est obligatoire pour forcer une nouvelle tentative (FR-004).";
+
+            await auditWriter.WriteAsync(
+                action: AuditAction.Contournement,
+                outcome: AuditOutcome.Succes,
+                actor: actor,
+                entityType: nameof(ExecutionStep), entityId: stepId.ToString(),
+                entityLabel: $"{etape.Execution?.WorkflowName} v{etape.Execution?.WorkflowVersion} - Étape {etape.Name}",
+                environmentId: etape.Execution?.EnvironmentId, reason: justificationDerogation,
+                correlationId: etape.Execution?.CorrelationId, ct: ct);
+        }
 
         // FR-024 : avant toute nouvelle tentative, recollecter l'état réel du
         // composant et le comparer à ce que l'étape devait produire — un

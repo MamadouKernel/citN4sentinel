@@ -43,4 +43,21 @@ public class ApplicationUser : IdentityUser
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset? LastLoginAt { get; set; }
+
+    /// <summary>
+    /// SEC-009 : Date de la dernière modification du mot de passe.
+    /// Utilisé pour forcer le renouvellement périodique.
+    /// </summary>
+    public DateTimeOffset? PasswordChangedAt { get; set; }
+
+    /// <summary>
+    /// SEC-009 : Date d'expiration calculée du mot de passe (typiquement 90 jours).
+    /// </summary>
+    public DateTimeOffset? PasswordExpiresAt { get; set; }
+
+    /// <summary>
+    /// SEC-009 : Historique des hash de mots de passe pour empêcher la réutilisation
+    /// (ex: des 5 derniers). Conservé sous forme de liste JSON.
+    /// </summary>
+    public List<string> PasswordHistory { get; set; } = [];
 }

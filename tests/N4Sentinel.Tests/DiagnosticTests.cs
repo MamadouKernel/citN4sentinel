@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -40,8 +41,8 @@ public sealed class DiagnosticTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
@@ -109,7 +110,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     // =======================================================================
     // DIA-03 — Catalogue de signatures
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Le_Catalogue_Est_Amorce_De_La_Documentation_Editeur()
     {
         var signatures = await _catalogue.GetAllAsync();
@@ -136,7 +137,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.NotEmpty(constat.Meaning!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Second_Amorcage_N_Ecrase_Pas_Les_Corrections_Du_Site()
     {
         // Un exploitant a corrige une expression qui produisait des faux
@@ -152,7 +153,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal("MotifCorrigeParLeSite", relue.Pattern);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Expression_Reguliere_Invalide_Est_Refusee()
     {
         var erreur = await _catalogue.SaveAsync(new DiagnosticSignature
@@ -167,7 +168,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("invalide", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Signature_Concluante_Doit_Expliquer_Ce_Qu_Elle_Signifie()
     {
         // Sans explication, l'operateur lit un code et reste devant sa pile
@@ -185,7 +186,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("doit expliquer", erreur!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Signature_Deja_Citee_Est_Desactivee_Et_Non_Supprimee()
     {
         var sessionId = await CreerSessionAsync();
@@ -205,7 +206,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     // =======================================================================
     // DIA-01 / DIA-02 — Import et analyse
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Une_Signature_Connue_Est_Reconnue_Avec_Son_Sens()
     {
         var sessionId = await CreerSessionAsync();
@@ -222,7 +223,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.NotNull(constat.Remediation);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Quarante_Occurrences_Identiques_Font_Un_Seul_Constat()
     {
         var lignes = Enumerable.Range(0, 40)
@@ -238,7 +239,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(40, constat.OccurrenceCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Constat_Porte_Les_Lignes_Qui_L_Encadrent()
     {
         const string journal = """
@@ -261,7 +262,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(3, constat.FirstLineNumber);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Erreur_Non_Cataloguee_Est_Signalee_Quand_Meme()
     {
         // Ne rapporter que le connu ferait passer a cote de tout ce qui est
@@ -281,7 +282,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("non répertoriée", constat.Meaning!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Les_Lignes_Normales_Ne_Produisent_Aucun_Constat()
     {
         const string journal = """
@@ -297,7 +298,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(0, resultat.FindingCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Ligne_Hors_Fenetre_N_Est_Pas_Analysee()
     {
         const string journal = """
@@ -319,7 +320,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     // =======================================================================
     // DIA-04 — Masquage à l'ingestion (AC-11)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Aucun_Secret_N_Entre_En_Base_Lors_D_Une_Ingestion()
     {
         const string journal = """
@@ -353,7 +354,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     // =======================================================================
     // DIA-05 — Verdict à quatre valeurs (AC-09)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Un_Journal_Sain_Produit_Rien_De_Concluant_Et_Precise_Ses_Limites()
     {
         var sessionId = await CreerSessionAsync();
@@ -374,7 +375,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     /// domaine — exactement le cas exceptionnel réservé à CauseConfirmee,
     /// distinct du cas ordinaire CauseCaracterisee (« très probable »).
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task Une_Signature_Concluante_Isolee_De_Poids_Maximal_Donne_Une_Cause_Confirmee()
     {
         var sessionId = await CreerSessionAsync();
@@ -386,7 +387,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("licence", session.VerdictExplanation!, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Des_Anomalies_Sans_Signature_Ne_Donnent_Pas_De_Cause()
     {
         var sessionId = await CreerSessionAsync();
@@ -399,7 +400,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("serait une invention", session.VerdictExplanation!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Verdict_Signale_Les_Sources_Non_Collectees()
     {
         var sessionId = await CreerSessionAsync();
@@ -417,7 +418,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     // =======================================================================
     // DIA-06 — Hypothèses
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Les_Hypotheses_Portent_Leurs_Preuves_Et_Sont_Classees()
     {
         const string journal = """
@@ -443,7 +444,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
             Assert.True(hypotheses[i - 1].Confidence >= hypotheses[i].Confidence);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Confiance_Ne_Depasse_Jamais_95_Pour_Cent()
     {
         // L'application n'a pas vu le systeme : elle a lu un fichier. Afficher
@@ -461,7 +462,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.All(session!.Hypotheses, h => Assert.InRange(h.Confidence, 1, 95));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Nouvelle_Conclusion_Remplace_Les_Hypotheses_Precedentes()
     {
         var sessionId = await CreerSessionAsync();
@@ -479,7 +480,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
     // =======================================================================
     // Rapport
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Enonce_Ses_Limites_Et_Ne_Contient_Aucun_Secret()
     {
         var sessionId = await CreerSessionAsync();
@@ -498,7 +499,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Contains("Les secrets ont été masqués avant enregistrement", rapport);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Rapport_Presente_Les_Hypotheses_Comme_Contestables()
     {
         var sessionId = await CreerSessionAsync();
@@ -1365,7 +1366,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(_composantId, session.Sources.First().ComponentId);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task AdvancePhaseAsync_Trace_Chaque_Transition_Sans_Ecraser_Les_Precedentes()
     {
         var sessionId = await CreerSessionAsync();
@@ -1383,7 +1384,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(DiagnosticPhase.DiagnosticEtCorrelation, session.PhaseTransitions.Last().Phase);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task AdvancePhaseAsync_Autorise_Un_Retour_En_Arriere()
     {
         var sessionId = await CreerSessionAsync();
@@ -1400,7 +1401,7 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.Equal(2, session.PhaseTransitions.Count);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task AdvancePhaseAsync_Refuse_La_Cloture_Sans_Preciser_Ce_Qui_A_Ete_Verifie()
     {
         var sessionId = await CreerSessionAsync();

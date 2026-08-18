@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -33,8 +34,8 @@ public sealed class SauvegardeTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
@@ -158,7 +159,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
     // =======================================================================
     // État
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task L_Etat_Denombre_Ce_Qu_Une_Sauvegarde_Doit_Preserver()
     {
         var etat = await _sauvegarde.GetStatusAsync();
@@ -170,7 +171,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
         Assert.False(etat.KeyRingMissing);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Trousseau_Absent_Avec_Des_Secrets_Est_Un_Etat_Signale()
     {
         // Situation grave et silencieuse : rien ne la signale au quotidien,
@@ -212,7 +213,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
         Assert.Equal("m.konate", r.Manifest.CreatedBy);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Sauvegarde_Est_Refusee_Si_Le_Trousseau_Est_Introuvable()
     {
         // Mieux vaut ne rien produire qu'une sauvegarde qui semble complete.
@@ -225,7 +226,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
         Assert.Contains("interrompue plutôt que produite incomplète", r.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Sauvegarde_Est_Refusee_Si_Le_Trousseau_Est_Vide_Alors_Que_Des_Secrets_Existent()
     {
         var vide = Path.Combine(Path.GetTempPath(), $"n4-vide-{Guid.NewGuid():N}");
@@ -274,7 +275,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
         Assert.Contains(v.Checks, c => c.Name == "Trousseau de clés" && c.Outcome == BackupOutcome.Reussi);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Dossier_Sans_Manifeste_N_Est_Pas_Une_Sauvegarde()
     {
         var quelconque = Path.Combine(Path.GetTempPath(), $"n4-quelconque-{Guid.NewGuid():N}");
@@ -366,7 +367,7 @@ public sealed class SauvegardeTests : IAsyncLifetime
         Assert.True(v.IsRestorable);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Dossier_Inexistant_Est_Refuse_Sans_Exception()
     {
         var v = await _sauvegarde.VerifyAsync(Path.Combine(_destination, "n-existe-pas"));

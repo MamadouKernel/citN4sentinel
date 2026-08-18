@@ -545,6 +545,109 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.ToTable("ComponentSignals", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.CorrelationCondition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsNegation")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SignalSourceId")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RuleId");
+
+                    b.ToTable("CorrelationConditions", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CorrelationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("Confidence")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Domain")
+                        .HasColumnType("int");
+
+                    b.Property<string>("HypothesisStatement")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Recommendation")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<int>("TimeWindowSeconds")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("CorrelationRules", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.DiagnosticHypothesis", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1164,6 +1267,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<string>("EvidenceFileName")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("ExecutedCommand")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<Guid>("ExecutionId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1510,6 +1616,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<int>("Domain")
                         .HasColumnType("int");
 
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("FirstLineNumber")
                         .HasColumnType("int");
 
@@ -1518,6 +1627,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("LastSeenAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Level")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("LoggerClass")
                         .HasColumnType("nvarchar(max)");
@@ -1738,11 +1850,20 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
+                    b.Property<string>("MaintenanceBy")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("MaintenanceMode")
                         .HasColumnType("bit");
 
                     b.Property<string>("MaintenanceNote")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MaintenanceReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("MaintenanceUntil")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset?>("ModifiedAt")
                         .HasColumnType("datetimeoffset");
@@ -2708,6 +2829,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTimeOffset?>("EndWindow")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<DateTimeOffset?>("EndedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -2718,6 +2842,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<TimeSpan?>("EstimatedTotalDuration")
+                        .HasColumnType("time");
 
                     b.Property<string>("ExpectedImpact")
                         .HasMaxLength(2000)
@@ -2786,6 +2913,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("SecondApprovedBy")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("StartWindow")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("datetimeoffset");
@@ -2962,7 +3092,17 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<DateTimeOffset?>("PasswordChangedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("PasswordExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("PasswordHash")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.PrimitiveCollection<string>("PasswordHistory")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PhoneNumber")
@@ -2993,6 +3133,31 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasFilter("[NormalizedUserName] IS NOT NULL");
 
                     b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Infrastructure.Identity.PasswordHistoryRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PasswordHistoryRecords", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -3132,6 +3297,17 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Navigation("Component");
 
                     b.Navigation("DependsOnComponent");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CorrelationCondition", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.CorrelationRule", "Rule")
+                        .WithMany("Conditions")
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Rule");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.DiagnosticHypothesis", b =>
@@ -3608,6 +3784,22 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Navigation("Component");
 
                     b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Infrastructure.Identity.PasswordHistoryRecord", b =>
+                {
+                    b.HasOne("N4Sentinel.Infrastructure.Identity.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CorrelationRule", b =>
+                {
+                    b.Navigation("Conditions");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.DiagnosticSession", b =>

@@ -1,3 +1,4 @@
+using Xunit;
 using N4Sentinel.Infrastructure.Orchestration;
 
 namespace N4Sentinel.Tests;
@@ -16,7 +17,7 @@ namespace N4Sentinel.Tests;
 /// </summary>
 public sealed class OrchestrationMasquageTests
 {
-    [Fact]
+    [SkippableFact]
     public void Un_Succes_Masque_Un_Secret_Dans_La_Preuve()
     {
         var issue = StepOutcome.Succeeded(
@@ -26,7 +27,7 @@ public sealed class OrchestrationMasquageTests
         Assert.Contains("***MASQUÉ***", issue.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Echec_Masque_Un_Secret_Dans_La_Cause()
     {
         var issue = StepOutcome.Failed(
@@ -36,7 +37,7 @@ public sealed class OrchestrationMasquageTests
         Assert.Contains("***MASQUÉ***", issue.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Avertissement_Masque_Un_Secret_Dans_La_Reserve()
     {
         var issue = StepOutcome.Warned(
@@ -46,7 +47,7 @@ public sealed class OrchestrationMasquageTests
         Assert.Contains("***MASQUÉ***", issue.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Une_Attente_Operateur_Masque_Un_Secret_Dans_La_Consigne()
     {
         var issue = StepOutcome.AttenteOperateur(
@@ -56,7 +57,7 @@ public sealed class OrchestrationMasquageTests
         Assert.Contains("***MASQUÉ***", issue.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Message_Sans_Secret_Traverse_Sans_Modification()
     {
         const string message = "Service « N4-Bridge » démarré sur SRV-BRIDGE-01.";

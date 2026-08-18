@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Domain;
@@ -21,7 +22,7 @@ public sealed class Palier2AndLot4Tests
     private const string ConnectionString =
         "Server=localhost;Database=master;Trusted_Connection=True;TrustServerCertificate=True";
 
-    [Fact]
+    [SkippableFact]
     public void AutomationLevel_Enum_Est_Bien_Defini()
     {
         Assert.Equal(1, (int)AutomationLevel.SemiAutomatique);
@@ -33,11 +34,12 @@ public sealed class Palier2AndLot4Tests
     /// fabriquerait une identité DSI à partir de n'importe quelle chaîne — la
     /// méthode doit donc toujours refuser, paramètres activés ou non.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task AzureAdAuthProvider_Refuse_Toujours_Faute_De_Connecteur_Reel()
     {
         var dbName = $"n4test_azuread_{Guid.NewGuid():N}";
-        var cs = $"Server=localhost;Database={dbName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(dbName);
         var options = TestDbContextOptions.Builder(cs).Options;
 
         var factory = new LocalTestDbContextFactory(options);
@@ -57,11 +59,12 @@ public sealed class Palier2AndLot4Tests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task OrchestrationEngine_Bascule_Urgence_Palier1_Fonctionne()
     {
         var dbName = $"n4test_palier2_{Guid.NewGuid():N}";
-        var cs = $"Server=localhost;Database={dbName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(dbName);
         var options = TestDbContextOptions.Builder(cs).Options;
 
         var factory = new LocalTestDbContextFactory(options);

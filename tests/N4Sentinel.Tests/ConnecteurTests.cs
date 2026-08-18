@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Infrastructure.Connectors;
 
@@ -42,7 +43,7 @@ public sealed class ConnecteurTests
     // -----------------------------------------------------------------------
     // Execution locale
     // -----------------------------------------------------------------------
-    [Fact]
+    [SkippableFact]
     public async Task Ping_en_local_identifie_la_machine()
     {
         var r = await Connecteur().PingAsync(Local());
@@ -51,7 +52,7 @@ public sealed class ConnecteurTests
         Assert.Contains(Environment.MachineName, r.Value!, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Service_inexistant_est_rapporte_introuvable_et_non_en_erreur()
     {
         // Distinction importante : un service absent du serveur est une
@@ -63,7 +64,7 @@ public sealed class ConnecteurTests
         Assert.Equal("Introuvable", r.Value.Status);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Service_connu_remonte_son_etat_et_son_processus()
     {
         // Le service de gestion a distance tourne forcement si l'on peut
@@ -77,7 +78,7 @@ public sealed class ConnecteurTests
         Assert.True(r.Value.WorkingSetBytes > 0);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Plusieurs_services_sont_interroges_en_une_seule_connexion()
     {
         var r = await Connecteur().GetServicesAsync(Local(), ["Winmgmt", "EventLog", "ServiceAbsent_N4"]);
@@ -87,7 +88,7 @@ public sealed class ConnecteurTests
         Assert.Equal(2, r.Value.Count(s => s.Exists));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_systeme_remonte_ressources_et_ecart_d_horloge()
     {
         var r = await Connecteur().GetSystemAsync(Local());
@@ -112,7 +113,7 @@ public sealed class ConnecteurTests
     // -----------------------------------------------------------------------
     // Lecture de journal - le mecanisme dont depend toute la preuve de demarrage
     // -----------------------------------------------------------------------
-    [Fact]
+    [SkippableFact]
     public async Task La_lecture_incrementale_ne_relit_pas_les_lignes_deja_vues()
     {
         var fichier = Path.Combine(Path.GetTempPath(), $"n4-test-{Guid.NewGuid():N}.log");
@@ -148,7 +149,7 @@ public sealed class ConnecteurTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_rotation_de_journal_est_detectee()
     {
         var fichier = Path.Combine(Path.GetTempPath(), $"n4-test-{Guid.NewGuid():N}.log");
@@ -174,7 +175,7 @@ public sealed class ConnecteurTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_motif_generique_resout_le_fichier_le_plus_recent()
     {
         // Cas reel : le journal XPS s'appelle xps_AAAAMMJJHHMMSS et change de
@@ -204,7 +205,7 @@ public sealed class ConnecteurTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_journal_ouvert_en_ecriture_reste_lisible()
     {
         // Indispensable : la JVM N4 garde son journal ouvert en permanence.
@@ -229,7 +230,7 @@ public sealed class ConnecteurTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_journal_absent_n_est_pas_une_erreur()
     {
         var r = await Connecteur().ReadLogDeltaAsync(
@@ -286,7 +287,7 @@ public sealed class ConnecteurTests
         Assert.Equal("Running", r.Value!.Status);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_hote_inexistant_produit_une_cause_exploitable()
     {
         var cible = new ConnectorTarget

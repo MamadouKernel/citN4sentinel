@@ -884,6 +884,7 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
     {
         var chrono = Stopwatch.StartNew();
         Runspace? runspace = null;
+        string maskedScript = N4Sentinel.Infrastructure.Diagnostic.SecretMasker.Masquer(script).Texte;
 
         try
         {
@@ -909,7 +910,8 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
                 return ConnectorResult<IReadOnlyList<PSObject>>.Fail(
                     ConnectorFailure.ErreurDistante,
                     string.IsNullOrWhiteSpace(messages) ? "Erreur distante sans message." : messages,
-                    chrono.Elapsed);
+                    chrono.Elapsed,
+                    maskedScript);
             }
 
             // Les erreurs non bloquantes accompagnent souvent un resultat
@@ -918,35 +920,35 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
                 logger.LogDebug("[{Hote}] Erreur non bloquante : {Message}",
                     target.HostName, erreur.Exception.Message);
 
-            return ConnectorResult<IReadOnlyList<PSObject>>.Ok(sortie.ToList(), chrono.Elapsed);
+            return ConnectorResult<IReadOnlyList<PSObject>>.Ok(sortie.ToList(), chrono.Elapsed, maskedScript);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return Echec(ConnectorFailure.Timeout,
-                $"Aucune reponse de {target.HostName} apres {target.Timeout.TotalSeconds:0} s.", chrono.Elapsed);
+                $"Aucune reponse de {target.HostName} apres {target.Timeout.TotalSeconds:0} s.", chrono.Elapsed, maskedScript);
         }
         catch (TimeoutException)
         {
             return Echec(ConnectorFailure.Timeout,
-                $"Aucune reponse de {target.HostName} apres {target.Timeout.TotalSeconds:0} s.", chrono.Elapsed);
+                $"Aucune reponse de {target.HostName} apres {target.Timeout.TotalSeconds:0} s.", chrono.Elapsed, maskedScript);
         }
         catch (PSRemotingTransportException ex)
         {
             var (nature, message) = Interpreter(ex, target);
-            return Echec(nature, message, chrono.Elapsed);
+            return Echec(nature, message, chrono.Elapsed, maskedScript);
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Echec du connecteur vers {Hote}", target.HostName);
-            return Echec(ConnectorFailure.ErreurDistante, ex.Message, chrono.Elapsed);
+            return Echec(ConnectorFailure.ErreurDistante, ex.Message, chrono.Elapsed, maskedScript);
         }
         finally
         {
             try { runspace?.Dispose(); } catch { /* fermeture au mieux */ }
         }
 
-        static ConnectorResult<IReadOnlyList<PSObject>> Echec(ConnectorFailure f, string m, TimeSpan d) =>
-            ConnectorResult<IReadOnlyList<PSObject>>.Fail(f, m, d);
+        static ConnectorResult<IReadOnlyList<PSObject>> Echec(ConnectorFailure f, string m, TimeSpan d, string masked) =>
+            ConnectorResult<IReadOnlyList<PSObject>>.Fail(f, m, d, masked);
     }
 
     private static WSManConnectionInfo BuildConnectionInfo(ConnectorTarget target)

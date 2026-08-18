@@ -161,7 +161,7 @@ public sealed class StepExecutor(
 
         if (!commande.Succeeded)
             return StepOutcome.Failed(
-                $"La commande de démarrage a été refusée : {commande.Error}", StepErrorType.CommandeRefusee);
+                $"La commande de démarrage a été refusée : {commande.Error}", StepErrorType.CommandeRefusee, commande.ExecutedCommand);
 
         // Phase 1 : le service atteint Running. Preuve faible, mais un service
         // qui n'y arrive pas rend la phase 2 sans objet.
@@ -174,20 +174,21 @@ public sealed class StepExecutor(
         if (!running.Reached)
             return StepOutcome.Failed(
                 $"Le service n'a pas atteint Running en {readiness.ServiceRunningTimeoutSeconds} s "
-                + $"(dernier état observé : {running.LastStatus}).", StepErrorType.TimeoutAttente);
+                + $"(dernier état observé : {running.LastStatus}).", StepErrorType.TimeoutAttente, commande.ExecutedCommand);
 
         if (!readiness.IsProvable)
             return StepOutcome.Warned(
                 $"Service « {composant.WindowsServiceName} » à l'état Running sur {cible.HostName}. "
                 + "AUCUN MARQUEUR DE JOURNAL N'EST CONFIGURÉ pour ce composant : son démarrage applicatif "
                 + "n'est donc PAS prouvé. À confirmer par l'opérateur. "
-                + "Renseigner le marqueur depuis l'écran Marqueurs lèvera définitivement cette réserve.");
+                + "Renseigner le marqueur depuis l'écran Marqueurs lèvera définitivement cette réserve.", commande.ExecutedCommand);
 
         // Phase 2 : la preuve. C'est elle qui distingue "la commande est passee"
         // de "le composant est operationnel".
         progress.Report("Service Running. Attente du marqueur d'initialisation dans le journal.");
 
-        return await AttendreMarqueurAsync(cible, readiness, repere, progress, ct);
+        var finalOutcome = await AttendreMarqueurAsync(cible, readiness, repere, progress, ct);
+        return finalOutcome with { ExecutedCommand = commande.ExecutedCommand };
     }
 
     private async Task<StepOutcome> ArreterAsync(
@@ -217,7 +218,7 @@ public sealed class StepExecutor(
 
         if (!commande.Succeeded)
             return StepOutcome.Failed(
-                $"La commande d'arrêt a été refusée : {commande.Error}", StepErrorType.CommandeRefusee);
+                $"La commande d'arrêt a été refusée : {commande.Error}", StepErrorType.CommandeRefusee, commande.ExecutedCommand);
 
         var arrete = await AttendreStatutAsync(
             cible, composant.WindowsServiceName, "Stopped",
@@ -227,7 +228,7 @@ public sealed class StepExecutor(
 
         if (arrete.Reached)
             return StepOutcome.Succeeded(
-                $"Service « {composant.WindowsServiceName} » arrêté sur {cible.HostName}.");
+                $"Service « {composant.WindowsServiceName} » arrêté sur {cible.HostName}.", commande.ExecutedCommand);
 
         // Cas connu et documente : le Standby Center Node reste bloque en
         // StopPending. Le dire explicitement evite a l'operateur de chercher
@@ -239,11 +240,11 @@ public sealed class StepExecutor(
                 + "le processus ne rend pas la main au gestionnaire de services. "
                 + "L'arrêt du processus doit être décidé par un opérateur, il n'est pas fait automatiquement — "
                 + "un composant qui vide ses files ActiveMQ ou écrit KahaDB est occupé, pas bloqué.",
-                StepErrorType.ComportementConnuStopPending);
+                StepErrorType.ComportementConnuStopPending, commande.ExecutedCommand);
 
         return StepOutcome.Failed(
             $"Le service ne s'est pas arrêté en {readiness.StopTimeoutSeconds} s "
-            + $"(dernier état observé : {arrete.LastStatus}).", StepErrorType.TimeoutAttente);
+            + $"(dernier état observé : {arrete.LastStatus}).", StepErrorType.TimeoutAttente, commande.ExecutedCommand);
     }
 
     /// <summary>
@@ -278,14 +279,14 @@ public sealed class StepExecutor(
 
         if (!commande.Succeeded)
             return StepOutcome.Failed(
-                $"La commande d'arrêt forcé a été refusée : {commande.Error}", StepErrorType.CommandeRefusee);
+                $"La commande d'arrêt forcé a été refusée : {commande.Error}", StepErrorType.CommandeRefusee, commande.ExecutedCommand);
 
         var etat = commande.Value?.Status ?? "Inconnu";
 
         if (string.Equals(etat, "Stopped", StringComparison.OrdinalIgnoreCase))
             return StepOutcome.Succeeded(
                 $"Service « {composant.WindowsServiceName} » arrêté sur {cible.HostName} "
-                + "après réémission forcée de la commande d'arrêt.");
+                + "après réémission forcée de la commande d'arrêt.", commande.ExecutedCommand);
 
         // FR-029B exige que le processus associé soit signalé à l'operateur,
         // pas seulement le nom du service : c'est ce PID qu'un administrateur
@@ -298,7 +299,7 @@ public sealed class StepExecutor(
             $"Arrêt forcé décidé par l'opérateur : la commande a été réémise vers {cible.HostName}, "
             + $"mais le service reste en état « {etat} ».{processus} L'arrêt effectif du processus "
             + "n'est PAS prouvé — si le blocage persiste, une intervention manuelle sur le serveur "
-            + "peut être nécessaire (à déclarer dans « Actions manuelles hors N4 Sentinel »).");
+            + "peut être nécessaire (à déclarer dans « Actions manuelles hors N4 Sentinel »).", commande.ExecutedCommand);
     }
 
     /// <summary>
@@ -311,11 +312,16 @@ public sealed class StepExecutor(
     {
         var arret = await ArreterAsync(step, isSimulation, progress, ct);
         if (arret.State is ExecutionStepState.Echec)
-            return StepOutcome.Failed($"Redémarrage interrompu à l'arrêt : {arret.Message}");
+            return StepOutcome.Failed($"Redémarrage interrompu à l'arrêt : {arret.Message}", null, arret.ExecutedCommand);
 
         var demarrage = await DemarrerAsync(step, isSimulation, progress, ct);
 
-        return demarrage with { Message = $"Arrêt : {arret.Message} — Démarrage : {demarrage.Message}" };
+        return demarrage with { 
+            Message = $"Arrêt : {arret.Message} — Démarrage : {demarrage.Message}",
+            ExecutedCommand = string.IsNullOrWhiteSpace(arret.ExecutedCommand) && string.IsNullOrWhiteSpace(demarrage.ExecutedCommand) 
+                ? null 
+                : $"{arret.ExecutedCommand}\n{demarrage.ExecutedCommand}".Trim()
+        };
     }
 
     // -----------------------------------------------------------------------
@@ -656,6 +662,7 @@ public sealed record StepOutcome
 {
     public ExecutionStepState State { get; init; }
     public string Message { get; init; } = string.Empty;
+    public string? ExecutedCommand { get; init; }
 
     /// <summary>§3.19 : classification exacte de l'échec, quand elle est déterminable. Null hors échec.</summary>
     public StepErrorType? ErrorType { get; init; }
@@ -663,18 +670,18 @@ public sealed record StepOutcome
     /// <summary>Vrai si l'étape attend un geste humain avant de pouvoir conclure.</summary>
     public bool WaitsForOperator => State == ExecutionStepState.EnAttente;
 
-    public static StepOutcome Succeeded(string preuve) =>
-        new() { State = ExecutionStepState.Reussi, Message = SecretMasker.Masquer(preuve).Texte };
+    public static StepOutcome Succeeded(string preuve, string? executedCommand = null) =>
+        new() { State = ExecutionStepState.Reussi, Message = SecretMasker.Masquer(preuve).Texte, ExecutedCommand = executedCommand };
 
     /// <summary>
     /// Résultat atteint, mais non prouvé. Ce n'est pas un succès dégradé qu'on
     /// masque : c'est un « à confirmer » qui reste visible dans le rapport.
     /// </summary>
-    public static StepOutcome Warned(string reserve) =>
-        new() { State = ExecutionStepState.Avertissement, Message = SecretMasker.Masquer(reserve).Texte };
+    public static StepOutcome Warned(string reserve, string? executedCommand = null) =>
+        new() { State = ExecutionStepState.Avertissement, Message = SecretMasker.Masquer(reserve).Texte, ExecutedCommand = executedCommand };
 
-    public static StepOutcome Failed(string cause, StepErrorType? type = null) =>
-        new() { State = ExecutionStepState.Echec, Message = SecretMasker.Masquer(cause).Texte, ErrorType = type };
+    public static StepOutcome Failed(string cause, StepErrorType? type = null, string? executedCommand = null) =>
+        new() { State = ExecutionStepState.Echec, Message = SecretMasker.Masquer(cause).Texte, ErrorType = type, ExecutedCommand = executedCommand };
 
     public static StepOutcome AttenteOperateur(string consigne) =>
         new() { State = ExecutionStepState.EnAttente, Message = SecretMasker.Masquer(consigne).Texte };

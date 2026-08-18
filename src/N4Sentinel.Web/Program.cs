@@ -76,6 +76,14 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
         "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}"));
 
 // ---------------------------------------------------------------------------
+// Health Checks (Phase IX)
+// ---------------------------------------------------------------------------
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<N4SentinelDbContext>("database")
+    // Note: Ajouter d'autres checks liveness/readiness ici (stockage, etc.)
+    ;
+
+// ---------------------------------------------------------------------------
 // Interface
 // ---------------------------------------------------------------------------
 builder.Services.AddRazorComponents()
@@ -138,6 +146,8 @@ builder.Services.AddAuthentication(options =>
     })
     .AddIdentityCookies();
 
+builder.Services.AddTransient<IMfaProvider, TotpMfaProvider>();
+
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
         options.SignIn.RequireConfirmedAccount = true;
@@ -161,9 +171,9 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<N4SentinelDbContext>()
-    // N4SignInManager bloque la connexion d'un compte ApplicationUser.IsDisabled
-    // (FR-091) — voir Infrastructure/Identity/N4SignInManager.cs.
+    .AddUserManager<N4UserManager>()
     .AddSignInManager<N4SignInManager>()
+    .AddPasswordValidator<PasswordHistoryValidator>()
     .AddDefaultTokenProviders();
 
 builder.Services.AddN4SentinelAuthorization(builder.Configuration);

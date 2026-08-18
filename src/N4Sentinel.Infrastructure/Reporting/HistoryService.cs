@@ -48,7 +48,11 @@ public sealed class HistoryService(IDbContextFactory<N4SentinelDbContext> dbFact
                 Title = $"{x.WorkflowName} (v{x.WorkflowVersion})"
                       + (x.IsSimulation ? " — simulation" : string.Empty),
                 Detail = x.Outcome ?? x.Reason ?? string.Empty,
-                Actor = x.RequestedBy,
+                Actor = string.IsNullOrWhiteSpace(x.ApprovedBy)
+                    ? x.RequestedBy
+                    : string.IsNullOrWhiteSpace(x.SecondApprovedBy)
+                        ? $"{x.RequestedBy} (Approuvé par {x.ApprovedBy})"
+                        : $"{x.RequestedBy} (Approuvé par {x.ApprovedBy} et {x.SecondApprovedBy})",
                 Outcome = LibelleExecution(x.Status),
                 Severity = x.Status switch
                 {

@@ -52,7 +52,13 @@ public enum DiagnosticVerdict
     /// source lue) ; on ne sait pas si un signal existait, contrairement à
     /// RienDeConcluant où l'analyse a bien eu lieu et n'a rien trouvé.
     /// </summary>
-    InformationsInsuffisantes = 5
+    InformationsInsuffisantes = 5,
+
+    /// <summary>
+    /// FR-069 : verdict PlusieursCausesPossibles. Des hypothèses concurrentes 
+    /// ont une confiance trop proche pour en désigner une seule comme certaine.
+    /// </summary>
+    PlusieursCausesPossibles = 6
 }
 
 /// <summary>
@@ -191,6 +197,51 @@ public class DiagnosticSignature : AuditableEntity
     public bool EstConcluante => ConfidenceWeight >= 70
                                  && Severity >= SignatureSeverity.Erreur
                                  && !string.IsNullOrWhiteSpace(Meaning);
+}
+
+/// <summary>
+/// FR-065 : Règle de corrélation multi-signaux.
+/// Permet de lier plusieurs signatures ou événements distincts dans une fenêtre de temps 
+/// pour formuler une hypothèse plus précise qu'un signal isolé.
+/// </summary>
+public class CorrelationRule : AuditableEntity
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public DiagnosticDomain Domain { get; set; }
+    
+    /// <summary>La conclusion ou l'hypothèse soulevée si toutes les conditions sont remplies.</summary>
+    public string HypothesisStatement { get; set; } = string.Empty;
+    
+    /// <summary>Niveau de confiance attribué à l'hypothèse (0-100).</summary>
+    public int Confidence { get; set; }
+    
+    /// <summary>Recommandation d'action si la règle est vérifiée.</summary>
+    public string? Recommendation { get; set; }
+    
+    /// <summary>Fenêtre de temps en secondes dans laquelle tous les signaux doivent se produire.</summary>
+    public int TimeWindowSeconds { get; set; }
+
+    /// <summary>Les conditions requises pour déclencher cette règle.</summary>
+    public ICollection<CorrelationCondition> Conditions { get; set; } = [];
+}
+
+/// <summary>
+/// FR-065 : Condition individuelle au sein d'une règle de corrélation.
+/// </summary>
+public class CorrelationCondition : AuditableEntity
+{
+    public Guid RuleId { get; set; }
+    public CorrelationRule? Rule { get; set; }
+
+    /// <summary>Identifiant de la signature (DiagnosticSignature.Id) ou code d'événement attendu.</summary>
+    public string SignalSourceId { get; set; } = string.Empty;
+
+    /// <summary>Description de ce qui est recherché par cette condition.</summary>
+    public string Description { get; set; } = string.Empty;
+    
+    /// <summary>Vrai si l'absence du signal (dans la fenêtre de temps) est la condition de déclenchement.</summary>
+    public bool IsNegation { get; set; }
 }
 
 /// <summary>
@@ -506,6 +557,12 @@ public class LogFinding : AuditableEntity
     public string? ThreadName { get; set; }
     public string? LoggerClass { get; set; }
     public string? TransactionId { get; set; }
+
+    /// <summary>Niveau de log (INFO, WARN, ERROR...) extrait de la ligne (FR-072).</summary>
+    public string? Level { get; set; }
+
+    /// <summary>Code d'erreur (ex: ORA-12154, HTTP 500) extrait de la ligne (FR-072).</summary>
+    public string? ErrorCode { get; set; }
 }
 
 /// <summary>

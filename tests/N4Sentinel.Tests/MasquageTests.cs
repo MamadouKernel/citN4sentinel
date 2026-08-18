@@ -1,3 +1,4 @@
+using Xunit;
 using N4Sentinel.Infrastructure.Diagnostic;
 
 namespace N4Sentinel.Tests;
@@ -51,7 +52,7 @@ public sealed class MasquageTests
         Assert.True(compte >= 1, $"Aucun secret compté dans « {ligne} »");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Le_Contexte_Reste_Lisible_Autour_Du_Masquage()
     {
         // Effacer la ligne entiere ferait perdre l'information utile : on doit
@@ -65,7 +66,7 @@ public sealed class MasquageTests
         Assert.DoesNotContain("Prod2026", masque);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Une_Cle_Privee_Est_Entierement_Masquee()
     {
         var texte = "-----BEGIN RSA PRIVATE KEY-----\n"
@@ -80,7 +81,7 @@ public sealed class MasquageTests
         Assert.Equal(1, compte);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Une_Ligne_Sans_Secret_N_Est_Pas_Alteree()
     {
         // Le masquage doit etre chirurgical : abimer les lignes normales
@@ -94,7 +95,7 @@ public sealed class MasquageTests
         Assert.Equal(0, compte);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Le_Mot_Password_Seul_Dans_Une_Phrase_N_Est_Pas_Masque()
     {
         const string ligne = "2026-08-14 09:12:03 WARN Authentication failed: invalid password supplied";
@@ -105,7 +106,7 @@ public sealed class MasquageTests
         Assert.Equal(0, compte);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Plusieurs_Secrets_Sur_La_Meme_Ligne_Sont_Tous_Masques()
     {
         var (masque, compte) = SecretMasker.Masquer(
@@ -117,7 +118,7 @@ public sealed class MasquageTests
         Assert.True(compte >= 3, $"{compte} secret(s) comptés au lieu de 3 au moins.");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Second_Masquage_Ne_Regonfle_Pas_Le_Compte()
     {
         // La collecte peut repasser sur un contenu deja traite. Recompter les
@@ -131,7 +132,7 @@ public sealed class MasquageTests
         Assert.Equal(0, compte2);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Le_Detecteur_Confirme_Qu_Il_Ne_Reste_Aucun_Secret_Apparent()
     {
         // Le filet de securite : s'il repond vrai sur du contenu deja masque,
@@ -163,7 +164,7 @@ public sealed class MasquageTests
         Assert.Contains("Web tier servlet 'action' initialized", masque);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Le_Cas_Documente_Du_Mot_De_Passe_ECI_Est_Couvert()
     {
         // Le guide 3.8.25 documente noir sur blanc que passer
@@ -193,7 +194,7 @@ public sealed class MasquageTests
         Assert.Contains("user=\"eci_app\"", masque);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Texte_Vide_Ne_Provoque_Aucune_Erreur()
     {
         Assert.Equal((string.Empty, 0), SecretMasker.Masquer(null));

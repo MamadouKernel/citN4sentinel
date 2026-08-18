@@ -427,6 +427,9 @@ public sealed class OrchestrationEngine(
 
         var devientBloquee = false;
 
+        if (issue.ExecutedCommand is not null)
+            etape.ExecutedCommand = issue.ExecutedCommand;
+
         switch (issue.State)
         {
             case ExecutionStepState.Reussi:
@@ -455,8 +458,8 @@ public sealed class OrchestrationEngine(
 
                 // Nouvelle tentative automatique : autorisee uniquement si le
                 // workflow l'a explicitement prevue, et jamais sur une action
-                // d'arret - la validation du workflow l'interdit deja.
-                var peutReessayer = etape.AutomaticRetry && etape.AttemptCount <= etape.MaxRetries;
+                // destructive (FR-004) - la validation du workflow devrait deja l'interdire.
+                var peutReessayer = !etape.IsDestructive && etape.AutomaticRetry && etape.AttemptCount <= etape.MaxRetries;
 
                 if (peutReessayer)
                 {

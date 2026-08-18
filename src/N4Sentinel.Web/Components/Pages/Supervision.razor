@@ -4,6 +4,8 @@
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Referential
 @using N4Sentinel.Infrastructure.Supervision
+@using N4Sentinel.Infrastructure.Persistence
+@using Microsoft.EntityFrameworkCore
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 
@@ -11,6 +13,7 @@
 @* Nom volontairement distinct du composant : en C#, un membre ne peut pas
    porter le nom de son type englobant, et ce fichier genere la classe
    Supervision. *@
+@inject IDbContextFactory<N4SentinelDbContext> DbFactory
 @inject SupervisionService SupervisionMoteur
 @inject UndeclaredComponentScanner Scanner
 @inject DatabaseHealthService DatabaseHealth
@@ -694,7 +697,12 @@
                                     @snap.Verdict
                                 </td>
 
-                                <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                                <td class="py-3.5 px-4 text-right whitespace-nowrap space-x-2">
+                                    <button @onclick="() => ToggleMaintenanceAsync(snap.ComponentId)"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 @(snap.State == ComponentState.Maintenance ? "text-violet-400" : "text-slate-400") font-semibold text-[11px] transition">
+                                        <i class="bi bi-tools" aria-hidden="true"></i>
+                                        <span>@(snap.State == ComponentState.Maintenance ? "Sortir Maint." : "Maint.")</span>
+                                    </button>
                                     <button @onclick="() => EvaluateSingleAsync(snap.ComponentId)"
                                             class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-[11px] transition">
                                         <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
@@ -836,6 +844,21 @@
         var precedent = SupervisionCache.GetSnapshot(componentId);
         var snap = await SupervisionMoteur.EvaluateComponentAsync(componentId, previous: precedent);
         SupervisionCache.UpdateSnapshot(snap);
+    }
+
+    private async Task ToggleMaintenanceAsync(Guid componentId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var comp = await db.Components.FindAsync(componentId);
+        if (comp is not null)
+        {
+            comp.MaintenanceMode = !comp.MaintenanceMode;
+            comp.MaintenanceNote = comp.MaintenanceMode ? "Maintenance manuelle via supervision" : null;
+            await db.SaveChangesAsync();
+
+            // Réévaluer immédiatement pour refléter le changement
+            await EvaluateSingleAsync(componentId);
+        }
     }
 
     // -----------------------------------------------------------------------

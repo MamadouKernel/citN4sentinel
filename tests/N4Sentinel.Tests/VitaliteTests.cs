@@ -1,3 +1,4 @@
+using Xunit;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Supervision;
@@ -45,7 +46,7 @@ public sealed class VitaliteTests
     // =======================================================================
     // Cas non conformes — détectables sans connaître la source attendue
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void Le_Service_De_Temps_Arrete_Est_Non_Conforme()
     {
         var r = NodeVitalsService.EvaluerHorloge(
@@ -70,7 +71,7 @@ public sealed class VitaliteTests
         Assert.Contains("ne se synchronise sur rien", r.Detail);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Ecart_Superieur_A_La_Tolerance_Est_Non_Conforme()
     {
         // 7 s pour une tolerance de 5 : au-dela de ce seuil, N4 produit des
@@ -83,7 +84,7 @@ public sealed class VitaliteTests
         Assert.Contains("DISCONNECTED", r.Detail);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Ecart_Negatif_Est_Traite_Comme_Un_Ecart()
     {
         // Une horloge en retard est aussi fausse qu'une horloge en avance.
@@ -94,7 +95,7 @@ public sealed class VitaliteTests
         Assert.Contains("12", r.Detail);
     }
 
-    [Fact]
+    [SkippableFact]
     public void La_Tolerance_Est_Celle_De_L_Environnement()
     {
         var large = NodeVitalsService.EvaluerHorloge(
@@ -108,7 +109,7 @@ public sealed class VitaliteTests
         Assert.Equal(ClockState.NonConforme, stricte.State);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Une_Source_Etrangere_Au_Domaine_Est_Non_Conforme()
     {
         var r = NodeVitalsService.EvaluerHorloge(
@@ -124,7 +125,7 @@ public sealed class VitaliteTests
     // =======================================================================
     // Cas conformes
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void Une_Source_Correspondant_A_L_Attendu_Est_Conforme()
     {
         var r = NodeVitalsService.EvaluerHorloge(
@@ -134,7 +135,7 @@ public sealed class VitaliteTests
         Assert.Equal("OK", r.ShortVerdict);
     }
 
-    [Fact]
+    [SkippableFact]
     public void La_Hierarchie_Du_Domaine_Vaut_Conformite()
     {
         // NT5DS ne nomme aucun serveur : il suit le controleur de domaine.
@@ -147,7 +148,7 @@ public sealed class VitaliteTests
         Assert.Equal(ClockState.Conforme, r.State);
     }
 
-    [Fact]
+    [SkippableFact]
     public void La_Source_Peut_Etre_Reconnue_Dans_Les_Pairs_Configures()
     {
         var r = NodeVitalsService.EvaluerHorloge(
@@ -160,7 +161,7 @@ public sealed class VitaliteTests
     // =======================================================================
     // Le troisième état : à confirmer
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void Sans_Source_Attendue_La_Conformite_Reste_A_Confirmer()
     {
         var r = NodeVitalsService.EvaluerHorloge(
@@ -172,7 +173,7 @@ public sealed class VitaliteTests
         Assert.Contains("Renseigner la source de temps attendue", r.Remedy!);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Sans_Source_Attendue_Les_Cas_Anormaux_Restent_Detectes()
     {
         // L'absence de configuration ne doit pas rendre l'application aveugle :
@@ -190,7 +191,7 @@ public sealed class VitaliteTests
         Assert.Equal(ClockState.NonConforme, derive.State);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Releve_Impossible_Ne_Se_Lit_Pas_Comme_Une_Conformite()
     {
         // Ne pas avoir pu regarder n'est pas avoir constate que tout va bien.
@@ -202,7 +203,7 @@ public sealed class VitaliteTests
         Assert.Contains("Accès refusé", r.Detail);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Sans_Environnement_Le_Comportement_Reste_Prudent()
     {
         var r = NodeVitalsService.EvaluerHorloge(Horloge(), 0.2, null, null);
@@ -213,7 +214,7 @@ public sealed class VitaliteTests
     // =======================================================================
     // Métriques
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void Les_Pourcentages_Derives_Sont_Coherents()
     {
         var m = new LiveMetrics
@@ -227,7 +228,7 @@ public sealed class VitaliteTests
         Assert.Equal(12L * 1024 * 1024 * 1024, m.UsedMemoryBytes);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Une_Memoire_Non_Relevee_Ne_Produit_Pas_Un_Faux_Zero()
     {
         // Afficher 0 % d'utilisation sur une mesure absente ferait croire a une
@@ -239,7 +240,7 @@ public sealed class VitaliteTests
         Assert.Null(m.Uptime);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Disque_Presque_Plein_Est_Mesurable()
     {
         var d = new DiskSnapshot
@@ -255,7 +256,7 @@ public sealed class VitaliteTests
     // =======================================================================
     // Mises à jour Windows — fraîcheur
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void Une_Mesure_De_Mises_A_Jour_Porte_Son_Age()
     {
         var lecture = UpdateReading.Reussi(new UpdateSnapshot
@@ -270,7 +271,7 @@ public sealed class VitaliteTests
         Assert.True(lecture.Age < TimeSpan.FromSeconds(5));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Une_Mesure_Ancienne_Est_Declaree_Perimee()
     {
         // Une mesure de mises a jour vieille de huit heures ne doit pas etre
@@ -281,7 +282,7 @@ public sealed class VitaliteTests
         Assert.True(lecture.IsStale);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Echec_De_Releve_N_Est_Pas_Un_Zero_Mise_A_Jour()
     {
         // Zero mise a jour en attente et "je n'ai pas pu regarder" sont deux
@@ -293,7 +294,7 @@ public sealed class VitaliteTests
         Assert.NotNull(lecture.Error);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Le_Cache_Retient_La_Derniere_Mesure_Par_Serveur()
     {
         var cache = new UpdateReadingCache();

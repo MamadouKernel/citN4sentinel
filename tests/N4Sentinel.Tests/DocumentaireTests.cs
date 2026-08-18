@@ -1,3 +1,4 @@
+using Xunit;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -33,8 +34,8 @@ public sealed class DocumentaireTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         _factory = new TestDbContextFactory(TestDbContextOptions.Builder(cs).Options);
 
@@ -60,7 +61,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
     // =======================================================================
     // DOC-01 — Indexation
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Un_Document_Indexe_Reste_En_Brouillon()
     {
         var r = await IndexerGuideAsync();
@@ -72,7 +73,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.False(document.IsCitable);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Reference_Est_Obligatoire()
     {
         // Sans reference, une citation ne designe rien.
@@ -84,7 +85,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("citation ne désigne rien", r.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Reference_En_Double_Est_Refusee()
     {
         await IndexerGuideAsync();
@@ -94,7 +95,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("déjà utilisée", second.Error!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Document_Sans_Contenu_Exploitable_Est_Refuse()
     {
         var r = await _base.IndexAsync(
@@ -108,7 +109,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
     // =======================================================================
     // DOC-02 — Recherche et citation (AC-10)
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public async Task Une_Reponse_Cite_Document_Section_Et_Page()
     {
         var r = await IndexerGuideAsync();
@@ -127,7 +128,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("GUIDE-3.8.25", passage.Citation);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Document_Non_Valide_Ne_Repond_Pas()
     {
         // Indexe mais pas valide : il ne doit alimenter aucune reponse.
@@ -141,7 +142,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("Versez et validez", reponse.EscalationRecommendation!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Un_Document_Revoque_Cesse_De_Repondre()
     {
         var r = await IndexerGuideAsync();
@@ -173,7 +174,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("Désactivé", traces[1].Reason);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Sans_Passage_Correspondant_L_Application_Le_Dit()
     {
         // LE TEST CENTRAL. L'application ne doit rien inventer : elle n'a pas
@@ -201,7 +202,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("escaladez", reponse.EscalationRecommendation!, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task La_Recherche_Ignore_Les_Accents()
     {
         var r = await IndexerGuideAsync();
@@ -215,7 +216,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Equal(avec.Passages[0].PageNumber, sans.Passages[0].PageNumber);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Le_Passage_Couvrant_Le_Plus_De_Termes_Remonte_En_Premier()
     {
         // Une page qui repete vingt fois un mot courant ne doit pas passer
@@ -246,7 +247,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Equal(2, reponse.Passages[0].PageNumber);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Question_Vide_Ou_Trop_Courte_Est_Refusee()
     {
         var courte = await _base.AskAsync("a");
@@ -257,7 +258,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.False(vide.Answered);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Question_Faite_Uniquement_De_Mots_Vides_Est_Refusee()
     {
         var reponse = await _base.AskAsync("comment est-ce que le pour les");
@@ -266,7 +267,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("aucun terme exploitable", reponse.Explanation!);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task L_Extrait_Restitue_Le_Texte_D_Origine_Accents_Compris()
     {
         // La normalisation preserve la longueur caractere pour caractere :
@@ -294,7 +295,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
     // =======================================================================
     // DOC-03 — Séparation conseil / action
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void La_Reponse_Porte_Toujours_L_Avertissement_De_Non_Action()
     {
         Assert.Contains("ils ne la prennent pas", KnowledgeAnswer.AvertissementConseil);
@@ -302,7 +303,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("workflow validé", KnowledgeAnswer.AvertissementConseil);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Le_Service_Documentaire_Ne_Depend_D_Aucun_Service_D_Orchestration()
     {
         // Garde-fou structurel : si quelqu'un ajoute un jour une dependance
@@ -320,7 +321,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
     // =======================================================================
     // Extraction
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void Un_Markdown_Est_Decoupe_A_Chaque_Titre()
     {
         const string contenu = """
@@ -345,7 +346,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.Contains("un par un", fragments[1].Content);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Un_Texte_Brut_Est_Regroupe_En_Blocs_Utilisables()
     {
         // Indexer chaque paragraphe isolement produirait des fragments trop
@@ -360,7 +361,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.True(fragments.Count < 12);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Les_Extensions_Supportees_Sont_Reconnues()
     {
         Assert.True(DocumentExtractor.EstSupporte("guide.pdf"));
@@ -369,7 +370,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         Assert.False(DocumentExtractor.EstSupporte("classeur.xlsx"));
     }
 
-    [Fact]
+    [SkippableFact]
     public void L_Extraction_Choisit_Le_Decoupage_D_Apres_L_Extension()
     {
         var octets = Encoding.UTF8.GetBytes(
@@ -385,7 +386,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
     // =======================================================================
     // Normalisation
     // =======================================================================
-    [Fact]
+    [SkippableFact]
     public void La_Normalisation_Preserve_La_Longueur()
     {
         // Propriete indispensable a l'extraction d'un passage : chaque
@@ -401,7 +402,7 @@ public sealed class DocumentaireTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Les_Mots_Vides_Sont_Ecartes_Des_Termes()
     {
         var termes = KnowledgeService.Termes("Comment faire pour démarrer le Center Node ?");

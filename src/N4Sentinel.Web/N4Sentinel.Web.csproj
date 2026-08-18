@@ -24,10 +24,7 @@
     dépôt. Seule la MODIFICATION des styles exige la chaîne de compilation.
   -->
   <Target Name="CompilerStyles" BeforeTargets="BeforeBuild" Condition="Exists('$(MSBuildProjectDirectory)/node_modules/.bin/tailwindcss.cmd')">
-    <Exec Command="npm run build:css"
-          WorkingDirectory="$(MSBuildProjectDirectory)"
-          ContinueOnError="true"
-          StandardOutputImportance="low" />
+    <Exec Command="npm run build:css" WorkingDirectory="$(MSBuildProjectDirectory)" ContinueOnError="true" StandardOutputImportance="low" />
   </Target>
 
   <ItemGroup>
@@ -36,6 +33,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.11" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />

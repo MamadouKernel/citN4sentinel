@@ -177,6 +177,37 @@ public sealed class SequenceValidator(IDbContextFactory<N4SentinelDbContext> dbF
                 Remedy = "Décocher « parallélisable » sur les étapes d'arrêt des nœuds Cluster."
             });
 
+        // --- Garde-fou sur les jobs conditionnels (FR-031) : un job ne se
+        // demarre pas dans la meme sequence qu'un noeud lourd, pour eviter de
+        // surcharger ou perturber un demarrage en cours.
+        var demarrageNoeudLourd = steps.FirstOrDefault(s => s.ComponentId is not null
+            && s.Action is StepAction.Demarrer or StepAction.Redemarrer
+            && composants.TryGetValue(s.ComponentId.Value, out var c)
+            && c.Role is ComponentRole.ClusterNode or ComponentRole.CenterNode or ComponentRole.StandbyCenterNode);
+
+        var demarrageJob = steps.FirstOrDefault(s => s.ComponentId is not null
+            && s.Action is StepAction.Demarrer or StepAction.Redemarrer
+            && composants.TryGetValue(s.ComponentId.Value, out var c)
+            && c.Role == ComponentRole.JobConditionnel);
+
+        if (demarrageNoeudLourd is null && demarrageJob is not null)
+        {
+            // Un job peut demarrer seul, c'est legitime.
+        }
+        else if (demarrageNoeudLourd is not null && demarrageJob is not null)
+        {
+            violations.Add(new SequenceViolation
+            {
+                Blocking = true,
+                Order = demarrageJob.Order,
+                Message =
+                    "La séquence tente de démarrer un job conditionnel en même temps qu'un nœud lourd "
+                    + "(Cluster ou Center). C'est interdit (FR-031) : un job conditionnel ne doit tourner "
+                    + "qu'une fois la plateforme stabilisée.",
+                Remedy = "Retirer le job conditionnel de cette séquence et le lancer dans une séquence distincte."
+            });
+        }
+
         return violations.OrderBy(v => v.Order).ToList();
     }
 

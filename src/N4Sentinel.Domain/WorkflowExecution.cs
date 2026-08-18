@@ -112,6 +112,15 @@ public class WorkflowExecution : AuditableEntity
     public string? TicketReference { get; set; }
     public string? ExpectedImpact { get; set; }
 
+    /// <summary>Début de la fenêtre d'intervention autorisée (FR-011).</summary>
+    public DateTimeOffset? StartWindow { get; set; }
+
+    /// <summary>Fin de la fenêtre d'intervention autorisée (FR-011).</summary>
+    public DateTimeOffset? EndWindow { get; set; }
+
+    /// <summary>Durée estimée totale agrégée des étapes (FR-016).</summary>
+    public TimeSpan? EstimatedTotalDuration { get; set; }
+
     // --- Approbation (FR-013) -------------------------------------------
     public string? ApprovedBy { get; set; }
     public DateTimeOffset? ApprovedAt { get; set; }
@@ -244,6 +253,12 @@ public class ExecutionStep : AuditableEntity
     /// </summary>
     public string? Evidence { get; set; }
 
+    /// <summary>
+    /// La commande technique réelle (script) exécutée en arrière-plan,
+    /// expurgée des éventuels secrets (FR-028).
+    /// </summary>
+    public string? ExecutedCommand { get; set; }
+
     public string? Error { get; set; }
 
     /// <summary>§3.19 : classification exacte de <see cref="Error"/>, jamais devinée après coup.</summary>
@@ -319,6 +334,9 @@ public class ExecutionStep : AuditableEntity
                                     or ExecutionStepState.Echec
                                     or ExecutionStepState.Ignore
                                     or ExecutionStepState.Annule;
+
+    /// <summary>Indique si l'action est destructrice et nécessite un contournement explicite en cas d'échec (FR-004).</summary>
+    public bool IsDestructive => Action is StepAction.Arreter or StepAction.Redemarrer or StepAction.ArretForce;
 
     public TimeSpan? Duration => StartedAt is null ? null : (EndedAt ?? DateTimeOffset.UtcNow) - StartedAt.Value;
 }

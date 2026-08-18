@@ -29,8 +29,8 @@ public sealed class ComptesTechniquesTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _connectionString =
-            $"Server=localhost;Database={_databaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        _connectionString = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         var options = TestDbContextOptions.Builder(_connectionString).Options;
 

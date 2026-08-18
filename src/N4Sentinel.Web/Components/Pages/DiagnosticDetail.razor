@@ -598,6 +598,18 @@ else
                             }
                         </select>
                     </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">De (facultatif)</label>
+                        <input type="datetime-local" title="À partir de"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold"
+                               @bind="_collecteDe" />
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Jusqu'à (facultatif)</label>
+                        <input type="datetime-local" title="Jusqu'à"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold"
+                               @bind="_collecteA" />
+                    </div>
                     <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition disabled:opacity-40"
                             disabled="@(_composantId == Guid.Empty || _enCours)" @onclick="Collecter">
                         <i class="bi bi-download"></i> Collecter
@@ -901,8 +913,11 @@ else
                             }
                         </select>
                         <input type="text" placeholder="Code (ex. AMQ-CORRUPT)"
-                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-40"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-32"
                                @bind="_filtreCode" @bind:event="oninput" />
+                        <input type="text" placeholder="Niveau (ex. ERROR)"
+                               class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-24"
+                               @bind="_filtreNiveau" @bind:event="oninput" />
                         <input type="text" placeholder="Id. de corrélation"
                                class="bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-semibold w-40"
                                @bind="_filtreCorrelation" @bind:event="oninput" />
@@ -933,7 +948,8 @@ else
                         .Where(x => _filtreDe is null || x.FirstSeenAt is null || x.FirstSeenAt >= new DateTimeOffset(_filtreDe.Value))
                         .Where(x => _filtreA is null || x.LastSeenAt is null || x.LastSeenAt <= new DateTimeOffset(_filtreA.Value))
                         .Where(x => string.IsNullOrEmpty(_filtreServeur) || ServeurConstat(x) == _filtreServeur)
-                        .Where(x => string.IsNullOrEmpty(_filtreCode) || (x.SignatureCode ?? "").Contains(_filtreCode, StringComparison.OrdinalIgnoreCase))
+                        .Where(x => string.IsNullOrEmpty(_filtreCode) || (x.SignatureCode ?? "").Contains(_filtreCode, StringComparison.OrdinalIgnoreCase) || (x.ErrorCode ?? "").Contains(_filtreCode, StringComparison.OrdinalIgnoreCase))
+                        .Where(x => string.IsNullOrEmpty(_filtreNiveau) || (x.Level ?? "").Contains(_filtreNiveau, StringComparison.OrdinalIgnoreCase))
                         .Where(x => string.IsNullOrEmpty(_filtreCorrelation) || (CorrelationConstat(x) ?? "").Contains(_filtreCorrelation, StringComparison.OrdinalIgnoreCase))
                         .Where(x => string.IsNullOrEmpty(_filtreTexte)
                                  || x.Title.Contains(_filtreTexte, StringComparison.OrdinalIgnoreCase)
@@ -1031,8 +1047,12 @@ else
     private DateTime? _filtreA;
     private string _filtreServeur = string.Empty;
     private string _filtreCode = string.Empty;
+    private string _filtreNiveau = string.Empty;
     private string _filtreCorrelation = string.Empty;
     private string _filtreTexte = string.Empty;
+
+    private DateTime? _collecteDe;
+    private DateTime? _collecteA;
 
     /// <summary>FR-065 : seuil administrable, plus jamais figé à 70.</summary>
     private int _seuilEtablie = 70;
@@ -1343,7 +1363,9 @@ else
         _enCours = true;
         _message = null;
 
-        var r = await Analyse.CollectFromServerAsync(Id, _composantId);
+        var r = await Analyse.CollectFromServerAsync(Id, _composantId,
+            _collecteDe is null ? null : new DateTimeOffset(_collecteDe.Value),
+            _collecteA is null ? null : new DateTimeOffset(_collecteA.Value));
         _enCours = false;
 
         await Charger();
@@ -1388,7 +1410,9 @@ else
                     {
                         using var lecteurEntree = new StreamReader(entree.Open());
                         var contenuEntree = await lecteurEntree.ReadToEndAsync();
-                        var rEntree = await Analyse.ImportAsync(Id, entree.Name, contenuEntree, composantChoisi);
+                        var rEntree = await Analyse.ImportAsync(Id, entree.Name, contenuEntree, composantChoisi,
+                            _collecteDe is null ? null : new DateTimeOffset(_collecteDe.Value),
+                            _collecteA is null ? null : new DateTimeOffset(_collecteA.Value));
                         resultats.Add((entree.Name, rEntree));
                     }
                     continue;
@@ -1396,7 +1420,9 @@ else
 
                 using var lecteur = new StreamReader(new MemoryStream(octets));
                 var contenu = await lecteur.ReadToEndAsync();
-                var r = await Analyse.ImportAsync(Id, fichier.Name, contenu, composantChoisi);
+                var r = await Analyse.ImportAsync(Id, fichier.Name, contenu, composantChoisi,
+                    _collecteDe is null ? null : new DateTimeOffset(_collecteDe.Value),
+                    _collecteA is null ? null : new DateTimeOffset(_collecteA.Value));
                 resultats.Add((fichier.Name, r));
             }
 

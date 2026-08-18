@@ -44,12 +44,21 @@ public sealed class LogAnalysisService(
     // -----------------------------------------------------------------------
     /// <summary>Collecte ciblée : lit le journal d'un composant sur son serveur.</summary>
     public async Task<SourceResult> CollectFromServerAsync(
-        Guid sessionId, Guid componentId, CancellationToken ct = default)
+        Guid sessionId, Guid componentId,
+        DateTimeOffset? windowStart = null, DateTimeOffset? windowEnd = null,
+        CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         var session = await db.Sessions.FirstOrDefaultAsync(s => s.Id == sessionId, ct);
         if (session is null) return SourceResult.Failed("Session de diagnostic introuvable.");
+
+        if (windowStart.HasValue || windowEnd.HasValue)
+        {
+            session.WindowStart = windowStart;
+            session.WindowEnd = windowEnd;
+            await db.SaveChangesAsync(ct);
+        }
 
         var composant = await db.Components
             .AsNoTracking()
@@ -120,12 +129,20 @@ public sealed class LogAnalysisService(
     /// </summary>
     public async Task<SourceResult> ImportAsync(
         Guid sessionId, string fileName, string contenu, Guid? componentId = null,
+        DateTimeOffset? windowStart = null, DateTimeOffset? windowEnd = null,
         CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         var session = await db.Sessions.FirstOrDefaultAsync(s => s.Id == sessionId, ct);
         if (session is null) return SourceResult.Failed("Session de diagnostic introuvable.");
+
+        if (windowStart.HasValue || windowEnd.HasValue)
+        {
+            session.WindowStart = windowStart;
+            session.WindowEnd = windowEnd;
+            await db.SaveChangesAsync(ct);
+        }
 
         if (string.IsNullOrWhiteSpace(contenu))
             return SourceResult.Failed("Le fichier versé est vide.");
@@ -579,10 +596,24 @@ public sealed class LogAnalysisService(
         }
         else if (concluantes.Count > 0)
         {
-            var principale = concluantes.OrderByDescending(f => f.Severity)
-                                        .ThenByDescending(f => f.OccurrenceCount).First();
+            var principales = hypotheses.OrderByDescending(h => h.Confidence).ToList();
+            if (principales.Count >= 2 && principales[0].Confidence >= parametres.HypothesisEstablishedThreshold
+                                       && (principales[0].Confidence - principales[1].Confidence) <= 10)
+            {
+                session.Verdict = DiagnosticVerdict.PlusieursCausesPossibles;
+                session.VerdictExplanation =
+                    $"Plusieurs hypothèses concurrentes sont plausibles. "
+                    + $"La différence de confiance entre « {principales[0].Statement} » et « {principales[1].Statement} » "
+                    + $"est trop faible pour désigner l'une d'elles comme certaine. "
+                    + limites + " "
+                    + $"Recommandation : confrontez les preuves et les éléments contraires de chaque hypothèse.";
+            }
+            else
+            {
+                var principale = concluantes.OrderByDescending(f => f.Severity)
+                                            .ThenByDescending(f => f.OccurrenceCount).First();
 
-            // FR-069 : "cause confirmee" reste exceptionnel - poids maximal,
+                // FR-069 : "cause confirmee" reste exceptionnel - poids maximal,
             // seule signature concluante, aucune autre hypothese de domaine
             // different en concurrence. Le cas ordinaire reste "tres probable".
             var domainesConcluants = concluantes.Select(f => f.Domain).Distinct().Count();
@@ -596,6 +627,7 @@ public sealed class LogAnalysisService(
                 $"Une signature connue a été reconnue : « {principale.Title} » "
                 + $"({principale.OccurrenceCount} occurrence(s)). {principale.Meaning} "
                 + limites;
+            }
         }
         else if (hypotheses.Count > 0 && hypotheses[0].Confidence >= parametres.SeriousLeadConfidenceThreshold)
         {

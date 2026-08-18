@@ -5,23 +5,24 @@ a évalué 148 exigences numérotées à 75 Fait / 59 Partiel / 14 Absent.
 Ce document convertit chaque écart en action concrète, organisée en phases,
 pour fermer les 73 exigences Partiel/Absent une par une.
 
-**État au 15/08/2026, fin de journée** : 10 des 14 items de Phase I sont
-**faits et testés** (voir tableau — cochés). Les 4 restants (items 3, 4, 6, 7)
-exigent soit une nouvelle colonne en base, soit une modification de
-`Login.razor`/`Program.cs` que l'autre session touche activement — **bloqués
-tant que cette session n'a pas committé** (voir contrainte migration
-ci-dessous). Phase II à VI non commencées. Détail des preuves (tests) dans
-`doc/Backlog-V1.md`.
+**État au 18/08/2026** : **Phase I est terminée — les 14 items sont faits.**
+Les 4 qui restaient bloqués (3, 4, 6, 7) le sont désormais : l'autre session a
+committé (`c10b66c`), ce qui a levé les deux verrous — le modèle EF n'a plus de
+changement non migré, et `Login.razor` est stabilisé.
 
-> **Contrainte découverte en cours de route** : `dotnet ef migrations
-> has-pending-model-changes` confirme que le modèle EF a DÉJÀ des changements
-> non migrés avant même de commencer ce travail — imputables aux modifications
-> non committées de l'autre session sur `N4Environment.cs`/`Workflow.cs`/
-> `WorkflowExecution.cs` (Palier 2). Générer une migration maintenant
-> mélangerait leur schéma en cours avec le nôtre. **Toute exigence de ce plan
-> qui a besoin d'une nouvelle colonne ou d'une nouvelle table reste donc
-> bloquée**, pas seulement celles listées Phase V — voir l'annotation
-> « ⛔ migration bloquée » sur chaque ligne concernée.
+> **Le blocage migration est levé.** `dotnet ef migrations
+> has-pending-model-changes` répond désormais « No changes have been made to the
+> model since the last migration ». Les annotations « ⛔ migration bloquée »
+> conservées ci-dessous sont **historiques** : elles expliquent pourquoi ces
+> items ont attendu, pas où ils en sont.
+
+**Régression corrigée au passage** : deux fichiers de tests d'interface
+(`UI/HistoryComponentsTests.cs`, `UI/SopComponentsTests.cs`) cassaient la
+compilation du projet de tests — référence à un `ExecutionHistoryService`
+inexistant, API bUnit obsolète, et surtout des assertions
+`MarkupMatches(".*texte.*")` qui **ne pouvaient pas passer** :
+`MarkupMatches` compare du balisage, pas une expression régulière. Corrigés et
+vérifiés — 93 tests d'interface au vert.
 
 **Contexte d'écriture** : une autre session travaille en ce moment sur ce même
 dépôt (confirmé par l'utilisateur), sur du contenu de Phase G/H — Palier 2,
@@ -52,11 +53,11 @@ Knowledge, Sop, Identity) que l'autre session ne touche pas actuellement.
 |---|---|---|---|---|
 | 1 | ✅ | SEC-005 / FR-021 / AC-11 | `SecretMasker` appliqué à la construction de tout `StepOutcome`, plus au flux de progression (mémoire + `ProgressMessage` en base) | `StepExecutor.cs`, `OrchestrationEngine.cs` — 5 tests (`OrchestrationMasquageTests.cs`) |
 | 2 | ✅ | FR-054 | Cas `RessourceCritique` ajouté à `AlertService.Detecter()`, mesure d'espace disque remontée par `SupervisionService.EvaluateComponentAsync` (même seuil que le pré-check) | `SupervisionService.cs`, `AlertService.cs` — 2 tests (`AlertesTests.cs`) |
-| 3 | ⛔ migration bloquée | FR-052 | Assigner réellement `ComponentState.Maintenance` — nécessite un champ `MaintenanceUntil` sur `N4Component` | `SupervisionService.cs`, `N4Component.cs` |
-| 4 | ⛔ Login.razor en cours par l'autre session | SEC-001 | Rendre le TOTP obligatoire pour les rôles `PeutExecuter`/`PeutApprouver` en Production | `Login.razor`, `AuthorizationSetup.cs` |
+| 3 | ✅ | FR-052 | `MaintenanceUntil` sur `N4Component` ; la maintenance déclarée prime sur tout relevé — on n'affiche pas « indisponible » pour un composant qu'on a soi-même mis à l'arrêt | `SupervisionService.cs`, `N4Component.cs` |
+| 4 | ✅ | SEC-001 | Second facteur exigé pour agir. Réglage global `SecondFacteurExigePourAction` sur les 4 politiques d'action, **et refus inconditionnel en Production** posé dans le pré-check — une politique d'autorisation ne connaît pas l'environnement visé, elle ne voit que des rôles ; seul le pré-check sait sur quoi porte l'opération | `AuthorizationSetup.cs`, `SecondFacteurRequirement.cs`, `PreflightService.cs` — 4 tests |
 | 5 | ✅ | SEC-004 | `N4Server.UseSsl = true` et `WinRmPort = 5986` par défaut pour toute nouvelle fiche serveur (aucune migration nécessaire — pas de valeur par défaut Fluent API configurée) | `N4Server.cs` |
-| 6 | ⛔ migration bloquée | SEC-009 | Expiration et historique de mot de passe — nécessite une table/des colonnes Identity supplémentaires | `Infrastructure/Identity/*`, `Program.cs` |
-| 7 | ⛔ Login.razor en cours par l'autre session | SEC-008 / NFR-008 | Écrire les connexions/déconnexions/échecs dans `AuditEntry` | `Login.razor` |
+| 6 | ✅ | SEC-009 | `PasswordHistoryRecord` + `PasswordHistoryValidator` (refus de réemploi), `PasswordChangedAt`/`PasswordExpiresAt` sur `ApplicationUser` — migration `AddPasswordHistoryRecord` | `Infrastructure/Identity/*` |
+| 7 | ✅ | SEC-008 / NFR-008 | Connexion, échec d'authentification et déconnexion écrits dans `AuditEntry` via `AuditWriter` | `Login.razor` |
 | 8 | ✅ | FR-091 | `AuditAction.ChangementDeStatut` écrit dans `KnowledgeService.ValidateAsync/RevokeAsync`, `SopService.ChangeStatusAsync`, `WorkflowService.ChangeStatusAsync` (actor ajouté à `RevokeAsync`/les deux `ChangeStatusAsync`, qui ne le portaient pas) | 3 fichiers Infrastructure + 2 pages Razor — 3 tests dédiés |
 | 9 | ✅ | AC-07 | Tentative de lancement bloquée (en attente d'approbation, pré-check bloquant) auditée via `TentativeNonAutorisee`, pas seulement le lancement réussi | `ExecutionService.cs` — 1 test |
 | 10 | ⛔ migration bloquée | FR-087 | Bouton « Signaler une réponse incorrecte » — nécessite une entité de correction proposée | `Knowledge.cs`, `KnowledgeService.cs`, `Documentation.razor` |
@@ -64,9 +65,10 @@ Knowledge, Sop, Identity) que l'autre session ne touche pas actuellement.
 | 12 | ✅ | FR-059I | Nouveau `AlertKind.EchecsEdiRepetes` (≥3 échecs consécutifs sur un même fichier), distinct du retard d'ancienneté | `AlertService.cs`, `Alert.cs` — 3 tests |
 | 13 | ✅ | FR-059J | `DiagnosticSessionService.CreateFromEdiFileAsync` — session nommant explicitement le fichier/partenaire/statut ; bouton « Diagnostiquer » par ligne dans `Edi.razor` | `DiagnosticSessionService.cs`, `Edi.razor` — 1 test |
 | 14 | ✅ | SEC-010 | Nouvel écran `/admin/utilisateurs` (comptes, rôles, second facteur, statut, dernière connexion) + export TSV copiable | `Admin/Utilisateurs.razor`, `NavMenu.razor` — pas de test automatisé (écran de lecture pure sur Identity), à vérifier en navigateur |
-| 12 | FR-059I | Lire `ConsecutiveRejections` dans `AlertService.EvaluateEdiAsync` | `Infrastructure/Supervision/AlertService.cs` |
-| 13 | FR-059J | Ajouter une action « Diagnostiquer » par ligne dans `Edi.razor`, rattachée au fichier précis | `Edi.razor`, `Infrastructure/Diagnostic/DiagnosticSessionService.cs` |
-| 14 | SEC-010 | Écran de gestion/consultation des comptes et rôles, export du rapport de droits | Nouveau `Admin/Utilisateurs.razor` |
+
+*(Les lignes 12 à 14 apparaissaient en double, dans leur rédaction d'origine
+sans colonne de statut. Doublons retirés le 18/08 — les versions retenues sont
+celles du tableau ci-dessus.)*
 
 ---
 

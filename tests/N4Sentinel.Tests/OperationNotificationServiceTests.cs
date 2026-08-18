@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,8 +32,8 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var cs = $"Server=localhost;Database={_databaseName};Trusted_Connection=True;"
-               + "TrustServerCertificate=True;MultipleActiveResultSets=True";
+        TestConnectionHelper.SkipIfUnavailable();
+        var cs = TestConnectionHelper.BuildDatabaseConnectionString(_databaseName);
 
         var options = TestDbContextOptions.Builder(cs).Options;
 
@@ -92,7 +93,7 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
         Status = ExecutionStatus.EnCours
     };
 
-    [Fact]
+    [SkippableFact]
     public async Task NotifierLancementAsync_Envoie_Au_Demandeur_Et_Aux_Validateurs_Actifs_Seulement()
     {
         var execution = NouvelleExecution();
@@ -106,7 +107,7 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
         Assert.DoesNotContain("validateur.desactive@cit.ci", destinataires);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task NotifierLancementAsync_Ne_Notifie_Jamais_Deux_Fois_Le_Meme_Destinataire()
     {
         // Le demandeur EST le validateur : un seul envoi attendu, pas deux.
@@ -118,7 +119,7 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
         Assert.Single(_sender.Envois);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task NotifierFinAsync_Compose_Un_Sujet_Portant_Le_Statut()
     {
         var execution = NouvelleExecution();
@@ -130,7 +131,7 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
         Assert.Contains(_sender.Envois, e => e.Subject.Contains("réserves", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Une_Simulation_Ne_Declenche_Aucune_Notification()
     {
         // FR-005 : une simulation n'a rien produit sur l'ecosysteme reel —
@@ -146,7 +147,7 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
         Assert.Empty(_sender.Envois);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task NotifierBlocageAsync_N_Echoue_Jamais_Meme_Si_L_Envoi_Explose()
     {
         _sender.LeverUneExceptionAuProchainEnvoi = true;
@@ -157,7 +158,7 @@ public sealed class OperationNotificationServiceTests : IAsyncLifetime
         await _service.NotifierBlocageAsync(execution, "Étape en échec, décision attendue.");
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task NotifierLancementAsync_Sans_Aucun_Destinataire_Valide_N_Envoie_Rien_Et_Ne_Leve_Rien()
     {
         var execution = NouvelleExecution();

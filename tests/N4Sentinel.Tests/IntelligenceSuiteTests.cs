@@ -1,3 +1,4 @@
+using Xunit;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Infrastructure.Ai;
 using N4Sentinel.Infrastructure.Procedures;
@@ -17,7 +18,7 @@ namespace N4Sentinel.Tests;
 /// </summary>
 public sealed class IntelligenceSuiteTests
 {
-    [Fact]
+    [SkippableFact]
     public void FlightSimulatorService_Gere_Scenarios_Et_Calcul_Score()
     {
         var service = new FlightSimulatorService(NullLogger<FlightSimulatorService>.Instance);
@@ -34,7 +35,7 @@ public sealed class IntelligenceSuiteTests
         Assert.True(result.ScoreDelta > 0);
     }
 
-    [Fact]
+    [SkippableFact]
     public void VoiceCopilotService_Interprete_Commandes_Vocales()
     {
         var service = new VoiceCopilotService(NullLogger<VoiceCopilotService>.Instance);
@@ -71,7 +72,7 @@ public sealed class IntelligenceSuiteTests
         Assert.Equal(routeAttendue, res.TargetRoute);
     }
 
-    [Fact]
+    [SkippableFact]
     public void VoiceCopilotService_Ne_Confond_Pas_Lancer_Une_Sauvegarde_Avec_Demarrer_Un_Service()
     {
         var service = new VoiceCopilotService(NullLogger<VoiceCopilotService>.Instance);
@@ -82,7 +83,7 @@ public sealed class IntelligenceSuiteTests
         Assert.Equal("/admin/sauvegarde", res.TargetRoute);
     }
 
-    [Fact]
+    [SkippableFact]
     public void VoiceCopilotService_Ne_Redirige_Plus_Vers_Les_Modules_Retires()
     {
         var service = new VoiceCopilotService(NullLogger<VoiceCopilotService>.Instance);

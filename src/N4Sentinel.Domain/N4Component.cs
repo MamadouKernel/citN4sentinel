@@ -49,6 +49,15 @@ public class N4Component : AuditableEntity
     public bool MaintenanceMode { get; set; }
     public string? MaintenanceNote { get; set; }
 
+    /// <summary>FR-052 : date et heure de fin de la fenêtre de maintenance planifiée. Null = durée indéterminée.</summary>
+    public DateTimeOffset? MaintenanceUntil { get; set; }
+
+    /// <summary>FR-052 : motif explicite de la mise en maintenance (requis pour l'audit — un composant sans raison ne doit pas être mis en maintenance silencieusement).</summary>
+    public string? MaintenanceReason { get; set; }
+
+    /// <summary>FR-052 : compte ayant déclaré la maintenance — tracé pour l'audit.</summary>
+    public string? MaintenanceBy { get; set; }
+
     /// <summary>
     /// Rang dans la sequence de demarrage. L'arret ne se deduit PAS en
     /// inversant ce rang : il suit sa propre sequence, definie au workflow.

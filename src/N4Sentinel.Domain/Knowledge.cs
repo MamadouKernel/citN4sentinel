@@ -118,3 +118,60 @@ public class DocumentSection : AuditableEntity
         : $"{Document?.Reference ?? "document"}"
           + (Heading is { Length: > 0 } ? $" — {Heading}" : string.Empty);
 }
+
+/// <summary>
+/// FR-087 : statut d'un signalement de contenu documentaire incorrect.
+/// </summary>
+public enum CorrectionStatus
+{
+    /// <summary>Signalement soumis, en attente de revue.</summary>
+    EnAttente = 0,
+
+    /// <summary>Signalement accepté — le document doit être corrigé.</summary>
+    Accepte = 1,
+
+    /// <summary>Signalement rejeté (information correcte ou hors périmètre).</summary>
+    Rejete = 2,
+
+    /// <summary>Le document a été corrigé et la section mise à jour.</summary>
+    Resolu = 3
+}
+
+/// <summary>
+/// FR-087 : signalement d'une réponse ou d'une section de document incorrecte.
+///
+/// Quand un opérateur constate qu'une procédure est obsolète, contient une
+/// erreur ou ne correspond pas à la réalité du site, il peut le signaler.
+/// Un administrateur de solution instruit le signalement : accepter ou rejeter,
+/// puis corriger le document source si nécessaire.
+///
+/// UN SIGNALEMENT N'EST PAS UNE CORRECTION AUTOMATIQUE : il est traité par
+/// un humain habilité, qui décide de la suite. Cette entité trace le signalement
+/// et son traitement pour l'audit.
+/// </summary>
+public class KnowledgeCorrection : AuditableEntity
+{
+    /// <summary>Document concerné.</summary>
+    public Guid DocumentId { get; set; }
+    public KnowledgeDocument? Document { get; set; }
+
+    /// <summary>Section concernée, si le signalement est localisé.</summary>
+    public Guid? SectionId { get; set; }
+    public DocumentSection? Section { get; set; }
+
+    /// <summary>Compte ayant signalé le problème.</summary>
+    public string ReportedBy { get; set; } = string.Empty;
+
+    /// <summary>Description du problème constaté.</summary>
+    public string Reason { get; set; } = string.Empty;
+
+    public CorrectionStatus Status { get; set; } = CorrectionStatus.EnAttente;
+
+    /// <summary>Compte ayant instruit le signalement.</summary>
+    public string? ReviewedBy { get; set; }
+    public DateTimeOffset? ReviewedAt { get; set; }
+
+    /// <summary>Décision et commentaire du relecteur.</summary>
+    public string? Resolution { get; set; }
+}
+

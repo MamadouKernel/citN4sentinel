@@ -239,12 +239,28 @@ public sealed class SupervisionService(
         }
         else
         {
-            // Composant sans preuve par le journal (ex: base de données ou composant à marqueur non renseigné)
-            if (string.Equals(snapshot.ServiceStatus, "Running", StringComparison.OrdinalIgnoreCase) || snapshot.ServiceStatus == "NonApplicable")
+            // Composant sans preuve par le journal (ex: base de données, AMQ ou système externe)
+            if (component.Port.HasValue)
+            {
+                // FR-051 : Contrôle TCP réel si un port est configuré
+                bool isPortOpen = await CheckTcpPortAsync(target.HostName, component.Port.Value, ct);
+                if (isPortOpen)
+                {
+                    snapshot.State = ComponentState.Disponible;
+                    snapshot.LogProofStatus = LogProofState.Unprovable;
+                    snapshot.Verdict = $"Disponible (Port TCP {component.Port.Value} accessible).";
+                }
+                else
+                {
+                    snapshot.State = ComponentState.Indisponible;
+                    snapshot.Verdict = $"Indisponible (Port TCP {component.Port.Value} fermé ou filtré).";
+                }
+            }
+            else if (string.Equals(snapshot.ServiceStatus, "Running", StringComparison.OrdinalIgnoreCase) || snapshot.ServiceStatus == "NonApplicable")
             {
                 snapshot.State = ComponentState.Disponible;
                 snapshot.LogProofStatus = LogProofState.Unprovable;
-                snapshot.Verdict = "Disponible (statut service Running — aucun marqueur de journal configuré : à confirmer).";
+                snapshot.Verdict = "Disponible (statut service Running — aucun marqueur de journal ni port configuré : à confirmer).";
             }
             else
             {
@@ -336,6 +352,22 @@ public sealed class SupervisionService(
             }
         }
         return null;
+    }
+
+    private static async Task<bool> CheckTcpPortAsync(string host, int port, CancellationToken ct)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(3)); // Timeout rapide pour ne pas bloquer
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(host, port, cts.Token);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

@@ -84,7 +84,7 @@ public sealed class DiagnosticSessionService(
         var candidats = await IdentifierComposantsCandidatsAsync(db, alert, ct);
 
         foreach (var composantId in candidats)
-            await logAnalysis.CollectFromServerAsync(session.Id, composantId, ct);
+            await logAnalysis.CollectFromServerAsync(session.Id, composantId, ct: ct);
 
         if (candidats.Count > 0)
             await logAnalysis.ConcludeAsync(session.Id, ct);
@@ -129,7 +129,7 @@ public sealed class DiagnosticSessionService(
         db.Sessions.Add(session);
         await db.SaveChangesAsync(ct);
 
-        await logAnalysis.CollectFromServerAsync(session.Id, componentId, ct);
+        await logAnalysis.CollectFromServerAsync(session.Id, componentId, ct: ct);
         await logAnalysis.ConcludeAsync(session.Id, ct);
 
         return CreateFromAlertResult.Ok(session.Id, 1);
