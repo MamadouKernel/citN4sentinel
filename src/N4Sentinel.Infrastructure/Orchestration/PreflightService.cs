@@ -31,9 +31,64 @@ public sealed class PreflightService(
     SequenceValidator sequenceValidator,
     Supervision.SupervisionService supervision,
     CenterContinuityService continuity,
+    Security.EnvironmentAccessService acces,
     ILogger<PreflightService> logger)
 {
-    public async Task<PreflightReport> RunAsync(Guid executionId, CancellationToken ct = default)
+    /// <summary>
+    /// Contrôles préalables, avec vérification de l'habilitation du demandeur
+    /// sur l'environnement visé (audit SEC-A1).
+    ///
+    /// LE REFUS TOMBE ICI, ET PAS SEULEMENT DANS LES ÉCRANS. Un contrôle posé
+    /// uniquement sur les pages se contourne en appelant directement par
+    /// identifiant. Le pré-check est le passage obligé de toute exécution : il
+    /// est le bon endroit pour refuser.
+    /// </summary>
+    public async Task<PreflightReport> RunAsync(
+        Guid executionId, System.Security.Claims.ClaimsPrincipal? demandeur,
+        CancellationToken ct = default)
+    {
+        var rapport = await RunInterneAsync(executionId, ct);
+
+        if (demandeur is null || rapport.Error is not null) return rapport;
+
+        await using var lecture = await dbFactory.CreateDbContextAsync(ct);
+        var cible = await lecture.Executions.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == executionId, ct);
+
+        if (cible is null) return rapport;
+
+        // Une simulation n'emet aucune commande : la consultation suffit.
+        var decision = cible.IsSimulation
+            ? await acces.CanViewAsync(demandeur, cible.EnvironmentId, ct)
+            : await acces.CanActAsync(demandeur, cible.EnvironmentId, ct);
+
+        if (decision.Allowed)
+        {
+            rapport.Checks.Insert(0, PreflightCheck.Reussi(
+                "Habilitation sur l'environnement",
+                $"Le demandeur est habilité à agir sur « {cible.EnvironmentCode} »."));
+
+            return rapport;
+        }
+
+        logger.LogWarning(
+            "Exécution {Correlation} refusée : {Motif}", cible.CorrelationId, decision.Reason);
+
+        rapport.Checks.Insert(0, PreflightCheck.Echec(
+            "Habilitation sur l'environnement",
+            decision.Reason ?? "Habilitation refusée.",
+            "Un rôle dit ce que vous savez faire ; l'habilitation dit sur quel environnement. "
+            + "Les deux sont nécessaires.",
+            bloquant: true));
+
+        return rapport;
+    }
+
+    /// <summary>Surcharge sans porteur : conservée pour les appels internes et les tests.</summary>
+    public Task<PreflightReport> RunAsync(Guid executionId, CancellationToken ct = default) =>
+        RunInterneAsync(executionId, ct);
+
+    private async Task<PreflightReport> RunInterneAsync(Guid executionId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 

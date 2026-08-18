@@ -246,7 +246,21 @@ public sealed class DatabaseSeeder(
             ValidatedAt = DateTimeOffset.UtcNow
         };
 
-        db.Documents.AddRange(doc1, doc2, doc3);
+        var doc4 = new KnowledgeDocument
+        {
+            Id = Guid.NewGuid(),
+            Reference = "CIT-N4-LOG-04",
+            Title = "Journaux Navis N4 — Emplacements, Nomenclature et Rotation",
+            Kind = DocumentKind.GuideEditeur,
+            Status = LifecycleStatus.Valide,
+            AppliesToVersion = "3.8.25",
+            SectionCount = 3,
+            PageCount = 3,
+            ValidatedBy = "DSI CIT / Exploitation",
+            ValidatedAt = DateTimeOffset.UtcNow
+        };
+
+        db.Documents.AddRange(doc1, doc2, doc3, doc4);
         await db.SaveChangesAsync(ct);
 
         var sections = new List<DocumentSection>
@@ -304,12 +318,39 @@ public sealed class DatabaseSeeder(
                 Heading = "Supervision des interfaces Gate GOS et IKOS Billing",
                 Content = "Les connecteurs GOS (Gate Operating System) et IKOS Billing communiquent avec Navis N4 via des requêtes HTTPS sécurisées et des messages XML API. La latence moyenne d'échange ne doit pas dépasser 250 ms pour éviter la formation de files d'attente de camions aux portes du terminal.",
                 SearchText = "les connecteurs gos gate operating system et ikos billing communiquent avec navis n4 via des requetes https securisees et des messages xml api la latence moyenne d echange ne doit pas depasser 250 ms pour eviter la formation de files d attente de camions aux portes du terminal"
+            },
+            new()
+            {
+                DocumentId = doc4.Id,
+                Ordinal = 1,
+                PageNumber = 1,
+                Heading = "Emplacement des journaux par composant",
+                Content = "Sous Windows, chaque nœud N4 écrit ses journaux dans C:\\ProgramData\\Navis\\node{n}\\logs (sous Linux : /opt/navis/configuration/node{n}/logs). Le daemon Bridge écrit dans C:\\ProgramData\\Navis\\bridged\\logs, et XPS dans C:\\ProgramData\\Navis\\xps\\log — si XPS échoue avant le chargement de sa configuration de journalisation, il bascule temporairement sur C:\\Program Files\\xps\\. Le dossier ProgramData est masqué par défaut dans l'explorateur Windows. Les journaux clients XPS (« Sparcs N4 Client ») se trouvent sous ..\\Sparcs N4 Client\\Private\\Logs. Les journaux de base de données dépendent du moteur utilisé.",
+                SearchText = "sous windows chaque noeud n4 ecrit ses journaux dans c programdata navis node n logs sous linux opt navis configuration node n logs le daemon bridge ecrit dans c programdata navis bridged logs et xps dans c programdata navis xps log si xps echoue avant le chargement de sa configuration de journalisation il bascule temporairement sur c program files xps le dossier programdata est masque par defaut dans l explorateur windows les journaux clients xps sparcs n4 client se trouvent sous sparcs n4 client private logs les journaux de base de donnees dependent du moteur utilise"
+            },
+            new()
+            {
+                DocumentId = doc4.Id,
+                Ordinal = 2,
+                PageNumber = 2,
+                Heading = "Nomenclature des fichiers journaux",
+                Content = "Le journal principal du cluster et du Center Node est navis-apex.log ; les autres composants suivent le motif navis-[service].log (navis-bridged.log pour le Bridge Daemon, navis-ecn4.log pour ECN4). XPS nomme ses fichiers xps_aaaammjjhhmmss###.log, avec un second journal xps_messages_... dédié aux communications entrantes/sortantes. Les nœuds Tomcat (hors XPS) produisent en plus [service-]stdout_aaaammjj.log (activité normale, utile pour confirmer un démarrage) et [service-]stderr_aaaammjj.log (erreurs). Pour choisir le bon fichier parmi plusieurs candidats, se fier à la date de dernière modification plutôt qu'au nom seul.",
+                SearchText = "le journal principal du cluster et du center node est navis apex log les autres composants suivent le motif navis service log navis bridged log pour le bridge daemon navis ecn4 log pour ecn4 xps nomme ses fichiers xps aaaammjjhhmmss log avec un second journal xps messages dedie aux communications entrantes sortantes les noeuds tomcat hors xps produisent en plus service stdout aaaammjj log activite normale utile pour confirmer un demarrage et service stderr aaaammjj log erreurs pour choisir le bon fichier parmi plusieurs candidats se fier a la date de derniere modification plutot qu au nom seul"
+            },
+            new()
+            {
+                DocumentId = doc4.Id,
+                Ordinal = 3,
+                PageNumber = 3,
+                Heading = "Rotation, taille et niveau de journalisation",
+                Content = "La taille de rotation (MaxFileSize) et le nombre de fichiers conservés (MaxBackupIndex) se règlent dans log4j.properties ; à titre d'exemple éditeur, navis-apex.log tourne fréquemment autour de 10 Mo. Le niveau de journalisation par nœud se configure via Administration > Settings > Logging (Logging view) — ces réglages ne sont pas persistés en base et se perdent au redémarrage du service. Attention : passer com.navis.control ou com.navis.control.esb en DEBUG expose le mot de passe de la base ECI en clair dans le journal ; l'éditeur recommande de forcer explicitement com.navis.control.esb.mule.ControlDynamicMuleConfigurer=INFO dans log4j.properties pour l'éviter.",
+                SearchText = "la taille de rotation maxfilesize et le nombre de fichiers conserves maxbackupindex se reglent dans log4j properties a titre d exemple editeur navis apex log tourne frequemment autour de 10 mo le niveau de journalisation par noeud se configure via administration settings logging logging view ces reglages ne sont pas persistes en base et se perdent au redemarrage du service attention passer com navis control ou com navis control esb en debug expose le mot de passe de la base eci en clair dans le journal l editeur recommande de forcer explicitement com navis control esb mule controldynamicmuleconfigurer info dans log4j properties pour l eviter"
             }
         };
 
         db.DocumentSections.AddRange(sections);
         await db.SaveChangesAsync(ct);
 
-        logger.LogInformation("Base de connaissances initiale amorcée avec succès (3 documents, 6 sections).");
+        logger.LogInformation("Base de connaissances initiale amorcée avec succès (4 documents, 9 sections).");
     }
 }

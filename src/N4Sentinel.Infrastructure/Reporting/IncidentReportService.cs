@@ -133,6 +133,31 @@ public sealed class IncidentReportService(IDbContextFactory<N4SentinelDbContext>
         }
         sb.AppendLine();
 
+        // --- Recommandations : pour eviter la recurrence -----------------------
+        // Ce que l'ecran affiche deja pendant l'investigation ("Conduite a tenir",
+        // "A verifier") mais qui disparaissait de l'export : precisement la partie
+        // qui sert a eviter que le meme incident ne se reproduise.
+        var recommandations = session.Hypotheses
+            .Where(h => h.Recommendation is { Length: > 0 })
+            .OrderByDescending(h => h.Confidence)
+            .Select(h => (Origine: $"Piste — {LogAnalysisService.Libelle(h.Domain)} ({h.Confidence} %)", Texte: h.Recommendation!))
+            .Concat(session.Findings
+                .Where(f => f.Remediation is { Length: > 0 })
+                .OrderByDescending(f => f.Severity).ThenByDescending(f => f.OccurrenceCount)
+                .Select(f => (Origine: $"Constat — {f.Title}", Texte: f.Remediation!)))
+            .DistinctBy(r => r.Texte)
+            .ToList();
+
+        sb.AppendLine("## Recommandations pour éviter la récurrence");
+        sb.AppendLine();
+        sb.AppendLine(recommandations.Count == 0
+            ? "_Aucune conduite à tenir n'a été enregistrée pour les constats et hypothèses de cette session._"
+            : "Ce que l'investigation a identifié comme conduite à tenir — à vérifier ou à corriger pour éviter que ce même incident ne se reproduise :");
+        sb.AppendLine();
+        foreach (var (origine, texte) in recommandations)
+            sb.AppendLine($"- **{Cellule(origine)}** — {Cellule(texte)}");
+        sb.AppendLine();
+
         // --- Actions et intervenants (phases + SOP) ---------------------------
         sb.AppendLine("## Actions et intervenants");
         sb.AppendLine();

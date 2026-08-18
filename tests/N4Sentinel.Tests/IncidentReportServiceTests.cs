@@ -179,6 +179,52 @@ public sealed class IncidentReportServiceTests : IAsyncLifetime
         Assert.Contains("Aucun composant identifié", markdown);
     }
 
+    /// <summary>
+    /// L'écran affiche déjà "Conduite à tenir" (constat) et "À vérifier"
+    /// (hypothèse) pendant l'investigation — le rapport exporté doit
+    /// restituer cette même conduite à tenir, pas seulement la cause.
+    /// </summary>
+    [Fact]
+    public async Task BuildMarkdownAsync_Restitue_Les_Recommandations_Pour_Eviter_La_Recurrence()
+    {
+        var sessionId = await CreerSessionAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Signatures.Add(new DiagnosticSignature
+            {
+                Code = "DB-CONN-REFUSED-TEST",
+                Name = "Connexion base refusée",
+                Pattern = @"Connection refused",
+                Domain = DiagnosticDomain.BaseDeDonnees,
+                Remediation = "Vérifier que le service SQL Server est démarré et que le port 1433 est joignable."
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var analyse = new LogAnalysisService(
+            _factory,
+            new ConnectorTargetFactory(_factory, new CredentialStore(_factory,
+                DataProtectionProvider.Create(new DirectoryInfo(_keyPath)), NullLogger<CredentialStore>.Instance),
+                NullLogger<ConnectorTargetFactory>.Instance),
+            new ConnecteurMuet(),
+            new SignatureCatalogue(_factory, NullLogger<SignatureCatalogue>.Instance),
+            new N4Sentinel.Infrastructure.Observability.MetricsService(),
+            NullLogger<LogAnalysisService>.Instance);
+
+        var import = await analyse.ImportAsync(sessionId, "navis-apex.log",
+            "2026-08-16 09:00:00 ERROR [main] Connection refused: could not establish connection to database host");
+        Assert.True(import.Succeeded, import.Error);
+
+        await analyse.ConcludeAsync(sessionId);
+
+        var markdown = await _report.BuildMarkdownAsync(sessionId);
+
+        Assert.NotNull(markdown);
+        Assert.Contains("Recommandations pour éviter la récurrence", markdown);
+        Assert.Contains("Vérifier que le service SQL Server est démarré", markdown);
+    }
+
     public async Task DisposeAsync()
     {
         if (Directory.Exists(_keyPath)) try { Directory.Delete(_keyPath, true); } catch { }

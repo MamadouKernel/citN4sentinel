@@ -58,6 +58,22 @@ public class KnowledgeDocument : AuditableEntity
 
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// Vrai si le fichier a réellement été analysé par un antivirus au
+    /// versement (audit SEC-A6).
+    ///
+    /// Faux ne veut pas dire « infecté » : cela veut dire QUE PERSONNE N'EN
+    /// SAIT RIEN. Sur un serveur sans moteur antivirus, ou quand celui-ci
+    /// renvoie une sortie ambiguë, le document était auparavant indexé en
+    /// silence. Le fait est désormais conservé, et affiché à qui doit valider
+    /// le document — c'est le moment où quelqu'un décide de lui faire
+    /// confiance.
+    /// </summary>
+    public bool AntivirusChecked { get; set; }
+
+    /// <summary>Pourquoi l'analyse n'a pas conclu. Renseigné uniquement dans ce cas.</summary>
+    public string? AntivirusNote { get; set; }
+
     public ICollection<DocumentSection> Sections { get; set; } = [];
 
     /// <summary>Seul un document validé alimente les réponses (FR-086).</summary>

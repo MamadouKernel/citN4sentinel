@@ -8,29 +8,35 @@
 <div class="fixed bottom-6 right-6 z-50 select-none">
     @if (_isMinimized)
     {
-        <button @onclick="ToggleMinimize" title="Ouvrir Sentinel Copilot Vocale" class="w-13 h-13 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white shadow-2xl shadow-purple-950/80 border border-purple-400/40 flex items-center justify-center transition-transform hover:scale-105 active:scale-95">
-            <i class="bi bi-mic-fill text-xl"></i>
+        <button @onclick="ToggleMinimize"
+                title="Ouvrir Sentinel Copilot Vocale (raccourci clavier : Alt + Maj + M)"
+                aria-label="Ouvrir l'assistant vocal Sentinel. Raccourci clavier disponible : Alt plus Majuscule plus M"
+                class="w-13 h-13 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white shadow-2xl shadow-purple-950/80 border border-purple-400/40 flex items-center justify-center transition-transform hover:scale-105 active:scale-95">
+            <i class="bi bi-mic-fill text-xl" aria-hidden="true"></i>
         </button>
     }
     else
     {
         <div class="glass-card p-3.5 rounded-2xl border border-purple-500/40 shadow-2xl bg-slate-950/95 backdrop-blur-xl flex items-center gap-3 animate-fadeIn">
-            <button @onclick="ToggleListen" class="p-3.5 rounded-xl transition flex items-center justify-center shadow-lg @(_isListening ? "bg-rose-600 text-white animate-pulse" : "bg-purple-600 hover:bg-purple-500 text-white")">
-                <i class="bi @(_isListening ? "bi-mic-fill text-xl" : "bi-mic text-xl")"></i>
+            <button @onclick="ToggleListen"
+                    aria-label="@(_isListening ? "Arrêter l'écoute du micro" : "Démarrer l'écoute du micro. Raccourci clavier : Alt plus Majuscule plus M")"
+                    aria-pressed="@_isListening"
+                    class="p-3.5 rounded-xl transition flex items-center justify-center shadow-lg @(_isListening ? "bg-rose-600 text-white animate-pulse" : "bg-purple-600 hover:bg-purple-500 text-white")">
+                <i class="bi @(_isListening ? "bi-mic-fill text-xl" : "bi-mic text-xl")" aria-hidden="true"></i>
             </button>
 
             <div class="pr-2 hidden sm:block max-w-[260px]">
                 <div class="text-xs font-bold text-white flex items-center justify-between gap-2">
                     <span class="flex items-center gap-1.5">
                         Sentinel Voice Copilot
-                        <span class="w-2 h-2 rounded-full @(_isListening ? "bg-rose-500 animate-ping" : "bg-emerald-400")"></span>
+                        <span class="w-2 h-2 rounded-full @(_isListening ? "bg-rose-500 animate-ping" : "bg-emerald-400")" aria-hidden="true"></span>
                     </span>
-                    <button @onclick="ToggleMinimize" class="text-slate-400 hover:text-white transition text-xs p-0.5">
-                        <i class="bi bi-x-lg"></i>
+                    <button @onclick="ToggleMinimize" aria-label="Réduire l'assistant vocal" class="text-slate-400 hover:text-white transition text-xs p-0.5">
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
                     </button>
                 </div>
-                <div class="text-[11px] text-slate-300 truncate mt-0.5 font-medium">
-                    @(_transcript ?? "Cliquez sur le micro et parlez...")
+                <div class="text-[11px] text-slate-300 truncate mt-0.5 font-medium" role="status" aria-live="polite">
+                    @(_transcript ?? "Cliquez sur le micro et parlez, ou Alt + Maj + M...")
                 </div>
             </div>
         </div>
@@ -48,9 +54,34 @@
         _objRef = DotNetObjectReference.Create(this);
     }
 
+    /// <summary>
+    /// Raccourci clavier global (Alt+Maj+M) : permet à un utilisateur non-voyant
+    /// de déclencher l'écoute sans avoir à localiser ni cliquer le bouton flottant.
+    /// Enregistré une seule fois — le composant persiste à travers la navigation
+    /// interne car il vit dans MainLayout.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("n4VoiceCopilot.registerGlobalShortcut", _objRef);
+            }
+            catch { }
+        }
+    }
+
     private void ToggleMinimize()
     {
         _isMinimized = !_isMinimized;
+    }
+
+    [JSInvokable]
+    public async Task ToggleListenFromShortcut()
+    {
+        _isMinimized = false;
+        await ToggleListen();
     }
 
     private async Task ToggleListen()
@@ -58,6 +89,7 @@
         if (_isListening)
         {
             _isListening = false;
+            StateHasChanged();
             try
             {
                 await JS.InvokeVoidAsync("n4VoiceCopilot.stopListening");
@@ -68,6 +100,7 @@
         {
             _isListening = true;
             _transcript = "Microphone actif, parlez maintenant…";
+            StateHasChanged();
             try
             {
                 await JS.InvokeVoidAsync("n4VoiceCopilot.startListening", _objRef);
@@ -76,6 +109,7 @@
             {
                 _isListening = false;
                 _transcript = "Recherche vocale : " + ex.Message;
+                StateHasChanged();
             }
         }
     }

@@ -100,7 +100,11 @@ Write-Host "  [3/4] Gabarit de configuration..." -ForegroundColor Cyan
 $gabarit = @'
 {
   "ConnectionStrings": {
-    "N4Sentinel": "Server=NOM_DU_SERVEUR_SQL;Database=n4sentinel;User Id=n4sentinel_app;Password=MOT_DE_PASSE_A_DEFINIR;TrustServerCertificate=True;MultipleActiveResultSets=True"
+    "//": "Encrypt=True SANS TrustServerCertificate : le certificat du serveur SQL est verifie. Avec TrustServerCertificate=True le trafic serait chiffre mais l'identite du serveur non verifiee, ce qui laisse passer une interception sur le chemin reseau - et ce trafic transporte les secrets chiffres des comptes techniques. Installez un certificat SQL Server emis par votre autorite interne.",
+    "N4Sentinel": "Server=NOM_DU_SERVEUR_SQL;Database=n4sentinel;User Id=n4sentinel_app;Password=MOT_DE_PASSE_A_DEFINIR;Encrypt=True;MultipleActiveResultSets=True",
+
+    "//_authentification_windows": "A PREFERER : aucun mot de passe n'a alors a figurer dans ce fichier.",
+    "N4Sentinel_AuthWindows": "Server=NOM_DU_SERVEUR_SQL;Database=n4sentinel;Trusted_Connection=True;Encrypt=True;MultipleActiveResultSets=True"
   },
 
   "N4Sentinel": {

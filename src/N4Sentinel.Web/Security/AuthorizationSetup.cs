@@ -20,8 +20,37 @@ namespace N4Sentinel.Web.Security;
 /// </summary>
 public static class AuthorizationSetup
 {
-    public static IServiceCollection AddN4SentinelAuthorization(this IServiceCollection services)
+    /// <summary>
+    /// Clé de configuration exigeant le second facteur sur les capacités
+    /// d'action (audit SEC-A5).
+    ///
+    /// DÉSACTIVÉE PAR DÉFAUT, ET C'EST DÉLIBÉRÉ. L'activer d'office
+    /// interdirait l'accès à tout compte n'ayant pas encore enrôlé son
+    /// authentificateur — à commencer par l'administrateur qui vient
+    /// d'installer le produit, et qui se retrouverait dehors sans recours.
+    ///
+    /// Marche à suivre : faire enrôler les comptes habilités à l'action, puis
+    /// passer ce réglage à true. Le refuser durablement est un choix, mais il
+    /// doit être un choix, pas un oubli.
+    /// </summary>
+    public const string CleSecondFacteur = "N4Sentinel:Securite:SecondFacteurExigePourAction";
+
+    public static IServiceCollection AddN4SentinelAuthorization(
+        this IServiceCollection services, IConfiguration configuration)
     {
+        var exigeSecondFacteur = configuration.GetValue(CleSecondFacteur, false);
+
+        services.AddSingleton<IAuthorizationHandler, SecondFacteurHandler>();
+
+        // Applique l'exigence de second facteur aux seules capacites d'action.
+        // La consultation n'est jamais concernee : empecher un lecteur N1 de
+        // regarder un tableau de bord n'ajoute aucune securite, et pousserait a
+        // desactiver le reglage.
+        void Action(AuthorizationPolicyBuilder p)
+        {
+            if (exigeSecondFacteur) p.AddRequirements(new SecondFacteurRequirement());
+        }
+
         services.AddAuthorizationBuilder()
 
             .AddPolicy(N4Policies.PeutConsulter, p => p.RequireRole(
@@ -43,25 +72,37 @@ public static class AuthorizationSetup
             // Executer, c'est agir sur la Production. Ni le Validateur ni
             // l'Auditeur ne figurent ici : approuver et controler ne donnent
             // pas le droit d'executer.
-            .AddPolicy(N4Policies.PeutExecuter, p => p.RequireRole(
-                N4Roles.OperateurN4,
-                N4Roles.AdministrateurN4))
+            .AddPolicy(N4Policies.PeutExecuter, p =>
+            {
+                p.RequireRole(N4Roles.OperateurN4, N4Roles.AdministrateurN4);
+                Action(p);
+            })
 
             // Sous-ensemble de PeutExecuter : actions sensibles (ex. SOP
             // RequiresElevatedRole) reservees a l'Administrateur N4.
-            .AddPolicy(N4Policies.PeutExecuterActionsSensibles, p => p.RequireRole(
-                N4Roles.AdministrateurN4))
+            .AddPolicy(N4Policies.PeutExecuterActionsSensibles, p =>
+            {
+                p.RequireRole(N4Roles.AdministrateurN4);
+                Action(p);
+            })
 
             // SEC-002 : action unitaire ad hoc sur un seul composant, distincte
             // de l'execution d'une operation complete meme si le perimetre de
             // roles est identique aujourd'hui — la separation permet a la DSI
             // de resserrer l'une sans toucher l'autre.
-            .AddPolicy(N4Policies.PeutExecuterActionUnitaire, p => p.RequireRole(
-                N4Roles.OperateurN4,
-                N4Roles.AdministrateurN4))
+            .AddPolicy(N4Policies.PeutExecuterActionUnitaire, p =>
+            {
+                p.RequireRole(N4Roles.OperateurN4, N4Roles.AdministrateurN4);
+                Action(p);
+            })
 
-            .AddPolicy(N4Policies.PeutApprouver, p => p.RequireRole(
-                N4Roles.Validateur))
+            // Approuver engage autant qu'executer : c'est la signature qui
+            // autorise l'arret. Le second facteur s'y applique aussi.
+            .AddPolicy(N4Policies.PeutApprouver, p =>
+            {
+                p.RequireRole(N4Roles.Validateur);
+                Action(p);
+            })
 
             .AddPolicy(N4Policies.PeutAdministrerReferentiel, p => p.RequireRole(
                 N4Roles.AdministrateurSolution))

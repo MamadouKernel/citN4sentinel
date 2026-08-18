@@ -74,7 +74,7 @@
                                         <option value="@Guid.Empty">Choisir…</option>
                                         @foreach (var s in _lancables)
                                         {
-                                            <option value="@s.Id">@s.Title (v@s.Version) — @s.Steps.Count étape(s)@(s.RequiresElevatedRole ? " — sensible" : "")</option>
+                                            <option value="@s.Id">@s.Title (v@(s.Version)) — @s.Steps.Count étape(s)@(s.RequiresElevatedRole ? " — sensible" : "")</option>
                                         }
                                     </select>
                                 </div>

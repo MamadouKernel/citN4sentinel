@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 
 namespace N4Sentinel.Infrastructure.Ai;
 
@@ -13,33 +13,20 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
 
         var lower = spokenTranscript.ToLowerInvariant().Trim();
 
-        // 1. AIOps & Auto-Healing
-        if (lower.Contains("aiops") || lower.Contains("guerison") || lower.Contains("guérison") || lower.Contains("anomalie") || lower.Contains("prédict") || lower.Contains("predict"))
+        // 1. Tableau de bord (accueil)
+        if (lower.Contains("tableau de bord") || lower.Contains("accueil") || lower.Contains("vue d'ensemble") || lower.Contains("page d'accueil"))
         {
             return new VoiceCommandResponse
             {
-                RecognizedIntent = "AIOPS",
+                RecognizedIntent = "HOME",
                 SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "Ouverture du tableau de bord AIOps et détection prédictive d'anomalies.",
-                TargetRoute = "/aiops",
-                ActionSummary = "Navigation vers AIOps & Auto-Healing."
+                SpeechSynthesisText = "Ouverture du tableau de bord.",
+                TargetRoute = "/",
+                ActionSummary = "Navigation vers le Tableau de bord."
             };
         }
 
-        // 2. Incident Replay & Boîte Noire
-        if (lower.Contains("replay") || lower.Contains("boite noire") || lower.Contains("boîte noire") || lower.Contains("patient zero") || lower.Contains("patient zéro") || lower.Contains("time travel") || lower.Contains("rebobin"))
-        {
-            return new VoiceCommandResponse
-            {
-                RecognizedIntent = "INCIDENT_REPLAY",
-                SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "Ouverture du module Incident Replay et analyse du composant Patient Zéro.",
-                TargetRoute = "/incident-replay",
-                ActionSummary = "Navigation vers Boîte Noire & Incident Replay."
-            };
-        }
-
-        // 3. Flight Simulator & Simulation
+        // 2. Flight Simulator & Simulation
         if (lower.Contains("simul") || lower.Contains("test") || lower.Contains("flight") || lower.Contains("exercice") || lower.Contains("crise"))
         {
             return new VoiceCommandResponse
@@ -52,20 +39,7 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 4. Jumeau Numérique 3D
-        if (lower.Contains("jumeau") || lower.Contains("twin") || lower.Contains("3d") || lower.Contains("portique") || lower.Contains("sts") || lower.Contains("rtg") || lower.Contains("quai"))
-        {
-            return new VoiceCommandResponse
-            {
-                RecognizedIntent = "DIGITAL_TWIN",
-                SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "Ouverture du Jumeau Numérique 3D de Côte d'Ivoire Terminal.",
-                TargetRoute = "/digital-twin",
-                ActionSummary = "Navigation vers le Jumeau Numérique 3D."
-            };
-        }
-
-        // 5. Supervision & Santé Cluster
+        // 3. Supervision & Santé Cluster
         if (lower.Contains("supervis") || lower.Contains("santé") || lower.Contains("sante") || lower.Contains("état") || lower.Contains("etat") || lower.Contains("vérif") || lower.Contains("verif") || lower.Contains("nœud") || lower.Contains("noeud") || lower.Contains("serveur") || lower.Contains("cluster"))
         {
             return new VoiceCommandResponse
@@ -78,7 +52,7 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 6. Vitalité hardware & OS
+        // 4. Vitalité hardware & OS
         if (lower.Contains("vital") || lower.Contains("cpu") || lower.Contains("ram") || lower.Contains("mémoire") || lower.Contains("memoire") || lower.Contains("disque") || lower.Contains("ntp"))
         {
             return new VoiceCommandResponse
@@ -91,20 +65,62 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 7. Opérations & Workflows
-        if (lower.Contains("opérat") || lower.Contains("operat") || lower.Contains("workflow") || lower.Contains("démarr") || lower.Contains("demarr") || lower.Contains("arrêt") || lower.Contains("arret") || lower.Contains("bascule"))
+        // 5a. Démarrage d'un service ou d'une opération
+        // Ne déclenche jamais l'action elle-même : le pilotage d'exploitation exige de
+        // choisir l'environnement puis de confirmer explicitement (verrou d'environnement,
+        // matrice d'approbation). La voix ouvre l'écran et guide, elle n'exécute pas.
+        if (lower.Contains("démarr") || lower.Contains("demarr"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "START_SERVICE",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture du pilotage des opérations pour démarrer un service. Choisissez l'environnement, puis le workflow à lancer, et confirmez.",
+                TargetRoute = "/operations",
+                ActionSummary = "Navigation vers Opérations pour démarrage d'un service (confirmation requise)."
+            };
+        }
+
+        // 5b. Arrêt d'un service ou d'une opération
+        if (lower.Contains("arrêt") || lower.Contains("arret") || lower.Contains("stopp") || lower.Contains("coupe"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "STOP_SERVICE",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture du pilotage des opérations pour arrêter un service. Choisissez l'environnement et l'opération en cours, puis confirmez l'arrêt.",
+                TargetRoute = "/operations",
+                ActionSummary = "Navigation vers Opérations pour arrêt d'un service (confirmation requise)."
+            };
+        }
+
+        // 5c. Opérations & Pilotage (général)
+        if (lower.Contains("opérat") || lower.Contains("operat") || lower.Contains("pilotage") || lower.Contains("bascule"))
         {
             return new VoiceCommandResponse
             {
                 RecognizedIntent = "OPERATIONS",
                 SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "Ouverture du centre de pilotage des opérations et workflows d'orchestration.",
+                SpeechSynthesisText = "Ouverture du centre de pilotage des opérations.",
                 TargetRoute = "/operations",
                 ActionSummary = "Navigation vers Opérations & Pilotage."
             };
         }
 
-        // 8. EDI & BAPLIE
+        // 6. Workflows (référentiel)
+        if (lower.Contains("workflow"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "ADMIN_WORKFLOWS",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture du référentiel des workflows d'orchestration.",
+                TargetRoute = "/admin/workflows",
+                ActionSummary = "Navigation vers l'administration des Workflows."
+            };
+        }
+
+        // 7. EDI & BAPLIE
         if (lower.Contains("edi") || lower.Contains("baplie") || lower.Contains("codeco") || lower.Contains("edifact"))
         {
             return new VoiceCommandResponse
@@ -117,7 +133,7 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 9. Alertes
+        // 8. Alertes
         if (lower.Contains("alert") || lower.Contains("seuil"))
         {
             return new VoiceCommandResponse
@@ -130,7 +146,7 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 10. SOP (Procédures Réflexes)
+        // 9. SOP (Procédures Réflexes)
         if (lower.Contains("sop") || lower.Contains("procédure") || lower.Contains("procedure") || lower.Contains("consigne"))
         {
             return new VoiceCommandResponse
@@ -143,7 +159,137 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 11. Guide & Documentation (Uniquement si explicitement demandé)
+        // 10. Diagnostics
+        if (lower.Contains("diagnostic"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "DIAGNOSTICS",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture des diagnostics d'exploitation.",
+                TargetRoute = "/diagnostics",
+                ActionSummary = "Navigation vers les Diagnostics."
+            };
+        }
+
+        // 11. Signatures d'anomalie
+        if (lower.Contains("signature"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "ANOMALY_SIGNATURES",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture du catalogue des signatures d'anomalie.",
+                TargetRoute = "/admin/signatures",
+                ActionSummary = "Navigation vers les Signatures d'anomalie."
+            };
+        }
+
+        // 12. Matrice de criticité / approbation
+        if (lower.Contains("matrice") || lower.Contains("approbation") || lower.Contains("criticité") || lower.Contains("criticite"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "APPROVAL_MATRIX",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture de la matrice de criticité et d'approbation.",
+                TargetRoute = "/admin/matrice-approbation",
+                ActionSummary = "Navigation vers la Matrice de criticité."
+            };
+        }
+
+        // 13. Historique & escalade
+        if (lower.Contains("historique") || lower.Contains("escalade"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "HISTORY",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture de l'historique et de l'escalade.",
+                TargetRoute = "/historique",
+                ActionSummary = "Navigation vers l'Historique & escalade."
+            };
+        }
+
+        // 14. Journal d'audit
+        if (lower.Contains("audit"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "AUDIT",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture du journal d'audit.",
+                TargetRoute = "/admin/audit",
+                ActionSummary = "Navigation vers le Journal d'audit."
+            };
+        }
+
+        // 15. Comptes & droits
+        if (lower.Contains("utilisateur") || lower.Contains("comptes") || lower.Contains("droits"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "USERS",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture des comptes et droits utilisateurs.",
+                TargetRoute = "/admin/utilisateurs",
+                ActionSummary = "Navigation vers Comptes & droits."
+            };
+        }
+
+        // 16. Azure AD / SSO
+        if (lower.Contains("azure") || lower.Contains("sso") || lower.Contains("active directory"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "AZURE_AD",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture de la configuration Azure AD et SSO.",
+                TargetRoute = "/admin/azure-ad",
+                ActionSummary = "Navigation vers Azure AD / SSO."
+            };
+        }
+
+        // 17. Sauvegarde
+        if (lower.Contains("sauvegarde") || lower.Contains("backup"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "BACKUP",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture de la gestion des sauvegardes.",
+                TargetRoute = "/admin/sauvegarde",
+                ActionSummary = "Navigation vers la Sauvegarde."
+            };
+        }
+
+        // 18. Environnements
+        if (lower.Contains("environnement"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "ENVIRONMENTS",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture des environnements N4.",
+                TargetRoute = "/admin/environnements",
+                ActionSummary = "Navigation vers les Environnements."
+            };
+        }
+
+        // 19. Rapports & SLA
+        if (lower.Contains("rapport") || lower.Contains("sla"))
+        {
+            return new VoiceCommandResponse
+            {
+                RecognizedIntent = "REPORTS",
+                SpokenTranscript = spokenTranscript,
+                SpeechSynthesisText = "Ouverture des rapports et indicateurs SLA.",
+                TargetRoute = "/admin/rapports",
+                ActionSummary = "Navigation vers Rapports & SLA."
+            };
+        }
+
+        // 20. Guide & Documentation (Uniquement si explicitement demandé)
         if (lower.Contains("guide") || lower.Contains("doc") || lower.Contains("manuel") || lower.Contains("aide"))
         {
             return new VoiceCommandResponse
@@ -156,12 +302,12 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             };
         }
 
-        // 12. Commande non reconnue : Ne navigue PAS vers le guide ! Reste sur la page courante.
+        // 21. Commande non reconnue : Ne navigue PAS vers le guide ! Reste sur la page courante.
         return new VoiceCommandResponse
         {
             RecognizedIntent = "UNKNOWN_COMMAND",
             SpokenTranscript = spokenTranscript,
-            SpeechSynthesisText = $"J'ai bien entendu '{spokenTranscript}'. Dites par exemple : Supervision, AIOps, Replay, Simulator, ou EDI.",
+            SpeechSynthesisText = $"J'ai bien entendu '{spokenTranscript}'. Dites par exemple : Supervision, Opérations, Diagnostics, SOP, ou EDI.",
             TargetRoute = "", // Reste sur la page courante sans redirection intempestive !
             ActionSummary = "Commande vocale non reconnue (sans redirection)."
         };

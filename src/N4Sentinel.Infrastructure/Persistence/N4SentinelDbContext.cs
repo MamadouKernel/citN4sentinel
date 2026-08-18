@@ -37,6 +37,7 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<LogFinding> Findings => Set<LogFinding>();
     public DbSet<DiagnosticHypothesis> Hypotheses => Set<DiagnosticHypothesis>();
     public DbSet<DiagnosticPhaseTransition> PhaseTransitions => Set<DiagnosticPhaseTransition>();
+    public DbSet<EnvironmentGrant> EnvironmentGrants => Set<EnvironmentGrant>();
     public DbSet<KnowledgeDocument> Documents => Set<KnowledgeDocument>();
     public DbSet<DocumentSection> DocumentSections => Set<DocumentSection>();
     public DbSet<KnowledgeFeedback> KnowledgeFeedback => Set<KnowledgeFeedback>();
@@ -716,6 +717,27 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
         // -------------------------------------------------------------------
         // Base documentaire (sprint 7)
         // -------------------------------------------------------------------
+        builder.Entity<EnvironmentGrant>(e =>
+        {
+            e.ToTable("EnvironmentGrants");
+
+            // Une seule habilitation par couple utilisateur/environnement :
+            // deux lignes contradictoires laisseraient la decision au hasard
+            // de l'ordre de lecture.
+            e.HasIndex(x => new { x.UserId, x.EnvironmentId }).IsUnique();
+
+            e.Property(x => x.UserId).HasMaxLength(450).IsRequired();
+            e.Property(x => x.UserName).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(1000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.Ignore(x => x.IsExpired);
+            e.Ignore(x => x.IsActive);
+            e.Ignore(x => x.AllowsAction);
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         builder.Entity<KnowledgeDocument>(e =>
         {
             e.ToTable("KnowledgeDocuments");

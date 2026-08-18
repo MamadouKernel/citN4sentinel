@@ -1,0 +1,26 @@
+@* Lien de navigation de la barre latérale : icône toujours visible ; le
+   libellé disparaît quand la barre est réduite, remplacé par une infobulle
+   pour ne pas perdre l'information. *@
+
+<NavLink href="@Href" Match="Match" @onclick="OnClick" class="@CssClass" title="@(Collapsed ? Text : null)">
+    <i class="bi @Icon @IconColor text-base shrink-0"></i>
+    @if (!Collapsed)
+    {
+        <span>@Text</span>
+    }
+</NavLink>
+
+@code {
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+    [Parameter] public string IconColor { get; set; } = "text-theme-primary";
+    [Parameter] public string LinkClass { get; set; } = "text-slate-300 hover:text-white hover:bg-white/5";
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public NavLinkMatch Match { get; set; } = NavLinkMatch.Prefix;
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    private string CssClass =>
+        $"flex items-center gap-3 py-2 rounded-xl transition-colors {LinkClass} " +
+        (Collapsed ? "px-0 justify-center" : "px-3");
+}

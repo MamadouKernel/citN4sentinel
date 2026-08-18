@@ -28,8 +28,8 @@ public sealed class DocumentAntivirusScanner(ILogger<DocumentAntivirusScanner> l
         var moteur = ResoudreMoteur();
         if (moteur is null)
         {
-            logger.LogDebug("Aucun moteur antivirus trouvé (Windows Defender absent) : versement non scanné.");
-            return ScanResult.Indisponible();
+            logger.LogWarning("Aucun moteur antivirus trouvé (Windows Defender absent) : versement non analysé.");
+            return ScanResult.Indisponible("Windows Defender est absent de ce serveur.");
         }
 
         // Fichier temporaire au nom genere par l'application, jamais celui
@@ -60,7 +60,7 @@ public sealed class DocumentAntivirusScanner(ILogger<DocumentAntivirusScanner> l
             psi.ArgumentList.Add("-DisableRemediation");
 
             using var process = Process.Start(psi);
-            if (process is null) return ScanResult.Indisponible();
+            if (process is null) return ScanResult.Indisponible("Le moteur antivirus n'a pas pu être lancé.");
 
             var sortie = await process.StandardOutput.ReadToEndAsync(cts.Token);
             await process.WaitForExitAsync(cts.Token);
@@ -80,18 +80,20 @@ public sealed class DocumentAntivirusScanner(ILogger<DocumentAntivirusScanner> l
             // Sortie ni clairement saine ni clairement infectee (erreur du
             // moteur, licence, etc.) : on le dit tel quel plutot que d'inventer
             // un verdict dans un sens ou l'autre.
-            logger.LogDebug("Sortie Windows Defender non concluante : {Sortie}", sortie);
-            return ScanResult.Indisponible();
+            logger.LogWarning("Sortie Windows Defender non concluante : {Sortie}", sortie);
+            return ScanResult.Indisponible(
+                "Le moteur antivirus n'a renvoyé ni « sain » ni « infecté ». "
+                + "Son état est peut-être dégradé (licence, définitions, service arrêté).");
         }
         catch (OperationCanceledException)
         {
-            logger.LogWarning("Scan antivirus interrompu (délai dépassé).");
-            return ScanResult.Indisponible();
+            logger.LogWarning("Analyse antivirus interrompue (délai de 60 s dépassé).");
+            return ScanResult.Indisponible("L'analyse a dépassé le délai de soixante secondes.");
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Échec de l'exécution du scan antivirus.");
-            return ScanResult.Indisponible();
+            logger.LogWarning(ex, "Échec de l'exécution de l'analyse antivirus.");
+            return ScanResult.Indisponible($"L'analyse a échoué : {ex.Message}");
         }
         finally
         {
@@ -137,7 +139,27 @@ public sealed record ScanResult
     public ScanVerdict Verdict { get; init; }
     public string? ThreatName { get; init; }
 
+    /// <summary>Pourquoi l'analyse n'a pas pu conclure. Renseigné uniquement dans ce cas.</summary>
+    public string? UnavailableReason { get; init; }
+
+    /// <summary>
+    /// Vrai quand le fichier n'a PAS été analysé.
+    ///
+    /// AUDIT SEC-A6. Un versement non analysé passait en silence : sur un
+    /// serveur sans Windows Defender, ou lorsque le moteur renvoyait une sortie
+    /// ambiguë, le document était indexé sans contrôle et personne n'en était
+    /// informé. Cela contredisait la règle que le produit s'applique partout
+    /// ailleurs — ne jamais affirmer ce qui n'a pas été prouvé.
+    ///
+    /// Le versement reste permis : bloquer toute la base documentaire faute
+    /// d'antivirus serait disproportionné. Mais il est désormais DIT, et
+    /// consigné sur le document.
+    /// </summary>
+    public bool NotScanned => Verdict == ScanVerdict.Indisponible;
+
     public static ScanResult Propre() => new() { Verdict = ScanVerdict.Propre };
     public static ScanResult Infecte(string? menace) => new() { Verdict = ScanVerdict.Infecte, ThreatName = menace };
-    public static ScanResult Indisponible() => new() { Verdict = ScanVerdict.Indisponible };
+
+    public static ScanResult Indisponible(string? motif = null) =>
+        new() { Verdict = ScanVerdict.Indisponible, UnavailableReason = motif };
 }

@@ -12,6 +12,49 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// L'en-tete Server annonce la technologie a qui cartographie le parc (audit
+// SEC-A9). L'effet est modeste, le cout nul.
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
+// LIMITATION DE DEBIT (audit SEC-A8).
+//
+// Le verrouillage de compte traite deja la force brute sur un compte donne -
+// cinq tentatives, quinze minutes. Ce qu'il ne traite pas : l'enumeration de
+// comptes, et la saturation par des operations couteuses (versement d'un PDF
+// de 40 Mo, analyse d'un journal de 2 Mo, releve Windows Update).
+//
+// Les seuils sont larges a dessein. Une limitation qui gene l'exploitation un
+// jour d'incident serait desactivee le lendemain, et ne protegerait plus rien.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Par adresse : suffisant sur un reseau d'exploitation, ou chaque poste
+    // est identifie. Les ressources statiques et le circuit Blazor en sont
+    // exclus, sinon la moindre page en consommerait le quota.
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
+        contexte =>
+        {
+            var chemin = contexte.Request.Path;
+
+            if (chemin.StartsWithSegments("/_framework")
+                || chemin.StartsWithSegments("/_blazor")
+                || chemin.StartsWithSegments("/_content")
+                || Path.HasExtension(chemin.Value))
+                return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("statique");
+
+            var cle = contexte.Connection.RemoteIpAddress?.ToString() ?? "inconnu";
+
+            return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(cle,
+                _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 300,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                });
+        });
+});
+
 // ---------------------------------------------------------------------------
 // Journalisation structuree (NFR-006, NFR-008)
 // ---------------------------------------------------------------------------
@@ -123,7 +166,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddSignInManager<N4SignInManager>()
     .AddDefaultTokenProviders();
 
-builder.Services.AddN4SentinelAuthorization();
+builder.Services.AddN4SentinelAuthorization(builder.Configuration);
 
 // Messagerie : confirmation de compte, reinitialisation et code de second
 // facteur (SEC-001). Sans serveur configure, l'expediteur journalise au lieu
@@ -190,8 +233,61 @@ app.Use(async (context, next) =>
 
     await next();
 });
+// EN-TETES DE SECURITE (audit SEC-A3).
+//
+// Pose avant tout autre traitement pour couvrir egalement les reponses
+// d'erreur : c'est justement sur une page d'erreur qu'un en-tete oublie se
+// remarque le moins.
+//
+// La protection contre le detournement de clic est deja assuree par ASP.NET
+// Core (frame-ancestors + X-Frame-Options) et n'est pas repetee ici. Ce qui
+// manquait releve de la defense en profondeur : aucun vecteur XSS n'existe
+// aujourd'hui - Blazor encode, et le produit n'emploie MarkupString nulle part -
+// mais l'application affiche des extraits de journaux, des sections de
+// documents verses et des constats de diagnostic, tous d'origine externe. Une
+// politique de contenu est la protection qui reste le jour ou une regression
+// passe la revue.
+app.Use(async (context, next) =>
+{
+    var entetes = context.Response.Headers;
+
+    // Empeche le navigateur de deviner un type MIME : un fragment de journal
+    // servi en text/plain ne doit jamais etre reinterprete comme du script.
+    entetes["X-Content-Type-Options"] = "nosniff";
+
+    // Ne fuite pas l'URL consultee vers un tiers. Les URL portent des
+    // identifiants d'execution et de diagnostic.
+    entetes["Referrer-Policy"] = "strict-origin-when-cross-origin";
+
+    // Aucune fonctionnalite materielle n'est utilisee, sauf le microphone que
+    // reclame l'assistant vocal - et uniquement depuis l'application elle-meme.
+    entetes["Permissions-Policy"] = "camera=(), geolocation=(), microphone=(self), payment=(), usb=()";
+
+    // Politique de contenu. 'unsafe-inline' sur les styles est impose par
+    // Blazor, qui genere des styles en ligne ; le retirer casserait le rendu
+    // sans rien apporter, l'injection de style n'etant pas un vecteur ici.
+    // Les scripts, eux, sont strictement limites a l'origine : aucune source
+    // externe n'est autorisee, ce qui est coherent avec un produit concu pour
+    // fonctionner sur un reseau isole.
+    if (!entetes.ContainsKey("Content-Security-Policy"))
+        entetes["Content-Security-Policy"] =
+            "default-src 'self'; "
+            + "script-src 'self'; "
+            + "style-src 'self' 'unsafe-inline'; "
+            + "img-src 'self' data:; "
+            + "font-src 'self'; "
+            + "connect-src 'self' ws: wss:; "      // circuit Blazor Server
+            + "object-src 'none'; "
+            + "base-uri 'self'; "
+            + "form-action 'self'; "
+            + "frame-ancestors 'self'";
+
+    await next();
+});
+
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
@@ -228,6 +324,16 @@ app.MapGet("/metrics", (N4Sentinel.Infrastructure.Observability.MetricsService m
         lignes.Add($"n4sentinel_diagnostic_verdict_total{{verdict=\"{verdict}\"}} {n}");
 
     return Results.Text(string.Join('\n', lignes) + '\n', "text/plain; version=0.0.4");
-});
+})
+// AUDIT SEC-A2 : ce point d'entree repondait a un appelant anonyme.
+//
+// Il ne divulgue aucun secret, mais il confirme la presence de l'application
+// et revele son rythme d'exploitation : nombre d'operations, taux d'echec,
+// verdicts de diagnostic. Pour qui prepare une intrusion, c'est un indicateur
+// des moments ou l'equipe est occupee ailleurs.
+//
+// L'authentification est exigee. Un collecteur Prometheus s'y conforme en
+// portant un compte de service dedie, habilite a la seule consultation.
+.RequireAuthorization(N4Policies.PeutConsulter);
 
 app.Run();

@@ -12,7 +12,7 @@ public sealed class SmtpOptions
     public const string SectionName = "N4Sentinel:Smtp";
 
     public string Host { get; set; } = string.Empty;
-    public int Port { get; set; } = 25;
+    public int Port { get; set; } = 587;
     public bool UseSsl { get; set; }
     public string From { get; set; } = "n4sentinel@cit.ci";
     public string FromDisplayName { get; set; } = "N4 Sentinel";

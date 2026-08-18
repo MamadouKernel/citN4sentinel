@@ -102,7 +102,12 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
 
         _precheck = new PreflightService(_factory, cibles, _connecteur, _verrous,
             new SequenceValidator(_factory), supervision,
-            new CenterContinuityService(_factory, supervision), NullLogger<PreflightService>.Instance);
+            new CenterContinuityService(_factory, supervision),
+            new N4Sentinel.Infrastructure.Security.EnvironmentAccessService(
+                _factory,
+                new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+                NullLogger<N4Sentinel.Infrastructure.Security.EnvironmentAccessService>.Instance),
+            NullLogger<PreflightService>.Instance);
 
         _moteur = new OrchestrationEngine(
             new PorteeDeTest(_factory, _verrous, _executeur, supervision),

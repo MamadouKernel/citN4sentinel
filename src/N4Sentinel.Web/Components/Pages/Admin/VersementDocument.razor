@@ -171,7 +171,16 @@
                 DocumentVersion = Vide(_versionDocument),
                 AppliesToVersion = Vide(_versionN4),
                 Notes = Vide(_notes),
-                SourceFileName = fichier.Name
+                SourceFileName = fichier.Name,
+
+                // Consigne sur le document, et pas seulement dans un message
+                // fugace : l'ecran navigue aussitot, et personne ne lirait
+                // l'avertissement. Il doit ressortir au moment de la
+                // validation (audit SEC-A6).
+                AntivirusChecked = scan.Verdict == ScanVerdict.Propre,
+                AntivirusNote = scan.NotScanned
+                    ? scan.UnavailableReason ?? "Analyse antivirus non concluante."
+                    : null
             }, fragments);
 
             if (!resultat.Succeeded)
@@ -184,8 +193,9 @@
                 ? $" {vides} page(s) n'ont donné aucun texte — probablement numérisées."
                 : string.Empty;
 
-            var avisAntivirus = scan.Verdict == ScanVerdict.Indisponible
-                ? " Non scanné : moteur antivirus indisponible sur ce serveur (SEC-007)."
+            var avisAntivirus = scan.NotScanned
+                ? $" CE FICHIER N'A PAS ÉTÉ ANALYSÉ : {scan.UnavailableReason} "
+                  + "La mention est conservée sur le document."
                 : string.Empty;
 
             Signaler($"Document indexé : {resultat.SectionCount} section(s)"

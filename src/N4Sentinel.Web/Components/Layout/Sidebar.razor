@@ -27,19 +27,35 @@
     <div class="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-fadeIn" @onclick="CloseMobileMenu"></div>
 }
 
-<!-- Barre latérale : hors-écran sur mobile (bascule), toujours visible à partir de lg -->
-<aside class="fixed inset-y-0 left-0 z-50 w-72 flex flex-col app-bg-header border-r border-slate-800/80 shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 @(_mobileMenuOpen ? "translate-x-0" : "-translate-x-full")">
+<!-- Barre latérale : hors-écran sur mobile (bascule), toujours visible et repliable à partir de lg -->
+<aside class="fixed inset-y-0 left-0 z-50 flex flex-col app-bg-header border-r border-slate-800/80 shadow-2xl transition-all duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 @(_collapsed ? "lg:w-20" : "lg:w-64") w-64 @(_mobileMenuOpen ? "translate-x-0" : "-translate-x-full")">
+
+    <!-- Bouton de repli, uniquement sur desktop -->
+    <button @onclick="ToggleCollapsed"
+            class="hidden lg:flex absolute -right-3 top-6 z-10 w-6 h-6 rounded-full bg-slate-800 border border-slate-700 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700 transition-colors shadow-lg"
+            title="@(_collapsed ? "Déplier le menu" : "Replier le menu")">
+        <i class="bi @(_collapsed ? "bi-chevron-right" : "bi-chevron-left") text-[10px]"></i>
+    </button>
 
     <!-- Marque, palette et badge environnement -->
     <div class="px-4 py-4 border-b border-slate-800/60 shrink-0 space-y-3">
-        <div class="flex items-center justify-between gap-2">
-            <a href="" class="flex items-center gap-2.5 group min-w-0" @onclick="CloseMobileMenu">
-                <div class="bg-white rounded-xl px-2 py-1.5 shadow-lg group-hover:scale-105 transition-transform duration-200 shrink-0">
-                    <img src="images/logo_cit.jpeg" alt="Côte d'Ivoire Terminal" class="h-6 w-auto block" />
+        <!-- Version réduite : logo seul, uniquement visible repliée + desktop -->
+        <div class="hidden @(_collapsed ? "lg:flex" : "") flex-col items-center gap-2">
+            <a href="" @onclick="CloseMobileMenu" class="bg-white rounded-xl px-2 py-1.5 shadow-lg hover:scale-105 transition-transform duration-200" title="N4 Sentinel — Supervision">
+                <img src="images/logo_cit.jpeg" alt="Côte d'Ivoire Terminal" class="h-4 w-auto block" />
+            </a>
+            <ThemeSelector />
+        </div>
+
+        <!-- Version complète : toujours sur mobile, sur desktop seulement si dépliée -->
+        <div class="@(_collapsed ? "lg:hidden" : "") flex items-start justify-between gap-2">
+            <a href="" class="flex flex-col items-start gap-1.5 group min-w-0" @onclick="CloseMobileMenu">
+                <div class="bg-white rounded-xl px-2 py-1.5 shadow-lg group-hover:scale-105 transition-transform duration-200">
+                    <img src="images/logo_cit.jpeg" alt="Côte d'Ivoire Terminal" class="h-4 w-auto block" />
                 </div>
-                <div class="min-w-0">
-                    <h2 class="text-sm font-black text-white tracking-tight leading-none mb-0.5 truncate">N4 Sentinel</h2>
-                    <span class="text-[10px] text-slate-400 font-medium">Supervision N4</span>
+                <div class="min-w-0 leading-tight">
+                    <h2 class="text-sm font-black text-white tracking-tight leading-none mb-0.5">N4 Sentinel</h2>
+                    <span class="text-[10px] text-slate-400 font-medium">Supervision</span>
                 </div>
             </a>
             <ThemeSelector />
@@ -49,7 +65,12 @@
         {
             @if (env.IsProduction)
             {
-                <span class="flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-500/10 text-rose-300 border border-rose-500/30 shadow-sm w-full"
+                <div class="hidden @(_collapsed ? "lg:flex" : "") justify-center" title="PROD &middot; @env.Code">
+                    <span class="w-9 h-9 rounded-full flex items-center justify-center bg-rose-500/10 border border-rose-500/30">
+                        <i class="bi bi-exclamation-triangle-fill text-rose-400"></i>
+                    </span>
+                </div>
+                <span class="@(_collapsed ? "lg:hidden" : "") flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-500/10 text-rose-300 border border-rose-500/30 shadow-sm w-full"
                       title="Vous travaillez sur la Production. Toute action mutative y a un impact immédiat.">
                     <i class="bi bi-exclamation-triangle-fill text-rose-400"></i>
                     <span>PROD &middot; @env.Code</span>
@@ -57,7 +78,12 @@
             }
             else
             {
-                <span class="flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/10 text-sky-300 border border-sky-500/20 shadow-sm w-full"
+                <div class="hidden @(_collapsed ? "lg:flex" : "") justify-center" title="@env.Kind &middot; @env.Code">
+                    <span class="w-9 h-9 rounded-full flex items-center justify-center bg-sky-500/10 border border-sky-500/20">
+                        <i class="bi bi-hdd-stack text-sky-400"></i>
+                    </span>
+                </div>
+                <span class="@(_collapsed ? "lg:hidden" : "") flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/10 text-sky-300 border border-sky-500/20 shadow-sm w-full"
                       title="@env.Name">
                     <i class="bi bi-hdd-stack text-sky-400"></i>
                     <span>@env.Kind &middot; @env.Code</span>
@@ -66,7 +92,12 @@
         }
         else
         {
-            <span class="flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-900/60 text-slate-400 border border-slate-800/60 w-full">
+            <div class="hidden @(_collapsed ? "lg:flex" : "") justify-center" title="Aucun environnement">
+                <span class="w-9 h-9 rounded-full flex items-center justify-center bg-slate-900/60 border border-slate-800/60">
+                    <i class="bi bi-dash-circle text-slate-500"></i>
+                </span>
+            </div>
+            <span class="@(_collapsed ? "lg:hidden" : "") flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-900/60 text-slate-400 border border-slate-800/60 w-full">
                 <i class="bi bi-dash-circle text-slate-500"></i>
                 <span>Aucun environnement</span>
             </span>
@@ -78,114 +109,55 @@
 
         <!-- Groupe Supervision -->
         <div class="space-y-1">
-            <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Supervision</div>
-            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="" Match="NavLinkMatch.All" @onclick="CloseMobileMenu">
-                <i class="bi bi-grid-1x2-fill text-theme-primary text-base"></i>
-                <span>Tableau de bord</span>
-            </NavLink>
-            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="supervision" @onclick="CloseMobileMenu">
-                <i class="bi bi-activity text-theme-primary text-base"></i>
-                <span>Supervision Temps Réel</span>
-            </NavLink>
-            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="vitalite" @onclick="CloseMobileMenu">
-                <i class="bi bi-cpu-fill text-lime-400 text-base"></i>
-                <span>Vitalité des nœuds</span>
-            </NavLink>
-            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="alertes" @onclick="CloseMobileMenu">
-                <i class="bi bi-bell-fill text-amber-400 text-base"></i>
-                <span>Centre d'Alertes</span>
-            </NavLink>
-            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/rapports" @onclick="CloseMobileMenu">
-                <i class="bi bi-bar-chart-line-fill text-purple-400 text-base"></i>
-                <span>Rapports &amp; SLA</span>
-            </NavLink>
+            <div class="@(_collapsed ? "lg:hidden" : "") text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Supervision</div>
+            <SidebarLink Href="" Match="NavLinkMatch.All" Icon="bi-grid-1x2-fill" Text="Tableau de bord" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+            <SidebarLink Href="supervision" Icon="bi-activity" Text="Supervision Temps Réel" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+            <SidebarLink Href="vitalite" Icon="bi-cpu-fill" IconColor="text-lime-400" Text="Vitalité des nœuds" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+            <SidebarLink Href="alertes" Icon="bi-bell-fill" IconColor="text-amber-400" Text="Centre d'Alertes" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+            <SidebarLink Href="admin/rapports" Icon="bi-bar-chart-line-fill" IconColor="text-purple-400" Text="Rapports & SLA" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
         </div>
 
         <!-- Groupe Intelligence Suite V2.5 -->
         <div class="space-y-1">
-            <div class="text-[10px] uppercase font-bold text-purple-400/80 px-3 tracking-widest">Intelligence Suite V2.5</div>
-            <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-purple-200 hover:text-white hover:bg-purple-500/10 transition-colors" href="flight-simulator" @onclick="CloseMobileMenu">
-                <i class="bi bi-controller text-amber-400 text-base"></i>
-                <span>Flight Simulator N4</span>
-            </NavLink>
+            <div class="@(_collapsed ? "lg:hidden" : "") text-[10px] uppercase font-bold text-purple-400/80 px-3 tracking-widest">Intelligence Suite V2.5</div>
+            <SidebarLink Href="flight-simulator" Icon="bi-controller" IconColor="text-amber-400" Text="Flight Simulator N4" Collapsed="_collapsed" OnClick="CloseMobileMenu"
+                         LinkClass="text-purple-200 hover:text-white hover:bg-purple-500/10" />
         </div>
 
         <!-- Groupe Exploitation -->
         <AuthorizeView Policy="@N4Policies.PeutConsulter">
             <div class="space-y-1">
-                <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Exploitation</div>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/environnements" @onclick="CloseMobileMenu">
-                    <i class="bi bi-hdd-stack-fill text-indigo-400 text-base"></i>
-                    <span>Environnements</span>
-                </NavLink>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="operations" @onclick="CloseMobileMenu">
-                    <i class="bi bi-play-circle-fill text-purple-400 text-base"></i>
-                    <span>Opérations &amp; Pilotage</span>
-                </NavLink>
+                <div class="@(_collapsed ? "lg:hidden" : "") text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Exploitation</div>
+                <SidebarLink Href="admin/environnements" Icon="bi-hdd-stack-fill" IconColor="text-indigo-400" Text="Environnements" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+                <SidebarLink Href="operations" Icon="bi-play-circle-fill" IconColor="text-purple-400" Text="Opérations & Pilotage" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="authCtx">
-                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/workflows" @onclick="CloseMobileMenu">
-                        <i class="bi bi-diagram-3-fill text-cyan-400 text-base"></i>
-                        <span>Workflows</span>
-                    </NavLink>
+                    <SidebarLink Href="admin/workflows" Icon="bi-diagram-3-fill" IconColor="text-cyan-400" Text="Workflows" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 </AuthorizeView>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="sop" @onclick="CloseMobileMenu">
-                    <i class="bi bi-journal-check text-teal-300 text-base"></i>
-                    <span>SOP</span>
-                </NavLink>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="edi" @onclick="CloseMobileMenu">
-                    <i class="bi bi-arrow-left-right text-orange-300 text-base"></i>
-                    <span>EDI et dossiers partagés</span>
-                </NavLink>
+                <SidebarLink Href="sop" Icon="bi-journal-check" IconColor="text-teal-300" Text="SOP" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+                <SidebarLink Href="edi" Icon="bi-arrow-left-right" IconColor="text-orange-300" Text="EDI et dossiers partagés" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 <AuthorizeView Policy="@N4Policies.PeutDiagnostiquer" Context="diagCtx">
-                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="diagnostics" @onclick="CloseMobileMenu">
-                        <i class="bi bi-search text-rose-400 text-base"></i>
-                        <span>Diagnostics</span>
-                    </NavLink>
+                    <SidebarLink Href="diagnostics" Icon="bi-search" IconColor="text-rose-400" Text="Diagnostics" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 </AuthorizeView>
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="sigCtx">
-                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/signatures" @onclick="CloseMobileMenu">
-                        <i class="bi bi-fingerprint text-amber-400 text-base"></i>
-                        <span>Signatures d'anomalie</span>
-                    </NavLink>
+                    <SidebarLink Href="admin/signatures" Icon="bi-fingerprint" IconColor="text-amber-400" Text="Signatures d'anomalie" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 </AuthorizeView>
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="matriceCtx">
-                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/matrice-approbation" @onclick="CloseMobileMenu">
-                        <i class="bi bi-diagram-3 text-amber-400 text-base"></i>
-                        <span>Matrice de criticité</span>
-                    </NavLink>
+                    <SidebarLink Href="admin/matrice-approbation" Icon="bi-diagram-3" IconColor="text-amber-400" Text="Matrice de criticité" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 </AuthorizeView>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="documentation" @onclick="CloseMobileMenu">
-                    <i class="bi bi-journals text-violet-300 text-base"></i>
-                    <span>Assistant N4</span>
-                </NavLink>
+                <SidebarLink Href="documentation" Icon="bi-journals" IconColor="text-violet-300" Text="Assistant N4" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
             </div>
         </AuthorizeView>
 
         <!-- Groupe Audit & Sécurité -->
         <AuthorizeView Policy="@N4Policies.PeutAuditer">
             <div class="space-y-1">
-                <div class="text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Audit &amp; Sécurité</div>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="historique" @onclick="CloseMobileMenu">
-                    <i class="bi bi-clock-history text-orange-300 text-base"></i>
-                    <span>Historique &amp; escalade</span>
-                </NavLink>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/audit" @onclick="CloseMobileMenu">
-                    <i class="bi bi-journal-text text-teal-400 text-base"></i>
-                    <span>Journal d'audit</span>
-                </NavLink>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/utilisateurs" @onclick="CloseMobileMenu">
-                    <i class="bi bi-people text-indigo-400 text-base"></i>
-                    <span>Comptes &amp; droits</span>
-                </NavLink>
-                <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/azure-ad" @onclick="CloseMobileMenu">
-                    <i class="bi bi-microsoft text-sky-400 text-base"></i>
-                    <span>Azure AD / SSO</span>
-                </NavLink>
+                <div class="@(_collapsed ? "lg:hidden" : "") text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Audit &amp; Sécurité</div>
+                <SidebarLink Href="historique" Icon="bi-clock-history" IconColor="text-orange-300" Text="Historique & escalade" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+                <SidebarLink Href="admin/audit" Icon="bi-journal-text" IconColor="text-teal-400" Text="Journal d'audit" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+                <SidebarLink Href="admin/utilisateurs" Icon="bi-people" IconColor="text-indigo-400" Text="Comptes & droits" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+                <SidebarLink Href="admin/azure-ad" Icon="bi-microsoft" IconColor="text-sky-400" Text="Azure AD / SSO" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerConnecteurs" Context="sauvCtx">
-                    <NavLink class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors" href="admin/sauvegarde" @onclick="CloseMobileMenu">
-                        <i class="bi bi-hdd-fill text-emerald-400 text-base"></i>
-                        <span>Sauvegarde</span>
-                    </NavLink>
+                    <SidebarLink Href="admin/sauvegarde" Icon="bi-hdd-fill" IconColor="text-emerald-400" Text="Sauvegarde" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 </AuthorizeView>
             </div>
         </AuthorizeView>
@@ -196,16 +168,17 @@
         <AuthorizeView>
             <Authorized>
                 <div class="relative group">
-                    <button class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 transition-all duration-200 focus:outline-none shadow-sm">
+                    <button class="w-full flex items-center @(_collapsed ? "lg:justify-center lg:px-2" : "") gap-2.5 px-3 py-2 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 transition-all duration-200 focus:outline-none shadow-sm"
+                            title="@(_collapsed ? context.User.Identity?.Name : null)">
                         <div class="w-7 h-7 rounded-full bg-theme-gradient text-white flex items-center justify-center font-black text-xs shadow-md glow-theme shrink-0">
                             @(context.User.Identity?.Name?.Substring(0, 1).ToUpper() ?? "U")
                         </div>
-                        <span class="text-xs font-bold text-white truncate flex-1 text-left">@context.User.Identity?.Name</span>
-                        <i class="bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
+                        <span class="@(_collapsed ? "lg:hidden" : "") text-xs font-bold text-white truncate flex-1 text-left">@context.User.Identity?.Name</span>
+                        <i class="@(_collapsed ? "lg:hidden" : "") bi bi-chevron-down text-[10px] text-slate-400 group-hover:rotate-180 transition-transform duration-200"></i>
                     </button>
 
                     <!-- La carte s'ouvre vers le HAUT : le déclencheur est collé au bas de l'écran -->
-                    <div class="absolute left-0 right-0 bottom-full pb-1 hidden group-hover:block group-focus-within:block z-[100] animate-fadeIn before:content-[''] before:absolute before:-bottom-3 before:left-0 before:right-0 before:h-4">
+                    <div class="absolute @(_collapsed ? "left-0 lg:w-56" : "left-0 right-0") bottom-full pb-1 hidden group-hover:block group-focus-within:block z-[100] animate-fadeIn before:content-[''] before:absolute before:-bottom-3 before:left-0 before:right-0 before:h-4">
                         <div class="p-3 rounded-2xl bg-slate-950 border border-slate-700 shadow-2xl shadow-black space-y-2">
                             <div class="px-2 border-b border-slate-800/80 pb-2">
                                 <div class="text-xs font-bold text-white truncate">@context.User.Identity?.Name</div>
@@ -252,8 +225,11 @@
     /// <summary>Déconnexion automatique après ce délai sans activité (souris, clavier, défilement, tactile).</summary>
     private const int DelaiInactiviteMinutes = 30;
 
+    private const string CleReplieLocalStorage = "n4sentinel-sidebar-collapsed";
+
     private string? currentUrl;
     private bool _mobileMenuOpen;
+    private bool _collapsed;
     private string _mobileIcon => _mobileMenuOpen ? "bi-x-lg" : "bi-list";
     private bool _minuteurInactiviteDemarre;
 
@@ -269,16 +245,36 @@
     /// l'utilisateur est authentifié — un circuit Blazor Server reste ouvert
     /// sans requête HTTP tant qu'aucune interaction n'a lieu, donc le cookie
     /// d'authentification seul ne peut pas détecter l'inactivité.
+    ///
+    /// L'état replié/déplié est lu depuis le stockage local du navigateur au
+    /// tout premier rendu, pour survivre à un rechargement de page — ce que
+    /// l'état du composant seul ne permettrait pas.
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_minuteurInactiviteDemarre) return;
+        if (firstRender)
+        {
+            try
+            {
+                var replie = await JS.InvokeAsync<string?>("localStorage.getItem", CleReplieLocalStorage);
+                if (replie == "1")
+                {
+                    _collapsed = true;
+                    StateHasChanged();
+                }
+            }
+            catch { }
+        }
 
-        var etat = await AuthStateForIdle.GetAuthenticationStateAsync();
-        if (etat.User.Identity?.IsAuthenticated != true) return;
-
-        _minuteurInactiviteDemarre = true;
-        await JS.InvokeVoidAsync("N4SentinelIdle.start", DelaiInactiviteMinutes, "#idle-logout-form");
+        if (!_minuteurInactiviteDemarre)
+        {
+            var etat = await AuthStateForIdle.GetAuthenticationStateAsync();
+            if (etat.User.Identity?.IsAuthenticated == true)
+            {
+                _minuteurInactiviteDemarre = true;
+                await JS.InvokeVoidAsync("N4SentinelIdle.start", DelaiInactiviteMinutes, "#idle-logout-form");
+            }
+        }
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
@@ -301,6 +297,16 @@
     private void CloseMobileMenu()
     {
         _mobileMenuOpen = false;
+    }
+
+    private async Task ToggleCollapsed()
+    {
+        _collapsed = !_collapsed;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", CleReplieLocalStorage, _collapsed ? "1" : "0");
+        }
+        catch { }
     }
 
     public void Dispose()

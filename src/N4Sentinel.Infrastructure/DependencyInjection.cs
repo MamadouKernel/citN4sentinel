@@ -97,6 +97,10 @@ public static class DependencyInjection
         // passe par la fabrique, qui n'accepte que des serveurs declares au
         // referentiel.
         services.AddScoped<CredentialStore>();
+
+        // Cloisonnement des environnements (SEC-004, audit SEC-A1). Le role dit
+        // ce qu'on sait faire, l'habilitation dit ou on a le droit de le faire.
+        services.AddScoped<Security.EnvironmentAccessService>();
         services.AddScoped<ConnectorTargetFactory>();
         services.AddScoped<ServerProbe>();
         services.AddScoped<ReadinessDiscovery>();

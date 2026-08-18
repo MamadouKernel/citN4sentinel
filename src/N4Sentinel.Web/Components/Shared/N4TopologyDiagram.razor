@@ -171,7 +171,7 @@
                         }
                         else
                         {
-                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                                 @foreach (var c in GetClusterNodes())
                                 {
                                     @RenderInteractiveNode(c)
@@ -824,7 +824,7 @@
             <div class="text-center space-y-1.5 py-1 px-2 w-full min-w-0">
                 <div class="flex items-center justify-center gap-1.5 w-full min-w-0">
                     <span class="w-2.5 h-2.5 rounded-full @dotStyle shrink-0 shadow-md"></span>
-                    <span class="text-xs sm:text-sm font-black @textStyle leading-tight text-center truncate" title="@comp.LogicalName">
+                    <span class="text-xs sm:text-sm font-black @textStyle leading-tight text-center line-clamp-2 break-words" title="@comp.LogicalName">
                         @comp.LogicalName
                     </span>
                 </div>

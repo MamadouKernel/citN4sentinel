@@ -45,4 +45,54 @@ public sealed class IntelligenceSuiteTests
         Assert.Equal("CHECK_HEALTH", res.RecognizedIntent);
         Assert.Equal("/supervision", res.TargetRoute);
     }
+
+    [Theory]
+    [InlineData("Ouvre le tableau de bord", "HOME", "/")]
+    [InlineData("Affiche les diagnostics", "DIAGNOSTICS", "/diagnostics")]
+    [InlineData("Ouvre les workflows", "ADMIN_WORKFLOWS", "/admin/workflows")]
+    [InlineData("Ouvre l'historique et l'escalade", "HISTORY", "/historique")]
+    [InlineData("Ouvre le journal d'audit", "AUDIT", "/admin/audit")]
+    [InlineData("Comptes et droits utilisateurs", "USERS", "/admin/utilisateurs")]
+    [InlineData("Ouvre Azure AD", "AZURE_AD", "/admin/azure-ad")]
+    [InlineData("Lance une sauvegarde", "BACKUP", "/admin/sauvegarde")]
+    [InlineData("Affiche les environnements", "ENVIRONMENTS", "/admin/environnements")]
+    [InlineData("Ouvre les rapports SLA", "REPORTS", "/admin/rapports")]
+    [InlineData("Ouvre la matrice de criticité", "APPROVAL_MATRIX", "/admin/matrice-approbation")]
+    [InlineData("Ouvre les signatures d'anomalie", "ANOMALY_SIGNATURES", "/admin/signatures")]
+    [InlineData("Démarre le service EDI", "START_SERVICE", "/operations")]
+    [InlineData("Arrête le service de synchronisation", "STOP_SERVICE", "/operations")]
+    public void VoiceCopilotService_Couvre_Toutes_Les_Vues_Du_Menu(string commande, string intentAttendu, string routeAttendue)
+    {
+        var service = new VoiceCopilotService(NullLogger<VoiceCopilotService>.Instance);
+
+        var res = service.ProcessVoiceCommand(commande);
+
+        Assert.Equal(intentAttendu, res.RecognizedIntent);
+        Assert.Equal(routeAttendue, res.TargetRoute);
+    }
+
+    [Fact]
+    public void VoiceCopilotService_Ne_Confond_Pas_Lancer_Une_Sauvegarde_Avec_Demarrer_Un_Service()
+    {
+        var service = new VoiceCopilotService(NullLogger<VoiceCopilotService>.Instance);
+
+        var res = service.ProcessVoiceCommand("Lance une sauvegarde");
+
+        Assert.Equal("BACKUP", res.RecognizedIntent);
+        Assert.Equal("/admin/sauvegarde", res.TargetRoute);
+    }
+
+    [Fact]
+    public void VoiceCopilotService_Ne_Redirige_Plus_Vers_Les_Modules_Retires()
+    {
+        var service = new VoiceCopilotService(NullLogger<VoiceCopilotService>.Instance);
+
+        foreach (var commande in new[] { "Ouvre l'AIOps", "Lance un replay d'incident", "Ouvre le jumeau numérique" })
+        {
+            var res = service.ProcessVoiceCommand(commande);
+            Assert.NotEqual("/aiops", res.TargetRoute);
+            Assert.NotEqual("/incident-replay", res.TargetRoute);
+            Assert.NotEqual("/digital-twin", res.TargetRoute);
+        }
+    }
 }

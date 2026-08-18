@@ -81,6 +81,8 @@ public sealed class OrchestrationTests : IAsyncLifetime
             _validator,
             supervisionService,
             new CenterContinuityService(_factory, supervisionService),
+            new N4Sentinel.Infrastructure.Security.EnvironmentAccessService(
+                _factory, ConfigurationVide(), NullLogger<N4Sentinel.Infrastructure.Security.EnvironmentAccessService>.Instance),
             NullLogger<PreflightService>.Instance);
 
         await using var db = _factory.CreateDbContext();
@@ -1756,6 +1758,15 @@ public sealed class OrchestrationTests : IAsyncLifetime
         Assert.True(prep.Succeeded, prep.Error);
         return prep.ExecutionId;
     }
+
+    /// <summary>
+    /// Configuration sans réglage : le cloisonnement des environnements n'est
+    /// donc pas en mode strict, et aucune habilitation n'existe dans ces bases
+    /// de test. Le cloisonnement ne s'applique pas — exactement le
+    /// comportement attendu sur une installation qui n'a rien déclaré.
+    /// </summary>
+    private static Microsoft.Extensions.Configuration.IConfiguration ConfigurationVide() =>
+        new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
 
     private sealed class TestDbContextFactory(DbContextOptions<N4SentinelDbContext> options)
         : IDbContextFactory<N4SentinelDbContext>
