@@ -114,11 +114,56 @@ public sealed class DatabaseSeeder(
             "Administrateur d'amorcage cree pour {Email}. Changez son mot de passe des la premiere connexion.", email);
     }
 
+    /// <summary>
+    /// Clé d'activation de l'amorçage de topologie. **Absente = désactivé.**
+    /// </summary>
+    public const string CleAmorcageTopologie = "N4Sentinel:AmorcageTopologieDemo";
+
+    /// <summary>
+    /// Amorce une topologie d'exemple — UNIQUEMENT si le site l'a explicitement
+    /// demandé, et JAMAIS en Production.
+    ///
+    /// Cette méthode s'exécutait auparavant sur toute base sans environnement,
+    /// dans n'importe quel environnement d'exécution. Elle inscrivait deux
+    /// environnements — dont un marqué **Production, Actif, Critique** — six
+    /// serveurs portant des noms d'hôte et des adresses IP INVENTÉS
+    /// (« CIT-N4-MASTER », « 10.150.10.30 ») et vingt-quatre composants.
+    ///
+    /// C'est la faute que le produit s'interdit ailleurs partout : sur une
+    /// installation neuve, l'exploitant découvrait une Production entièrement
+    /// décrite, d'aspect parfaitement crédible, qui ne correspondait à rien.
+    /// Un référentiel faux est pire qu'un référentiel vide — l'écran vide dit
+    /// qu'il faut saisir, l'écran rempli affirme. La supervision aurait ensuite
+    /// déclaré ces machines injoignables, et l'exploitant aurait cherché la
+    /// panne d'un serveur qui n'existe pas.
+    ///
+    /// Le référentiel se saisit par le parcours de mise en service (REF-09).
+    /// C'est le principe du produit : aucune donnée de site n'est écrite en dur.
+    /// </summary>
     private async Task SeedTopologyDataAsync(CancellationToken ct)
     {
+        if (!configuration.GetValue<bool>(CleAmorcageTopologie)) return;
+
+        // Ceinture ET bretelles : même réglage actif, jamais en Production.
+        // Un gabarit de configuration recopié d'un poste de développement ne
+        // doit pas suffire à inventer un référentiel sur le site réel.
+        if (string.Equals(
+                configuration["ASPNETCORE_ENVIRONMENT"], "Production",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                "{Cle} est activé mais l'application tourne en Production : "
+                + "l'amorçage de topologie est ignoré. Le référentiel doit être saisi "
+                + "par le parcours de mise en service.", CleAmorcageTopologie);
+            return;
+        }
+
         if (await db.Environments.AnyAsync(ct)) return;
 
-        logger.LogInformation("Amorçage de la topologie initiale Navis N4 CIT...");
+        logger.LogWarning(
+            "Amorçage d'une topologie D'EXEMPLE ({Cle} = true). Les noms d'hôte et "
+            + "adresses IP créés sont FICTIFS et ne décrivent aucun serveur réel.",
+            CleAmorcageTopologie);
 
         var envProd = new N4Environment
         {
