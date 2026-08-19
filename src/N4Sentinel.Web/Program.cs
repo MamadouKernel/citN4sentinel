@@ -231,7 +231,13 @@ app.Use(async (context, next) =>
 {
     var chemin = context.Request.Path;
 
+    // §3.19 : la sonde de sante est exemptee. Une installation neuve n'a pas
+    // encore de compte, mais elle TOURNE — rediriger /health vers le parcours
+    // de premier demarrage ferait repondre 302 la ou un repartiteur de charge
+    // attend « Healthy », et il conclurait que l'application est morte alors
+    // qu'elle attend simplement qu'on la configure.
     var exempte = chemin.StartsWithSegments("/premier-demarrage")
+                  || chemin.StartsWithSegments("/health")
                   || chemin.StartsWithSegments("/_framework")
                   || chemin.StartsWithSegments("/_content")
                   || chemin.StartsWithSegments("/lib")

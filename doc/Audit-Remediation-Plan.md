@@ -13,9 +13,11 @@ Restent hors de portée du code seul les exigences listées en fin de document
 (elles demandent un accès à un vrai N4, une décision de gouvernance ou une
 ressource externe).
 
-> **Cinq défauts réels trouvés en vérifiant, pas en lisant.** Aucun ne
+> **Six défauts réels trouvés en vérifiant, pas en lisant.** Aucun ne
 > figurait dans une ligne du plan — le plan décrivait des fonctions à écrire,
-> pas des fonctions écrites qui ne marchaient pas :
+> pas des fonctions écrites qui ne marchaient pas. Le sixième n'est apparu
+> qu'en démarrant réellement l'application : `/health` répondait 302 vers le
+> parcours de premier démarrage (voir Phase VI).
 >
 > 3. **La commande émise était conservée en clair** alors que FR-028 exige
 >    qu'elle soit masquée (voir Phase IV).
@@ -389,11 +391,32 @@ Deux précautions :
   cette phrase, « Healthy » se lirait comme « tout va bien » — exactement la
   confusion que le principe fondateur de l'application interdit.
 
-> **Non vérifié à l'exécution.** Les deux points d'entrée compilent et sont
-> enregistrés, mais l'application n'a pas été démarrée pour les interroger :
-> cela suppose la base de développement, et je n'allais pas la solliciter sans
-> qu'on me le demande. À contrôler au premier lancement — un `GET /health`
-> doit répondre `Healthy` en texte brut.
+**Vérifié à l'exécution le 19/08** — et la vérification a trouvé un sixième
+défaut que la lecture du code n'aurait pas donné :
+
+> **`/health` répondait 302 vers `/premier-demarrage`.** Le middleware de
+> premier démarrage intercepte toute navigation tant qu'aucun compte n'existe.
+> La sonde de santé tombait dedans : un répartiteur de charge aurait reçu une
+> redirection là où il attend « Healthy », et conclu que l'application est
+> morte alors qu'elle tourne et attend simplement qu'on la configure — c'est-à-dire
+> exactement au moment d'une installation neuve, quand on a le plus besoin
+> de savoir qu'elle est en vie.
+>
+> Corrigé : `/health` est exempté du middleware de premier démarrage, au même
+> titre que `/_framework` et les ressources statiques.
+
+Relevés après correction, application démarrée :
+
+| Appel | Résultat |
+|---|---|
+| `GET /health` (anonyme) | **200**, `Content-Type: text/plain; charset=utf-8`, corps `Healthy` |
+| `GET /health/detail` (anonyme) | **302** vers `/Account/Login` — l'accès est bien réservé |
+| 10 appels consécutifs sur `/health` | **200 ×10** — le limiteur de débit ne l'étrangle pas |
+
+> **Reste non vérifié** : le contenu de `/health/detail` une fois authentifié.
+> Le contrôler supposerait de saisir un mot de passe, ce que je ne fais pas.
+> À regarder au premier lancement — la réponse doit nommer le contrôle
+> `database` et rappeler qu'elle ne couvre pas l'écosystème N4 supervisé.
 
 ### Approbation — entité dédiée évaluée, non retenue
 
