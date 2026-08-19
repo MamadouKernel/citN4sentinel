@@ -57,8 +57,13 @@ public sealed class OrchestrationTests : IAsyncLifetime
         _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance, new AuditWriter(_factory));
         _matrix = new ApprovalMatrixService(_factory);
         _adhoc = new AdHocOperationService(_factory, NullLogger<AdHocOperationService>.Instance);
+        var prepareUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase(_factory, NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase>.Instance, approvalMatrix: _matrix);
+        var approveUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ApproveExecutionUseCase(_factory);
+        var controlUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase(_factory, _locks, new AuditWriter(_factory), NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase>.Instance, approvalMatrix: _matrix);
+
         _executions = new ExecutionService(_factory, _locks, new AuditWriter(_factory), NullLogger<ExecutionService>.Instance,
-            approvalMatrix: _matrix, adHoc: _adhoc);
+            approvalMatrix: _matrix, adHoc: _adhoc,
+            prepareUseCase: prepareUseCase, approveUseCase: approveUseCase, controlUseCase: controlUseCase);
         _validator = new SequenceValidator(_factory);
         _report = new ExecutionReportService(_factory);
 

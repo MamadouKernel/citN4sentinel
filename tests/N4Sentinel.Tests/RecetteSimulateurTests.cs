@@ -115,8 +115,13 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             new N4Sentinel.Infrastructure.Observability.MetricsService(),
             NullLogger<OrchestrationEngine>.Instance);
 
+        var prepareUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase(_factory, NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase>.Instance);
+        var approveUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ApproveExecutionUseCase(_factory);
+        var controlUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase(_factory, _verrous, new AuditWriter(_factory), NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase>.Instance, engine: _moteur, supervision: supervision);
+
         _executions = new ExecutionService(_factory, _verrous, new AuditWriter(_factory),
-            NullLogger<ExecutionService>.Instance, _moteur, supervision: supervision);
+            NullLogger<ExecutionService>.Instance, _moteur, supervision: supervision,
+            prepareUseCase: prepareUseCase, approveUseCase: approveUseCase, controlUseCase: controlUseCase);
     }
 
     /// <summary>
