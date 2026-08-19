@@ -1,13 +1,34 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Persistence;
+using N4Sentinel.Infrastructure.Supervision;
 
 namespace N4Sentinel.Infrastructure.Ai;
 
 /// <summary>
-/// Service d'analyse sémantique et d'interprétation des commandes vocales pour N4 Sentinel Copilot.
+/// Interprétation des commandes vocales pour N4 Sentinel Copilot.
+///
+/// RÈGLE DE CE SERVICE : il n'énonce aucun chiffre qu'il n'a pas lu, et
+/// n'énonce jamais un chiffre sans dire de quand il date.
+///
+/// Deux réponses affirmaient auparavant des faits écrits en dur dans ce
+/// fichier — « 4 nœuds sur 4 sont actifs », « 342 messages BAPLIE intégrés
+/// aujourd'hui ». Le service n'avait alors aucune dépendance de données : il
+/// ne pouvait rien lire, par construction. Sur une base vide, il affirmait
+/// donc à voix haute que tout était opérationnel.
+///
+/// C'est la contradiction la plus directe possible avec le principe fondateur
+/// du produit, et l'oral l'aggrave : rien ne reste à relire, et un opérateur
+/// en incident agit sur ce qu'il vient d'entendre.
 /// </summary>
-public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
+public sealed class VoiceCopilotService(
+    SupervisionStateCache supervision,
+    IDbContextFactory<N4SentinelDbContext> dbFactory,
+    ILogger<VoiceCopilotService> logger)
 {
-    public VoiceCommandResponse ProcessVoiceCommand(string spokenTranscript)
+    public async Task<VoiceCommandResponse> ProcessVoiceCommandAsync(
+        string spokenTranscript, CancellationToken ct = default)
     {
         logger.LogInformation("[Voice Copilot] Traitement de la commande vocale : '{Transcript}'", spokenTranscript);
 
@@ -46,9 +67,9 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             {
                 RecognizedIntent = "CHECK_HEALTH",
                 SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "L'état général du cluster N4 est opérationnel. 4 nœuds sur 4 sont actifs. NTP et base de données conformes.",
+                SpeechSynthesisText = EnoncerEtatSupervision(),
                 TargetRoute = "/supervision",
-                ActionSummary = "Diagnostic de santé exécuté à la voix."
+                ActionSummary = "État de supervision énoncé à la voix, d'après le dernier relevé."
             };
         }
 
@@ -127,9 +148,9 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             {
                 RecognizedIntent = "CHECK_EDI",
                 SpokenTranscript = spokenTranscript,
-                SpeechSynthesisText = "Ouverture du suivi des flux EDI. 342 messages BAPLIE intégrés aujourd'hui, zéro rejet.",
+                SpeechSynthesisText = await EnoncerFluxEdiAsync(ct),
                 TargetRoute = "/edi",
-                ActionSummary = "Navigation vers le suivi EDI."
+                ActionSummary = "Suivi EDI du jour énoncé à la voix."
             };
         }
 
@@ -311,6 +332,125 @@ public sealed class VoiceCopilotService(ILogger<VoiceCopilotService> logger)
             TargetRoute = "", // Reste sur la page courante sans redirection intempestive !
             ActionSummary = "Commande vocale non reconnue (sans redirection)."
         };
+    }
+
+    // =======================================================================
+    // Énoncés construits sur des données réelles
+    // =======================================================================
+
+    /// <summary>
+    /// État de supervision, lu dans le MÊME cache que l'écran Supervision —
+    /// pour que la voix et l'écran ne puissent pas se contredire.
+    ///
+    /// Aucun verdict global n'est prononcé. « Opérationnel » est une
+    /// conclusion, pas une mesure : on énonce ce qui a été relevé, l'opérateur
+    /// conclut. Les composants dont l'état est inconnu sont cités
+    /// explicitement — les taire reviendrait à les compter comme sains.
+    /// </summary>
+    private string EnoncerEtatSupervision()
+    {
+        var resume = supervision.GetSummary();
+
+        if (resume.Total == 0)
+        {
+            return "Je n'ai aucun relevé de supervision. Soit aucun composant n'est déclaré, "
+                 + "soit la collecte n'a pas encore tourné. Je ne peux pas vous dire dans quel "
+                 + "état est l'écosystème.";
+        }
+
+        var morceaux = new List<string>();
+        if (resume.Disponible > 0) morceaux.Add($"{resume.Disponible} disponible{Pluriel(resume.Disponible)}");
+        if (resume.Degrade > 0) morceaux.Add($"{resume.Degrade} dégradé{Pluriel(resume.Degrade)}");
+        if (resume.Indisponible > 0) morceaux.Add($"{resume.Indisponible} indisponible{Pluriel(resume.Indisponible)}");
+        if (resume.Demarrage > 0) morceaux.Add($"{resume.Demarrage} en démarrage");
+        if (resume.Arret > 0) morceaux.Add($"{resume.Arret} en arrêt");
+        if (resume.Inconnu > 0) morceaux.Add($"{resume.Inconnu} d'état inconnu");
+        if (resume.NonSupervise > 0) morceaux.Add($"{resume.NonSupervise} non supervisé{Pluriel(resume.NonSupervise)}");
+
+        var phrase = $"Sur {resume.Total} composant{Pluriel(resume.Total)} : {string.Join(", ", morceaux)}.";
+
+        // L'AGE DU RELEVE fait partie de l'information, pas du confort. Un
+        // « tout est disponible » vieux d'une heure ne dit rien de maintenant.
+        var dernier = supervision.GetAllSnapshots()
+            .Select(s => s.EvaluatedAt)
+            .DefaultIfEmpty()
+            .Max();
+
+        phrase += dernier == default
+            ? " Je ne sais pas de quand date ce relevé."
+            : $" Relevé {Anciennete(DateTimeOffset.UtcNow - dernier)}.";
+
+        if (resume.Inconnu > 0 || resume.NonSupervise > 0)
+            phrase += " Un état inconnu n'est pas un état sain : consultez l'écran.";
+
+        return phrase;
+    }
+
+    /// <summary>
+    /// Flux EDI du jour, comptés en base. « Aujourd'hui » se calcule sur
+    /// l'heure locale du poste : c'est la journée d'exploitation telle que
+    /// l'opérateur la vit, pas une journée UTC qui bascule à contretemps.
+    /// </summary>
+    private async Task<string> EnoncerFluxEdiAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+            var debutDuJour = new DateTimeOffset(DateTime.Today, DateTimeOffset.Now.Offset);
+
+            var duJour = await db.EdiFiles.AsNoTracking()
+                .Where(f => f.LastSeenAt >= debutDuJour)
+                .GroupBy(f => f.Status)
+                .Select(g => new { Statut = g.Key, Nombre = g.Count() })
+                .ToListAsync(ct);
+
+            if (duJour.Count == 0)
+            {
+                var suiviTotal = await db.EdiFiles.AsNoTracking().AnyAsync(ct);
+
+                // Distinguer « rien reçu aujourd'hui » de « rien n'est suivi » :
+                // le premier peut être normal, le second est une configuration
+                // absente. Les confondre masquerait un partage jamais déclaré.
+                return suiviTotal
+                    ? "Aucun fichier EDI relevé aujourd'hui. Les relevés précédents restent consultables à l'écran."
+                    : "Aucun fichier EDI n'est suivi. Vérifiez qu'un dossier partagé EDI est déclaré au référentiel.";
+            }
+
+            int Compter(EdiFileStatus s) => duJour.FirstOrDefault(x => x.Statut == s)?.Nombre ?? 0;
+
+            var integres = Compter(EdiFileStatus.Integre);
+            var attente = Compter(EdiFileStatus.EnAttente);
+            var rejetes = Compter(EdiFileStatus.Rejete);
+            var total = integres + attente + rejetes;
+
+            var phrase = $"{total} fichier{Pluriel(total)} EDI relevé{Pluriel(total)} aujourd'hui : "
+                       + $"{integres} intégré{Pluriel(integres)}, {attente} en attente, "
+                       + $"{rejetes} rejeté{Pluriel(rejetes)}.";
+
+            if (rejetes > 0) phrase += " Les rejets demandent une reprise manuelle.";
+
+            return phrase;
+        }
+        catch (Exception ex)
+        {
+            // Un copilote qui ne peut pas lire doit le DIRE. Se rabattre sur
+            // une phrase rassurante serait exactement la faute qu'on corrige.
+            logger.LogWarning(ex, "[Voice Copilot] Lecture des flux EDI impossible.");
+            return "Je n'ai pas pu lire le suivi EDI. Consultez l'écran : je ne peux rien affirmer.";
+        }
+    }
+
+    private static string Pluriel(int n) => n > 1 ? "s" : string.Empty;
+
+    /// <summary>Ancienneté en clair, pour être entendue et non lue.</summary>
+    private static string Anciennete(TimeSpan age)
+    {
+        if (age < TimeSpan.Zero) return "à l'instant";
+        if (age.TotalSeconds < 90) return $"il y a {Math.Max(1, (int)age.TotalSeconds)} secondes";
+        if (age.TotalMinutes < 90) return $"il y a {(int)age.TotalMinutes} minutes";
+        if (age.TotalHours < 36) return $"il y a {(int)age.TotalHours} heures";
+        return $"il y a {(int)age.TotalDays} jours";
     }
 }
 

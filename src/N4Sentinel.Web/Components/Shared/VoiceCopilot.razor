@@ -121,7 +121,7 @@
         _transcript = spokenText;
         StateHasChanged();
 
-        var response = VoiceService.ProcessVoiceCommand(spokenText);
+        var response = await VoiceService.ProcessVoiceCommandAsync(spokenText);
         _transcript = response.SpeechSynthesisText;
         StateHasChanged();
 
