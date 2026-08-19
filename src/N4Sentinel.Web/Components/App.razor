@@ -53,13 +53,13 @@
     <script src="js/idle-timeout.js"></script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-                navigator.serviceWorker.register('/sw.js');
-            });
-        }
-    </script>
+    @* Scripts sortis en fichiers : la politique de securite de contenu
+       declare script-src 'self' sans 'unsafe-inline', ce qui bloque tout
+       script en ligne. Ils sont charges apres blazor.web.js et posent des
+       ecouteurs delegues, donc valables aussi bien en SSR statique qu'avec
+       un circuit interactif. *@
+    <script src="js/password-toggle.js"></script>
+    <script src="js/sw-register.js"></script>
 </body>
 
 </html>
