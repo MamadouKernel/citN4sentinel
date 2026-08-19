@@ -391,8 +391,40 @@ Deux précautions :
   cette phrase, « Healthy » se lirait comme « tout va bien » — exactement la
   confusion que le principe fondateur de l'application interdit.
 
-**Vérifié à l'exécution le 19/08** — et la vérification a trouvé un sixième
-défaut que la lecture du code n'aurait pas donné :
+**Vérifié à l'exécution le 19/08** — et la vérification a trouvé deux défauts
+que la lecture du code n'aurait pas donnés.
+
+> ### Le plus grave : aucune installation neuve ne pouvait créer son premier administrateur
+>
+> Le middleware de premier démarrage redirige toute navigation non exemptée
+> vers `/premier-demarrage`. La liste d'exemptions couvrait `/_framework`,
+> `/_content` et `/lib` — **mais pas `/_blazor`**, le circuit interactif.
+>
+> `POST /_blazor/negotiate` répondait donc **302 vers `/premier-demarrage`** :
+> le circuit ne s'établissait jamais, la page restait non interactive, la
+> saisie n'atteignait pas le serveur, et le formulaire partait en POST HTML
+> classique que le serveur ré-affichait avec un modèle vide. L'opérateur
+> voyait « obligatoire » sur les quatre champs qu'il venait de remplir.
+>
+> **Le middleware qui conduit à cette page en interdisait l'usage.** DEP-02
+> (« premier démarrage guidé ») était donc inutilisable sur une installation
+> neuve — ce que ni les tests ni la relecture n'avaient montré, parce que le
+> compte administrateur avait toujours été créé par variables d'environnement
+> pendant le développement, jamais par cet écran.
+>
+> Corrigé : `/_blazor` ajouté aux exemptions. Vérifié à l'exécution —
+> `POST /_blazor/negotiate` répond **200**, et la saisie d'une adresse
+> invalide dans le formulaire déclenche « Adresse électronique invalide. »
+> renvoyée par le serveur, ce qui ne se produit qu'avec un circuit vivant.
+>
+> **Reste à considérer** : `PremierDemarrage.razor` porte un `FormName` et ses
+> champs ont des attributs `name`, mais la propriété `Input` n'a pas
+> `[SupplyParameterFromForm]`. Le formulaire ne fonctionne donc **que** si le
+> circuit est vivant ; si JavaScript est indisponible, la même panne
+> silencieuse revient. Pour un écran de premier démarrage, le faire marcher
+> sans JavaScript serait une sécurité utile.
+
+L'autre défaut trouvé à l'exécution :
 
 > **`/health` répondait 302 vers `/premier-demarrage`.** Le middleware de
 > premier démarrage intercepte toute navigation tant qu'aucun compte n'existe.

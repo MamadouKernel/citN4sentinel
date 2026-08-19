@@ -236,7 +236,18 @@ app.Use(async (context, next) =>
     // de premier demarrage ferait repondre 302 la ou un repartiteur de charge
     // attend « Healthy », et il conclurait que l'application est morte alors
     // qu'elle attend simplement qu'on la configure.
+    // /_blazor est le circuit interactif, et il DOIT etre exempte.
+    //
+    // Sans cette ligne, la negociation SignalR est elle-meme redirigee vers
+    // /premier-demarrage : le circuit ne s'etablit jamais, la page reste non
+    // interactive, la saisie n'atteint pas le serveur, et le formulaire part
+    // en POST HTML classique que le serveur re-affiche avec un modele vide.
+    // L'operateur voit alors « obligatoire » sur des champs qu'il vient de
+    // remplir, et AUCUNE installation neuve ne peut creer son premier
+    // administrateur. Le middleware qui conduit a cette page en interdisait
+    // l'usage.
     var exempte = chemin.StartsWithSegments("/premier-demarrage")
+                  || chemin.StartsWithSegments("/_blazor")
                   || chemin.StartsWithSegments("/health")
                   || chemin.StartsWithSegments("/_framework")
                   || chemin.StartsWithSegments("/_content")

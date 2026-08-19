@@ -138,6 +138,9 @@ public static class DependencyInjection
         // propres portées pour tout ce qui touche la base.
         services.AddScoped<WorkflowService>();
         services.AddScoped<ExecutionService>();
+        services.AddScoped<Orchestration.UseCases.PrepareExecutionUseCase>();
+        services.AddScoped<Orchestration.UseCases.ApproveExecutionUseCase>();
+        services.AddScoped<Orchestration.UseCases.ControlExecutionUseCase>();
         services.AddScoped<EnvironmentLockService>();
         services.AddScoped<SequenceValidator>();
         services.AddScoped<StepExecutor>();

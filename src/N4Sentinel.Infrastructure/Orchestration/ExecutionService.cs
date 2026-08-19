@@ -28,7 +28,10 @@ public sealed class ExecutionService(
     Diagnostic.DiagnosticSessionService? diagnostics = null,
     ApprovalMatrixService? approvalMatrix = null,
     Supervision.SupervisionService? supervision = null,
-    AdHocOperationService? adHoc = null)
+    AdHocOperationService? adHoc = null,
+    UseCases.PrepareExecutionUseCase? prepareUseCase = null,
+    UseCases.ApproveExecutionUseCase? approveUseCase = null,
+    UseCases.ControlExecutionUseCase? controlUseCase = null)
 {
     /// <summary>Plafond d'une preuve jointe (FR-026) — même ordre de grandeur qu'un versement documentaire.</summary>
     public const long EvidenceFileMaxBytes = 20L * 1024 * 1024;
@@ -59,159 +62,14 @@ public sealed class ExecutionService(
     // -----------------------------------------------------------------------
     // Préparation
     // -----------------------------------------------------------------------
-    /// <summary>
-    /// Instancie une exécution à partir d'un workflow. Les étapes sont RECOPIÉES,
-    /// pas référencées : le rapport doit rester exact même si le workflow évolue
-    /// ensuite.
-    /// </summary>
-    public async Task<PrepareResult> PrepareAsync(
+    public Task<PrepareResult> PrepareAsync(
         Guid workflowId, string requestedBy, string reason,
         string? ticketReference = null, bool isSimulation = false,
         DateTimeOffset? startWindow = null, DateTimeOffset? endWindow = null,
         CancellationToken ct = default)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-
-        var workflow = await db.Workflows
-            .Include(w => w.Steps)
-            .Include(w => w.Environment)
-            .FirstOrDefaultAsync(w => w.Id == workflowId, ct);
-
-        if (workflow is null) return PrepareResult.Failed("Workflow introuvable.");
-
-        // FR-005 : une SIMULATION peut se lancer sur un workflow non encore
-        // validé — c'est même la seule façon de satisfaire l'obligation de
-        // simuler AVANT de valider. Rien ne le justifierait d'ailleurs : une
-        // simulation n'émet aucune commande et ne touche à rien. Le cycle de
-        // vie devient : brouillon → simulé → validé → lançable en réel.
-        //
-        // Une étape reste exigée dans les deux cas : dérouler une séquence
-        // vide ne prouverait rien.
-        if (workflow.Steps.Count == 0)
-            return PrepareResult.Failed(
-                $"Le workflow « {workflow.Name} » ne comporte aucune étape : "
-                + "il n'y a rien à dérouler, même en simulation.");
-
-        if (!isSimulation && !workflow.IsRunnable)
-            return PrepareResult.Failed(
-                $"Le workflow « {workflow.Name} » est en état {workflow.Status}. Il doit être "
-                + "validé pour être lancé en réel. Lancez-le d'abord en simulation : elle "
-                + "n'émet aucune commande, et sa réussite est la condition pour le valider.");
-
-        if (string.IsNullOrWhiteSpace(reason))
-            return PrepareResult.Failed(
-                "Le motif est obligatoire. Une opération sans motif est une opération que personne "
-                + "ne saura expliquer trois mois plus tard.");
-
-        var environnement = workflow.Environment;
-        var mutative = workflow.Kind is not WorkflowKind.ControleSeul;
-
-        // FR-013 : la matrice de criticité peut EXIGER davantage que le
-        // workflow ne le prévoit — jamais en exiger moins. Le seuil est le
-        // niveau de criticité le plus élevé parmi les composants réellement
-        // touchés par une étape de l'exécution.
-        ApprovalMatrixRule? regleMatrice = null;
-        if (approvalMatrix is not null && environnement is not null)
-        {
-            var idsComposants = workflow.Steps
-                .Where(s => s.ComponentId is not null)
-                .Select(s => s.ComponentId!.Value)
-                .Distinct()
-                .ToList();
-
-            var criticites = idsComposants.Count == 0
-                ? []
-                : await db.Components.AsNoTracking()
-                    .Where(c => idsComposants.Contains(c.Id))
-                    .Select(c => c.Criticality)
-                    .ToListAsync(ct);
-
-            var criticiteMax = criticites.Count == 0 ? CriticalityLevel.Faible : criticites.Max();
-
-            regleMatrice = await approvalMatrix.ResolveAsync(environnement.Kind, workflow.Kind, criticiteMax, ct);
-        }
-
-        // Une exécution mutative en Production exige une approbation, que le
-        // workflow l'ait prévue ou non. Le niveau de l'environnement et la
-        // matrice de criticité priment sur le paramétrage du modèle — jamais
-        // l'inverse.
-        var approbationRequise = !isSimulation && mutative
-            && (workflow.RequiresApproval || environnement?.Kind == EnvironmentKind.Production
-                || regleMatrice?.RequiresApproval == true);
-
-        // FR-046/047 : une simulation n'emet aucune commande (FR-005), donc ne
-        // change rien au role actif reel — le choix de continuite ne la
-        // concerne pas.
-        var centerIds = await db.Components.AsNoTracking()
-            .Where(c => c.EnvironmentId == workflow.EnvironmentId && c.Role == ComponentRole.CenterNode)
-            .Select(c => c.Id)
-            .ToListAsync(ct);
-        var continuiteRequise = !isSimulation && centerIds.Count > 0 && workflow.Steps.Any(s =>
-            s.Action is StepAction.Arreter or StepAction.Redemarrer
-            && s.ComponentId is { } id && centerIds.Contains(id));
-
-        var execution = new WorkflowExecution
-        {
-            WorkflowId = workflow.Id,
-            WorkflowVersion = workflow.Version,
-            WorkflowName = workflow.Name,
-            Kind = workflow.Kind,
-            EnvironmentId = workflow.EnvironmentId,
-            EnvironmentCode = environnement?.Code ?? "INCONNU",
-            Status = approbationRequise ? ExecutionStatus.EnAttenteApprobation : ExecutionStatus.EnPreparation,
-            IsSimulation = isSimulation,
-            RequestedBy = requestedBy,
-            Reason = reason,
-            TicketReference = ticketReference,
-            ExpectedImpact = DecrireImpact(workflow),
-            // Recopie, comme le reste : l'exigence reste exacte meme si le
-            // workflow change avant que l'approbation ait lieu.
-            RequiresDoubleApproval = approbationRequise
-                && (workflow.RequiresDoubleApproval || regleMatrice?.RequiresDoubleApproval == true),
-            ContinuityChoiceRequired = continuiteRequise,
-            StartWindow = startWindow,
-            EndWindow = endWindow,
-            EstimatedTotalDuration = TimeSpan.FromSeconds(workflow.Steps.Sum(s => (double)s.ExpectedSeconds))
-        };
-
-        foreach (var modele in workflow.Steps.OrderBy(s => s.Order))
-        {
-            execution.Steps.Add(new ExecutionStep
-            {
-                Order = modele.Order,
-                Name = modele.Name,
-                Action = modele.Action,
-                ComponentId = modele.ComponentId,
-                TimeoutSeconds = modele.TimeoutSeconds,
-                ExpectedSeconds = modele.ExpectedSeconds,
-                WarningThresholdSeconds = modele.WarningThresholdSeconds,
-                IsSkippable = modele.IsSkippable,
-                RequiresConfirmation = modele.RequiresConfirmation,
-                RequiresEvidenceFile = modele.RequiresEvidenceFile,
-                FailurePolicy = modele.FailurePolicy,
-                Instruction = modele.Instruction,
-                MaxRetries = modele.MaxRetries,
-                AutomaticRetry = modele.AutomaticRetry,
-                RetryDelaySeconds = modele.RetryDelaySeconds,
-                CanRunInParallel = modele.CanRunInParallel,
-                State = ExecutionStepState.AVenir
-            });
-        }
-
-        // Le workflow devient immuable des l'instant ou une execution s'en sert.
-        workflow.HasBeenExecuted = true;
-
-        db.Executions.Add(execution);
-        await db.SaveChangesAsync(ct);
-
-        await RenseignerComposantsAsync(execution.Id, ct);
-
-        logger.LogInformation(
-            "Exécution {Correlation} préparée : {Workflow} v{Version} sur {Env}{Simulation}.",
-            execution.CorrelationId, workflow.Name, workflow.Version, execution.EnvironmentCode,
-            isSimulation ? " (simulation)" : string.Empty);
-
-        return PrepareResult.Ok(execution.Id, approbationRequise);
+        if (prepareUseCase is null) throw new InvalidOperationException("PrepareExecutionUseCase not configured.");
+        return prepareUseCase.ExecuteAsync(workflowId, requestedBy, reason, ticketReference, isSimulation, startWindow, endWindow, ct);
     }
 
     /// <summary>Recopie le nom du composant et de son hôte, pour un rapport lisible sans jointure.</summary>
@@ -245,57 +103,10 @@ public sealed class ExecutionService(
     // -----------------------------------------------------------------------
     // Approbation et lancement
     // -----------------------------------------------------------------------
-    /// <summary>
-    /// Approuve une exécution en attente. Si le workflow exige une double
-    /// approbation (FR-013), le premier appel enregistre le premier
-    /// approbateur et laisse l'exécution EN ATTENTE — elle ne passe en
-    /// préparation qu'après un second appel, par une personne distincte du
-    /// demandeur ET du premier approbateur. Un double regard qui accepterait
-    /// la même personne deux fois ne serait qu'un simple regard déguisé.
-    /// </summary>
-    public async Task<string?> ApproveAsync(Guid executionId, string approvedBy, CancellationToken ct = default)
+    public Task<string?> ApproveAsync(Guid executionId, string approvedBy, CancellationToken ct = default)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-
-        var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
-        if (execution is null) return "Exécution introuvable.";
-
-        if (execution.Status != ExecutionStatus.EnAttenteApprobation)
-            return $"Cette exécution est en état {execution.Status} : elle n'attend pas d'approbation.";
-
-        // Le demandeur ne peut pas s'approuver lui-meme. Le double regard n'a de
-        // sens que s'il y a deux regards.
-        if (string.Equals(execution.RequestedBy, approvedBy, StringComparison.OrdinalIgnoreCase))
-            return "Le demandeur ne peut pas approuver sa propre opération. "
-                 + "L'approbation doit venir d'une autre personne.";
-
-        if (execution.ApprovedBy is null)
-        {
-            execution.ApprovedBy = approvedBy;
-            execution.ApprovedAt = DateTimeOffset.UtcNow;
-
-            if (!execution.RequiresDoubleApproval)
-                execution.Status = ExecutionStatus.EnPreparation;
-
-            await db.SaveChangesAsync(ct);
-            return null;
-        }
-
-        // Une premiere approbation existe deja : soit ce second appel est le
-        // second regard exige, soit il n'y a rien a faire de plus.
-        if (!execution.RequiresDoubleApproval)
-            return "Cette exécution est déjà approuvée.";
-
-        if (string.Equals(execution.ApprovedBy, approvedBy, StringComparison.OrdinalIgnoreCase))
-            return "Le second approbateur doit être une personne différente du premier — "
-                 + "un double regard par la même personne n'en est pas un.";
-
-        execution.SecondApprovedBy = approvedBy;
-        execution.SecondApprovedAt = DateTimeOffset.UtcNow;
-        execution.Status = ExecutionStatus.EnPreparation;
-
-        await db.SaveChangesAsync(ct);
-        return null;
+        if (approveUseCase is null) throw new InvalidOperationException("ApproveExecutionUseCase not configured.");
+        return approveUseCase.ExecuteAsync(executionId, approvedBy, ct);
     }
 
     /// <summary>
@@ -453,276 +264,31 @@ public sealed class ExecutionService(
         return null;
     }
 
-    /// <summary>
-    /// Lance l'exécution : prend le verrou d'environnement, puis passe en
-    /// EnCours. Le moteur la prendra en charge.
-    /// </summary>
-    public async Task<string?> StartAsync(Guid executionId, string actor, CancellationToken ct = default)
+    public Task<string?> StartAsync(Guid executionId, string actor, CancellationToken ct = default)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-
-        var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
-        if (execution is null) return "Exécution introuvable.";
-
-        // AC-07 : une tentative de lancement refusee faute d'approbation est
-        // elle-meme un evenement a tracer, pas seulement le blocage lui-meme.
-        // Sans cette ecriture, un operateur pouvait essayer de lancer une
-        // operation Production non approuvee autant de fois qu'il le
-        // souhaitait sans que rien n'en reste dans la piste d'audit.
-        if (execution.Status == ExecutionStatus.EnAttenteApprobation)
-        {
-            await auditWriter.WriteAsync(
-                AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, actor,
-                entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
-                entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
-                environmentId: execution.EnvironmentId,
-                reason: "Lancement tenté avant approbation.",
-                correlationId: execution.CorrelationId, ct: ct);
-
-            return "Cette opération attend une approbation avant d'être lancée.";
-        }
-
-        if (execution.Status != ExecutionStatus.EnPreparation)
-            return $"Cette exécution est en état {execution.Status} : elle ne peut pas être lancée.";
-
-        // FR-006 : seules les versions validees et actives d'un environnement
-        // peuvent servir a une operation - un environnement redescendu en
-        // Brouillon ou Desactive depuis la preparation de cette execution ne
-        // doit pas laisser passer un lancement au nom d'un etat perime.
-        var environnement = await db.Environments.AsNoTracking()
-            .FirstOrDefaultAsync(e => e.Id == execution.EnvironmentId, ct);
-        if (environnement is null || environnement.Status is not (LifecycleStatus.Valide or LifecycleStatus.Actif))
-        {
-            await auditWriter.WriteAsync(
-                AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, actor,
-                entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
-                entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
-                environmentId: execution.EnvironmentId,
-                reason: $"Environnement en statut {environnement?.Status.ToString() ?? "introuvable"} : lancement refusé.",
-                correlationId: execution.CorrelationId, ct: ct);
-
-            return $"L'environnement « {execution.EnvironmentCode} » n'est pas Validé ou Actif "
-                 + $"(statut actuel : {environnement?.Status.ToString() ?? "introuvable"}). "
-                 + "Seuls les environnements validés et actifs peuvent exécuter une opération.";
-        }
-
-        // LE PRE-CHECK EST INFRANCHISSABLE. Il n'y a pas de parametre pour le
-        // sauter, pas de profil qui en dispense. Decouvrir un serveur
-        // injoignable a la septieme etape d'un arret complet laisse
-        // l'ecosysteme a moitie eteint, et le composant qu'on ne peut pas
-        // joindre est justement celui qu'il faudrait arreter.
-        if (execution.PreflightAt is null)
-            return "Les contrôles préalables n'ont pas été passés. "
-                 + "Lancez le pré-check depuis l'écran de l'opération.";
-
-        if (execution.PreflightBlocked)
-        {
-            await auditWriter.WriteAsync(
-                AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, actor,
-                entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
-                entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
-                environmentId: execution.EnvironmentId,
-                reason: "Lancement tenté malgré un pré-check bloquant.",
-                correlationId: execution.CorrelationId, ct: ct);
-
-            return "Les contrôles préalables ont relevé au moins un échec bloquant. "
-                 + "L'opération ne peut pas être lancée tant qu'il n'est pas corrigé — "
-                 + "un contrôle bloquant ne se contourne pas.";
-        }
-
-        // Une simulation n'emet aucune commande : elle ne prend donc pas le
-        // verrou, et n'empeche personne de travailler.
-        if (!execution.IsSimulation)
-        {
-            var verrou = await locks.AcquireAsync(
-                execution.EnvironmentId, execution.Id, actor,
-                $"{execution.WorkflowName} v{execution.WorkflowVersion}", ct);
-
-            if (!verrou.Succeeded) return verrou.Error;
-        }
-
-        execution.Status = ExecutionStatus.EnCours;
-        execution.StartedAt = DateTimeOffset.UtcNow;
-        execution.LastHeartbeatAt = DateTimeOffset.UtcNow;
-
-        await db.SaveChangesAsync(ct);
-
-        logger.LogInformation("Exécution {Correlation} lancée par {Acteur}.", execution.CorrelationId, actor);
-
-        await auditWriter.WriteAsync(
-            AuditAction.ExecutionOperation, AuditOutcome.Succes, actor,
-            entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
-            entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
-            environmentId: execution.EnvironmentId, reason: execution.Reason,
-            correlationId: execution.CorrelationId, ct: ct);
-
-        if (notifications is not null) await notifications.NotifierLancementAsync(execution, ct);
-
-        await ReveillerMoteurAsync(ct);
-        return null;
+        if (controlUseCase is null) throw new InvalidOperationException("ControlExecutionUseCase not configured.");
+        return controlUseCase.StartAsync(executionId, actor, ct);
     }
 
     // -----------------------------------------------------------------------
     // Commandes en cours d'exécution
     // -----------------------------------------------------------------------
-    /// <summary>
-    /// Demande de pause. Elle prend effet à la FIN de l'étape en cours : couper
-    /// au milieu d'un démarrage laisserait le composant dans un état que
-    /// personne ne saurait décrire.
-    /// </summary>
-    public async Task<string?> RequestPauseAsync(Guid executionId, string actor, CancellationToken ct = default)
+    public Task<string?> RequestPauseAsync(Guid executionId, string actor, CancellationToken ct = default)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-
-        var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
-        if (execution is null) return "Exécution introuvable.";
-
-        if (execution.Status != ExecutionStatus.EnCours)
-            return $"Cette exécution est en état {execution.Status} : elle ne peut pas être mise en pause.";
-
-        execution.PauseRequestedBy = actor;
-        await db.SaveChangesAsync(ct);
-        return null;
+        if (controlUseCase is null) throw new InvalidOperationException("ControlExecutionUseCase not configured.");
+        return controlUseCase.RequestPauseAsync(executionId, actor, ct);
     }
 
-    public async Task<string?> ResumeAsync(Guid executionId, string actor, CancellationToken ct = default)
+    public Task<string?> ResumeAsync(Guid executionId, string actor, CancellationToken ct = default)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-
-        // Les etapes DOIVENT etre chargees : le chargement differe n'est pas
-        // active sur ce contexte. Sans cet Include, execution.Steps est une
-        // collection vide et la reinterrogation FR-024 plus bas parcourt du
-        // vide — la reprise repartirait sur un etat de composant perime sans
-        // que rien ne le signale.
-        var execution = await db.Executions
-            .Include(x => x.Steps)
-            .FirstOrDefaultAsync(x => x.Id == executionId, ct);
-        if (execution is null) return "Exécution introuvable.";
-
-        if (execution.Status is not (ExecutionStatus.EnPause or ExecutionStatus.ReconciliationRequise))
-            return $"Cette exécution est en état {execution.Status} : il n'y a rien à reprendre.";
-
-        // Reprise apres reconciliation : les etapes laissees en suspens par un
-        // arret brutal repartent a zero, apres que l'operateur a constate l'etat
-        // reel. On ne repart JAMAIS sur une etape dont on ignore l'issue.
-        if (execution.Status == ExecutionStatus.ReconciliationRequise)
-        {
-            var suspendues = await db.ExecutionSteps
-                .Where(s => s.ExecutionId == executionId
-                            && (s.State == ExecutionStepState.EnCours || s.State == ExecutionStepState.Verification))
-                .ToListAsync(ct);
-
-            foreach (var etape in suspendues)
-            {
-                etape.State = ExecutionStepState.AVenir;
-                etape.StartedAt = null;
-                etape.ProgressMessage = null;
-                etape.Error = null;
-                etape.ErrorType = null;
-                etape.Evidence = $"Reprise décidée par {actor} après constat de l'état réel.";
-            }
-        }
-
-        // FR-024 : Réinterroger SupervisionService pour les composants impliqués dans les étapes restantes
-        if (supervision is not null)
-        {
-            var remainingComponentIds = execution.Steps
-                .Where(s => s.State is ExecutionStepState.AVenir or ExecutionStepState.EnAttente && s.ComponentId is not null)
-                .Select(s => s.ComponentId!.Value)
-                .Distinct()
-                .ToList();
-
-            foreach (var cid in remainingComponentIds)
-            {
-                ct.ThrowIfCancellationRequested();
-                // Ne bloque pas la reprise, mais met à jour l'état frais en base pour le moteur
-                await supervision.EvaluateComponentAsync(cid, ct);
-            }
-        }
-
-        if (!execution.IsSimulation)
-        {
-            var verrou = await locks.AcquireAsync(
-                execution.EnvironmentId, execution.Id, actor,
-                $"{execution.WorkflowName} v{execution.WorkflowVersion} (reprise)", ct);
-
-            if (!verrou.Succeeded) return verrou.Error;
-        }
-
-        execution.Status = ExecutionStatus.EnCours;
-        execution.PauseRequestedBy = null;
-        execution.LastHeartbeatAt = DateTimeOffset.UtcNow;
-
-        await db.SaveChangesAsync(ct);
-
-        logger.LogInformation("Exécution {Correlation} reprise par {Acteur}.", execution.CorrelationId, actor);
-
-        await ReveillerMoteurAsync(ct);
-        return null;
+        if (controlUseCase is null) throw new InvalidOperationException("ControlExecutionUseCase not configured.");
+        return controlUseCase.ResumeAsync(executionId, actor, ct);
     }
 
-    /// <summary>
-    /// Annulation. Elle ne coupe rien en vol : l'étape en cours va à son terme,
-    /// et la séquence s'arrête après. Une annulation qui interrompt un arrêt
-    /// N4 à mi-parcours produit un écosystème à moitié éteint.
-    /// </summary>
-    public async Task<string?> RequestCancelAsync(Guid executionId, string actor, CancellationToken ct = default)
+    public Task<string?> RequestCancelAsync(Guid executionId, string actor, CancellationToken ct = default)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-
-        var execution = await db.Executions.Include(x => x.Steps)
-            .FirstOrDefaultAsync(x => x.Id == executionId, ct);
-
-        if (execution is null) return "Exécution introuvable.";
-
-        if (execution.IsFinished)
-            return "Cette exécution est déjà terminée.";
-
-        execution.CancelRequestedBy = actor;
-
-        // Deja en pause ou en attente : rien ne tourne, l'annulation est
-        // immediate et sans risque.
-        if (execution.Status is ExecutionStatus.EnPause
-                             or ExecutionStatus.EnPreparation
-                             or ExecutionStatus.EnAttenteApprobation
-                             or ExecutionStatus.ReconciliationRequise)
-        {
-            foreach (var etape in execution.Steps.Where(s => !s.IsTerminal))
-                etape.State = ExecutionStepState.Annule;
-
-            execution.Status = ExecutionStatus.Annule;
-            execution.EndedAt = DateTimeOffset.UtcNow;
-            execution.Outcome = $"Annulée par {actor} avant exécution des étapes restantes.";
-
-            await db.SaveChangesAsync(ct);
-            await locks.ReleaseAsync(executionId, ct);
-            return null;
-        }
-
-        // L'execution TOURNE : le moteur ecrit sur cette meme ligne (progression,
-        // issue d'etape) pendant que l'operateur demande l'annulation. Enregistrer
-        // la demande via l'entite suivie faisait entrer le jeton RowVersion en
-        // conflit et levait une DbUpdateConcurrencyException — c'est-a-dire que
-        // le bouton « Annuler » echouait, sans explication, precisement quand on
-        // s'en sert : pendant une operation en cours.
-        //
-        // ExecuteUpdateAsync ecrit sans entite suivie et donc sans jeton de
-        // concurrence. C'est legitime ici : l'annulation n'est pas une
-        // modification d'etat concurrente du moteur, c'est un DRAPEAU que le
-        // moteur lira a la prochaine etape. La clause sur les etats non
-        // terminaux garantit qu'on ne ressuscite pas une execution qui vient de
-        // se terminer entre-temps.
-        var lignes = await db.Executions
-            .Where(x => x.Id == executionId
-                     && x.Status != ExecutionStatus.TermineSucces
-                     && x.Status != ExecutionStatus.TermineAvecAvertissements
-                     && x.Status != ExecutionStatus.Echec
-                     && x.Status != ExecutionStatus.Annule)
-            .ExecuteUpdateAsync(mise => mise
-                .SetProperty(x => x.Status, ExecutionStatus.AnnulationDemandee)
-                .SetProperty(x => x.CancelRequestedBy, actor), ct);
-
-        return lignes == 0 ? "Cette exécution est déjà terminée." : null;
+        if (controlUseCase is null) throw new InvalidOperationException("ControlExecutionUseCase not configured.");
+        return controlUseCase.RequestCancelAsync(executionId, actor, ct);
     }
 
     /// <summary>
@@ -730,85 +296,7 @@ public sealed class ExecutionService(
     /// contournable ne peut JAMAIS être ignorée, quel que soit le profil du
     /// demandeur : c'est la seule façon de garantir qu'un contrôle bloquant
     /// reste bloquant.
-    /// </summary>
-    public async Task<string?> SkipStepAsync(
-        Guid stepId, string actor, string reason, CancellationToken ct = default)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var etape = await db.ExecutionSteps.Include(s => s.Execution)
-            .FirstOrDefaultAsync(s => s.Id == stepId, ct);
-
-        if (etape is null) return "Étape introuvable.";
-
-        if (!etape.IsSkippable)
-            return $"L'étape « {etape.Name} » n'est pas déclarée contournable. "
-                 + "Elle ne peut être ignorée par personne, quel que soit le profil.";
-
-        if (string.IsNullOrWhiteSpace(reason))
-            return "Un contournement sans justification n'est pas un contournement, c'est un trou dans la traçabilité.";
-
-        if (etape.IsTerminal)
-            return $"L'étape « {etape.Name} » est déjà terminée ({etape.State}).";
-
-        // FR-013/FR-027 : en Production, la matrice de criticité peut exiger
-        // un second regard sur le contournement — un rôle habilité et un
-        // motif ne suffisent alors plus, il faut un approbateur DISTINCT du
-        // demandeur. Tant que ce second regard manque, l'étape reste bloquée :
-        // le contournement n'est jamais appliqué sur la seule demande.
-        if (approvalMatrix is not null && etape.Execution is not null)
-        {
-            var environnement = await db.Environments.AsNoTracking()
-                .FirstOrDefaultAsync(e => e.Id == etape.Execution.EnvironmentId, ct);
-
-            if (environnement?.Kind == EnvironmentKind.Production)
-            {
-                var criticiteEtape = etape.ComponentId is { } compId
-                    ? await db.Components.AsNoTracking()
-                        .Where(c => c.Id == compId).Select(c => c.Criticality)
-                        .FirstOrDefaultAsync(ct)
-                    : CriticalityLevel.Faible;
-
-                var regle = await approvalMatrix.ResolveAsync(
-                    environnement.Kind, etape.Execution.Kind, criticiteEtape, ct);
-
-                if (regle?.RequiresDoubleApproval == true && etape.SkipCoApprovedBy is null)
-                {
-                    etape.SkippedBy = actor;
-                    etape.SkipReason = reason;
-                    etape.ProgressMessage =
-                        $"Contournement demandé par {actor}, en attente d'un second approbateur "
-                        + "(matrice de criticité, FR-013/FR-027).";
-
-                    await db.SaveChangesAsync(ct);
-
-                    logger.LogWarning(
-                        "Contournement de l'étape « {Etape} » demandé par {Acteur}, en attente d'un second "
-                        + "approbateur imposé par la matrice de criticité.", etape.Name, actor);
-
-                    return null;
-                }
-            }
-        }
-
-        etape.State = ExecutionStepState.Ignore;
-        etape.SkippedBy = actor;
-        etape.SkipReason = reason;
-        etape.EndedAt = DateTimeOffset.UtcNow;
-
-        await db.SaveChangesAsync(ct);
-
-        logger.LogWarning(
-            "Étape « {Etape} » contournée par {Acteur} : {Motif}", etape.Name, actor, reason);
-
-        await auditWriter.WriteAsync(
-            AuditAction.Contournement, AuditOutcome.Succes, actor,
-            entityType: nameof(ExecutionStep), entityId: etape.Id.ToString(), entityLabel: etape.Name,
-            environmentId: etape.Execution?.EnvironmentId, reason: reason,
-            correlationId: etape.Execution?.CorrelationId, ct: ct);
-
-        return null;
-    }
 
     /// <summary>
     /// Second regard sur un contournement soumis à double approbation par la
@@ -1035,6 +523,13 @@ public sealed class ExecutionService(
         await ReveillerMoteurAsync(ct);
 
         return null;
+    }
+
+    public Task<string?> SkipStepAsync(
+        Guid stepId, string actor, string reason, CancellationToken ct = default)
+    {
+        if (controlUseCase is null) throw new InvalidOperationException("ControlExecutionUseCase not configured.");
+        return controlUseCase.SkipStepAsync(stepId, actor, reason, ct);
     }
 
     /// <summary>
