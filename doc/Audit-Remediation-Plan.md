@@ -5,7 +5,25 @@ a évalué 148 exigences numérotées à 75 Fait / 59 Partiel / 14 Absent.
 Ce document convertit chaque écart en action concrète, organisée en phases,
 pour fermer les 73 exigences Partiel/Absent une par une.
 
-**État au 18/08/2026** : **Phase I terminée (14/14), Phase II terminée (11/11).**
+**État au 19/08/2026** : **Phase I (14/14), Phase II (11/11), Phase III (6/6).**
+Suite de tests complète au vert : **504 tests, 0 échec**.
+
+> **Deux défauts réels trouvés en vérifiant, pas en lisant.** Ils ne
+> figuraient dans aucune ligne du plan :
+>
+> 1. **Le bouton « Annuler » échouait pendant qu'une exécution tournait.**
+>    `RequestCancelAsync` enregistrait la demande via l'entité suivie ; le
+>    moteur écrivant sur la même ligne au même moment, le jeton `RowVersion`
+>    levait une `DbUpdateConcurrencyException`. L'annulation échouait donc
+>    précisément quand on s'en sert : pendant une opération en cours. Corrigé
+>    par un `ExecuteUpdateAsync` — l'annulation est un DRAPEAU que le moteur
+>    lira à l'étape suivante, pas une modification concurrente de son état.
+>    Même famille que le défaut trouvé au rejeu du scénario 5.
+> 2. **La réinterrogation FR-024 ne s'exécutait jamais** (voir Phase III, 6).
+>
+> Le premier a été trouvé parce qu'un test échouait une fois sur deux en suite
+> complète et jamais isolément. Il aurait été commode de le classer « test
+> instable » : c'était un vrai défaut, sur le chemin d'annulation.
 Les 4 items de Phase I qui restaient bloqués (3, 4, 6, 7) le sont désormais :
 l'autre session a committé (`c10b66c`), ce qui a levé les deux verrous — le
 modèle EF n'a plus de changement non migré, et `Login.razor` est stabilisé.
@@ -149,25 +167,52 @@ Livré dans `Infrastructure/Diagnostic/OriginHeuristic.cs` (15 tests,
 mais pas identique aux fichiers touchés par l'autre session — vérifier l'état
 au moment de démarrer.
 
-1. **FR-050** : dessiner les arêtes `ComponentDependency` sur
-   `N4TopologyDiagram.razor` ; soit relier les nœuds actuellement codés en dur
-   au référentiel réel, soit les retirer et n'afficher que les composants
-   déclarés ; faire apparaître un composant non déclaré directement sur la
-   carte (pas seulement dans un panneau à ouvrir manuellement).
-2. **FR-051** : construire le moteur qui évalue réellement
-   `ComponentHealthCheck` (port TCP, heartbeat, connectivité base) — la table
-   existe en base sans consommateur.
-3. **FR-057** : ajouter de vraies données réseau (latence, anomalies de
-   connectivité) au panneau « Réseau et base », ou le renommer pour refléter
-   ce qu'il montre réellement.
-4. **FR-059B** : mesurer la latence des opérations dossier, détecter une
-   tendance de croissance anormale (pas seulement un seuil d'ancienneté
-   absolu).
-5. **FR-059D** : ajouter un lien `SharedFolderSnapshot → SopExecution` pour
-   tracer la confirmation ou l'infirmation d'une suspicion de corruption.
-6. **FR-024** : `ExecutionService.ResumeAsync` doit interroger
-   `SupervisionService` pour l'état réel du composant avant de rejouer une
-   étape après réconciliation, plutôt que de la remettre à zéro aveuglément.
+**État au 19/08 : 6/6.**
+
+| # | Fait | Exigence | Vérification |
+|---|---|---|---|
+| 1 | ✅ | FR-050 | Nœuds alimentés par le référentiel (`Referential.GetComponentsAsync`) et non plus codés en dur ; serveur sans composant déclaré affiché sur la carte ; **dépendances déclarées visibles depuis la carte** (livré le 19/08, voir ci-dessous) |
+| 2 | ✅ | FR-051 | `ConnectivityTester` : ping et test de port TCP sur le port WinRM du serveur **et** sur le port déclaré du composant. La table `ComponentHealthChecks` n'existe plus dans le modèle — elle a été retirée par la migration `RetraitControlesSanteEtModulesDemo` ; **l'action décrite à l'origine (« construire le moteur qui évalue cette table ») est donc périmée**, l'exigence est couverte autrement |
+| 3 | ✅ | FR-057 | Le panneau « Réseau et base » affiche disponibilité, latence et requêtes lentes/bloquées réelles (`Supervision.razor`) |
+| 4 | ✅ | FR-059B | `WriteLatencyMs` et `GrowthBytesPerHour` sur `SharedFolderSnapshot` — migration `CroissanceEtLatenceDossierPartage` |
+| 5 | ✅ | FR-059D | Livré le 19/08 — voir ci-dessous |
+| 6 | ✅ | FR-024 | `ResumeAsync` réinterroge `SupervisionService` pour les composants des étapes restantes. **Défaut corrigé le 19/08** : `execution.Steps` n'était jamais chargé (pas d'`Include`, pas de chargement différé sur ce contexte) — la boucle parcourait une collection vide et la reprise repartait sur un état de composant périmé, sans que rien ne le signale |
+
+### FR-059D — suite donnée à une suspicion de corruption
+
+Les indices de corruption étaient relevés mais rien ne disait ce qu'on en
+avait fait. Ajoutés sur `SharedFolderSnapshot` (migration
+`FR059D_SuiteSuspicionCorruption`, 5 tests) :
+
+- `SopExecutionId` — la procédure lancée pour trancher, rattachée **au
+  lancement** et non à la conclusion : c'est ce qui permet de retrouver les
+  suspicions dont personne ne s'est occupé.
+- `CorruptionConfirmed` en `bool?` — **trois états, pas deux**. `null` veut
+  dire « pas encore tranché » et ne doit jamais se lire comme « rien à
+  signaler » : c'est précisément la confusion qui laisse une corruption réelle
+  sans suite. `GetSuspicionsEnAttenteAsync` répond à la question qui compte —
+  non pas « a-t-on vu des indices », mais « en reste-t-il sans réponse ».
+- L'infirmation est enregistrée au même titre que la confirmation : savoir
+  qu'une suspicion était fausse évite de la relancer indéfiniment. Un constat
+  écrit est exigé dans les deux cas.
+
+### FR-050 — dépendances sur la carte : ce qui a été fait, et ce qui ne l'a pas été
+
+**L'action décrite au plan était « dessiner les arêtes ». Ce n'est pas ce qui
+a été livré, et c'est un choix assumé.** La carte est une grille responsive
+(`grid-cols` avec points de rupture), pas un canevas à coordonnées : tracer un
+trait entre deux cases exigerait de mesurer les positions en JavaScript et de
+les recalculer à chaque redimensionnement. Un trait qui se désaligne
+silencieusement sur une carte de topologie est pire que pas de trait.
+
+Livré à la place, sur le nœud lui-même : un bouton « dépend de N » qui liste
+les dépendances au survol et, au clic, **éclaire les nœuds dont ce composant
+dépend**. L'information transmise est la même — « ceci dépend de cela » — sans
+dépendre d'une mesure fragile. Jusqu'ici les dépendances n'existaient que sur
+la fiche d'un composant, où il fallait déjà savoir lequel ouvrir.
+
+Si le tracé géométrique est jugé nécessaire à la recette, il reste à faire et
+suppose de passer la carte en SVG.
 
 ---
 

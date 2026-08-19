@@ -370,7 +370,15 @@ public sealed class SauvegardeTests : IAsyncLifetime
     [SkippableFact]
     public async Task Un_Dossier_Inexistant_Est_Refuse_Sans_Exception()
     {
-        var v = await _sauvegarde.VerifyAsync(Path.Combine(_destination, "n-existe-pas"));
+        // Chemin construit indépendamment de _destination : le sujet de ce test
+        // est « un dossier absent est refusé », ce qui ne dépend ni de SQL
+        // Server ni du dossier de sauvegarde. L'y rattacher rendait le test
+        // tributaire de l'initialisation de la classe, et donc instable en
+        // exécution parallèle.
+        var inexistant = Path.Combine(Path.GetTempPath(), $"n4-absent-{Guid.NewGuid():N}");
+        Assert.False(Directory.Exists(inexistant));
+
+        var v = await _sauvegarde.VerifyAsync(inexistant);
 
         Assert.False(v.IsRestorable);
         Assert.NotNull(v.Error);

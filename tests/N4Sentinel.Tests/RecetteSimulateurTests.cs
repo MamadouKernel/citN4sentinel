@@ -242,7 +242,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
 
         // LE POINT DE LA SIMULATION : rien n'a bouge.
         Assert.Empty(_connecteur.CommandesEmises);
-        Assert.Null(await _verrous.GetAsync(_envId));
+        await AttendreLiberationDuVerrouAsync();
     }
 
     // =======================================================================
@@ -268,7 +268,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
         Assert.Contains(fin.Steps, e => e.Evidence!.Contains("Web tier servlet 'action' initialized"));
 
         // Le verrou est rendu a la fin.
-        Assert.Null(await _verrous.GetAsync(_envId));
+        await AttendreLiberationDuVerrouAsync();
     }
 
     // =======================================================================
@@ -722,6 +722,37 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     /// borne pour qu'un blocage se traduise par un échec de test lisible plutôt
     /// que par une suite qui ne rend jamais la main.
     /// </summary>
+    /// <summary>
+    /// Attend que le verrou d'environnement soit rendu, au lieu de le supposer
+    /// rendu à l'instant même où l'exécution passe en état terminal.
+    ///
+    /// Le moteur écrit le statut PUIS relâche le verrou, et c'est le bon ordre :
+    /// relâcher d'abord déclarerait l'environnement libre alors que l'exécution
+    /// écrit encore, et une autre opération pourrait démarrer dessus. Le test
+    /// doit donc laisser passer ces quelques millisecondes — sous forte charge
+    /// parallèle, l'ordonnanceur les étire assez pour faire échouer une
+    /// assertion immédiate.
+    ///
+    /// L'attente reste bornée : si le verrou n'est jamais rendu, c'est un vrai
+    /// défaut et le test doit le dire.
+    /// </summary>
+    private async Task AttendreLiberationDuVerrouAsync()
+    {
+        var limite = DateTimeOffset.UtcNow.AddSeconds(10);
+
+        while (DateTimeOffset.UtcNow < limite)
+        {
+            if (await _verrous.GetAsync(_envId) is null) return;
+            await Task.Delay(50);
+        }
+
+        var reste = await _verrous.GetAsync(_envId);
+        Assert.Fail(
+            "Le verrou d'environnement n'a pas été rendu dans les 10 s suivant la fin "
+            + $"de l'exécution : {reste}. L'environnement resterait bloqué pour toute "
+            + "opération suivante.");
+    }
+
     private async Task DeroulerAsync(Guid executionId)
     {
         using var jeton = new CancellationTokenSource(TimeSpan.FromSeconds(90));

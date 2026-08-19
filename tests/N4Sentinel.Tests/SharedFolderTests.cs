@@ -436,6 +436,112 @@ public sealed class SharedFolderTests : IAsyncLifetime
     // =======================================================================
     // Aides
     // =======================================================================
+    // =======================================================================
+    // FR-059D — Suite donnée à une suspicion de corruption
+    // =======================================================================
+
+    /// <summary>Relevé portant un indice de corruption, écrit directement en base.</summary>
+    private async Task<Guid> CreerReleveSuspectAsync(Guid componentId, bool avecIndice = true)
+    {
+        await using var db = _factory.CreateDbContext();
+
+        var releve = new SharedFolderSnapshot
+        {
+            ComponentId = componentId,
+            Reachable = true,
+            CorruptionIndicators = avecIndice ? ["db.data absent alors que le dossier est peuplé"] : []
+        };
+
+        db.SharedFolderSnapshots.Add(releve);
+        await db.SaveChangesAsync();
+        return releve.Id;
+    }
+
+    [Fact(DisplayName = "Une suspicion non tranchée est signalée comme en attente, jamais comme close")]
+    public async Task Une_Suspicion_Sans_Conclusion_Reste_En_Attente()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+        await CreerReleveSuspectAsync(composant.Id);
+
+        var attente = await _sante.GetSuspicionsEnAttenteAsync(_envId);
+
+        Assert.Single(attente);
+        Assert.True(attente[0].SuspicionEnAttente);
+        // Le point qui compte : « pas encore tranché » ne doit jamais se lire
+        // comme « rien à signaler ».
+        Assert.Null(attente[0].CorruptionConfirmed);
+    }
+
+    [Fact(DisplayName = "La procédure lancée pour trancher est rattachée au relevé")]
+    public async Task AttacherVerificationAsync_Relie_La_Procedure_Au_Releve()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+        var releveId = await CreerReleveSuspectAsync(composant.Id);
+        var sopExecutionId = Guid.NewGuid();
+
+        var erreur = await _sante.AttacherVerificationAsync(releveId, sopExecutionId);
+
+        Assert.Null(erreur);
+
+        await using var db = _factory.CreateDbContext();
+        var releve = await db.SharedFolderSnapshots.FirstAsync(s => s.Id == releveId);
+        Assert.Equal(sopExecutionId, releve.SopExecutionId);
+
+        // Rattacher n'est pas conclure : la suspicion reste ouverte tant que
+        // personne n'a constaté quoi que ce soit.
+        Assert.Null(releve.CorruptionConfirmed);
+        Assert.True(releve.SuspicionEnAttente);
+    }
+
+    [Fact(DisplayName = "Une suspicion infirmée est enregistrée comme telle, avec son motif")]
+    public async Task ConclureVerificationAsync_Enregistre_Aussi_L_Infirmation()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+        var releveId = await CreerReleveSuspectAsync(composant.Id);
+
+        var erreur = await _sante.ConclureVerificationAsync(
+            releveId, corruptionConfirmee: false,
+            "db.data retrouvé après remontage du partage", "m.konate");
+
+        Assert.Null(erreur);
+
+        await using var db = _factory.CreateDbContext();
+        var releve = await db.SharedFolderSnapshots.FirstAsync(s => s.Id == releveId);
+
+        Assert.False(releve.CorruptionConfirmed);
+        Assert.Contains("suspicion infirmée", releve.CorruptionConclusion!);
+        Assert.Contains("m.konate", releve.CorruptionConclusion!);
+        Assert.False(releve.SuspicionEnAttente);
+
+        // Savoir qu'une suspicion était fausse évite de la relancer sans fin.
+        Assert.Empty(await _sante.GetSuspicionsEnAttenteAsync(_envId));
+    }
+
+    [Fact(DisplayName = "Une conclusion sans constat est refusée")]
+    public async Task ConclureVerificationAsync_Exige_Un_Constat()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+        var releveId = await CreerReleveSuspectAsync(composant.Id);
+
+        var erreur = await _sante.ConclureVerificationAsync(releveId, true, "   ", "m.konate");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("constat", erreur!);
+    }
+
+    [Fact(DisplayName = "On ne conclut pas sur un relevé qui ne porte aucun indice")]
+    public async Task ConclureVerificationAsync_Refuse_Un_Releve_Sans_Indice()
+    {
+        var composant = await CreerComposantAsync(new SharedFolderProfile { RootPath = @"\\srv\partage" });
+        var releveId = await CreerReleveSuspectAsync(composant.Id, avecIndice: false);
+
+        var erreur = await _sante.ConclureVerificationAsync(
+            releveId, true, "constat quelconque", "m.konate");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("aucun indice", erreur!);
+    }
+
     private async Task<N4Component> CreerComposantAsync(SharedFolderProfile? sharedFolder)
     {
         await using var db = _factory.CreateDbContext();

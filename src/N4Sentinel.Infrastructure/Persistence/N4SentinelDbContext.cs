@@ -523,6 +523,14 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.HealthWarnings).HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.SuspectedCorruption);
+            e.Ignore(x => x.SuspicionEnAttente);
+
+            // FR-059D : suite donnee a une suspicion de corruption. Pas de cle
+            // etrangere vers SopExecutions — le releve doit survivre a la purge
+            // de l'execution, sans quoi la trace de ce qui a ete fait
+            // disparaitrait avec elle.
+            e.Property(x => x.CorruptionConclusion).HasMaxLength(1000);
+            e.HasIndex(x => x.CorruptionConfirmed);
 
             // Le composant ne se supprime pas en cascade : l'historique des
             // relevés doit survivre a la suppression du composant, comme pour

@@ -250,4 +250,78 @@ public sealed class SharedFolderHealthService(
             .Take(count)
             .ToListAsync(ct);
     }
+
+    /// <summary>
+    /// FR-059D : rattache à un relevé la procédure lancée pour trancher sa
+    /// suspicion de corruption. Le lien est posé au LANCEMENT de la procédure,
+    /// pas à sa conclusion : c'est ce qui permet de retrouver les suspicions
+    /// dont personne ne s'est occupé.
+    /// </summary>
+    public async Task<string?> AttacherVerificationAsync(
+        Guid snapshotId, Guid sopExecutionId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var releve = await db.SharedFolderSnapshots.FirstOrDefaultAsync(s => s.Id == snapshotId, ct);
+        if (releve is null) return "Relevé introuvable.";
+
+        if (!releve.SuspectedCorruption)
+            return "Ce relevé ne porte aucun indice de corruption : il n'y a rien à vérifier.";
+
+        releve.SopExecutionId = sopExecutionId;
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    /// <summary>
+    /// FR-059D : enregistre l'issue de la vérification — CONFIRMÉE ou
+    /// INFIRMÉE. Les deux comptent : savoir qu'une suspicion était fausse
+    /// évite qu'on la relance indéfiniment, et le motif reste consultable.
+    /// </summary>
+    public async Task<string?> ConclureVerificationAsync(
+        Guid snapshotId, bool corruptionConfirmee, string constat, string actor,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(constat))
+            return "Un constat est exigé : une conclusion sans motif ne vaut rien pour celui qui la relira.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var releve = await db.SharedFolderSnapshots.FirstOrDefaultAsync(s => s.Id == snapshotId, ct);
+        if (releve is null) return "Relevé introuvable.";
+
+        if (!releve.SuspectedCorruption)
+            return "Ce relevé ne porte aucun indice de corruption : il n'y a rien à conclure.";
+
+        releve.CorruptionConfirmed = corruptionConfirmee;
+        releve.CorruptionConclusion =
+            $"{constat.Trim()} — {(corruptionConfirmee ? "corruption confirmée" : "suspicion infirmée")} "
+            + $"par {actor} le {DateTimeOffset.Now:dd/MM/yyyy HH:mm}.";
+
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    /// <summary>
+    /// FR-059D : suspicions encore sans conclusion, la plus ancienne d'abord.
+    /// C'est la question qui compte pour l'exploitation — non pas « a-t-on vu
+    /// des indices », mais « en reste-t-il dont personne ne s'est occupé ».
+    /// </summary>
+    public async Task<List<SharedFolderSnapshot>> GetSuspicionsEnAttenteAsync(
+        Guid? environmentId = null, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var releves = await db.SharedFolderSnapshots
+            .AsNoTracking()
+            .Include(s => s.Component)
+            .Where(s => s.CorruptionConfirmed == null
+                && (environmentId == null || s.Component!.EnvironmentId == environmentId))
+            .OrderBy(s => s.CapturedAt)
+            .ToListAsync(ct);
+
+        // SuspectedCorruption se calcule sur une liste : le filtre se fait en
+        // memoire, apres avoir deja ecarte en base tout ce qui est tranche.
+        return releves.Where(s => s.SuspectedCorruption).ToList();
+    }
 }

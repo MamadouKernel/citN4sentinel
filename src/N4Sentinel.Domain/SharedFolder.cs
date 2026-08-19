@@ -61,6 +61,27 @@ public class SharedFolderSnapshot : AuditableEntity
     // --- FR-059D : indices de corruption (jamais un verdict)
     public List<string> CorruptionIndicators { get; set; } = [];
     public bool SuspectedCorruption => CorruptionIndicators.Count > 0;
+
+    /// <summary>
+    /// FR-059D : procédure lancée pour trancher la suspicion. Une suspicion
+    /// sans suite est une suspicion qui traîne : ce lien permet de retrouver
+    /// ce qui a été fait, et par qui.
+    /// </summary>
+    public Guid? SopExecutionId { get; set; }
+
+    /// <summary>
+    /// FR-059D : issue de la vérification. **Trois états, pas deux** —
+    /// <c>null</c> signifie « pas encore tranché », et ne doit jamais se lire
+    /// comme « rien à signaler » : c'est précisément la confusion qui laisse
+    /// une corruption réelle sans suite.
+    /// </summary>
+    public bool? CorruptionConfirmed { get; set; }
+
+    /// <summary>FR-059D : ce qui a été constaté, et par qui.</summary>
+    public string? CorruptionConclusion { get; set; }
+
+    /// <summary>Vrai si la suspicion attend encore une vérification.</summary>
+    public bool SuspicionEnAttente => SuspectedCorruption && CorruptionConfirmed is null;
 }
 
 /// <summary>Statut d'un fichier EDI suivi (FR-059H), déduit du sous-dossier où il a été relevé.</summary>

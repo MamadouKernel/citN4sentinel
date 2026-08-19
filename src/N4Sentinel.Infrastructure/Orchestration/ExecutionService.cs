@@ -575,7 +575,14 @@ public sealed class ExecutionService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var execution = await db.Executions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
+        // Les etapes DOIVENT etre chargees : le chargement differe n'est pas
+        // active sur ce contexte. Sans cet Include, execution.Steps est une
+        // collection vide et la reinterrogation FR-024 plus bas parcourt du
+        // vide — la reprise repartirait sur un etat de composant perime sans
+        // que rien ne le signale.
+        var execution = await db.Executions
+            .Include(x => x.Steps)
+            .FirstOrDefaultAsync(x => x.Id == executionId, ct);
         if (execution is null) return "Exécution introuvable.";
 
         if (execution.Status is not (ExecutionStatus.EnPause or ExecutionStatus.ReconciliationRequise))
@@ -678,9 +685,30 @@ public sealed class ExecutionService(
             return null;
         }
 
-        execution.Status = ExecutionStatus.AnnulationDemandee;
-        await db.SaveChangesAsync(ct);
-        return null;
+        // L'execution TOURNE : le moteur ecrit sur cette meme ligne (progression,
+        // issue d'etape) pendant que l'operateur demande l'annulation. Enregistrer
+        // la demande via l'entite suivie faisait entrer le jeton RowVersion en
+        // conflit et levait une DbUpdateConcurrencyException — c'est-a-dire que
+        // le bouton « Annuler » echouait, sans explication, precisement quand on
+        // s'en sert : pendant une operation en cours.
+        //
+        // ExecuteUpdateAsync ecrit sans entite suivie et donc sans jeton de
+        // concurrence. C'est legitime ici : l'annulation n'est pas une
+        // modification d'etat concurrente du moteur, c'est un DRAPEAU que le
+        // moteur lira a la prochaine etape. La clause sur les etats non
+        // terminaux garantit qu'on ne ressuscite pas une execution qui vient de
+        // se terminer entre-temps.
+        var lignes = await db.Executions
+            .Where(x => x.Id == executionId
+                     && x.Status != ExecutionStatus.TermineSucces
+                     && x.Status != ExecutionStatus.TermineAvecAvertissements
+                     && x.Status != ExecutionStatus.Echec
+                     && x.Status != ExecutionStatus.Annule)
+            .ExecuteUpdateAsync(mise => mise
+                .SetProperty(x => x.Status, ExecutionStatus.AnnulationDemandee)
+                .SetProperty(x => x.CancelRequestedBy, actor), ct);
+
+        return lignes == 0 ? "Cette exécution est déjà terminée." : null;
     }
 
     /// <summary>
