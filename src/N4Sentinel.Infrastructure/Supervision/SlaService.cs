@@ -29,6 +29,17 @@ public class SlaReportDto
 
     /// <summary>FR-094 : causes d'échec qui se répètent, classées par fréquence — jamais une seule occurrence isolée.</summary>
     public List<RecurringCauseDto> RecurringCauses { get; set; } = new();
+
+    /// <summary>
+    /// FR-094 : temps moyen, en minutes, entre l'ouverture d'une session de
+    /// diagnostic et son analyse. **Null quand aucune session n'a été analysée
+    /// sur la période** — et non zéro : « aucune donnée » et « diagnostic
+    /// instantané » ne doivent pas s'afficher pareil.
+    /// </summary>
+    public double? AverageDiagnosticMinutes { get; set; }
+
+    /// <summary>FR-094 : nombre de sessions ayant réellement servi au calcul ci-dessus.</summary>
+    public int DiagnosticSessionsAnalysed { get; set; }
 }
 
 public class OperationSuccessRateDto
@@ -209,8 +220,30 @@ public class SlaService
             .OrderByDescending(c => c.OccurrenceCount)
             .ToList();
 
+        // FR-094 : temps de diagnostic moyen — de l'ouverture de la session a
+        // l'analyse. Seules les sessions REELLEMENT analysees comptent : y
+        // inclure les sessions encore ouvertes ferait baisser la moyenne a
+        // mesure qu'elles s'accumulent, c'est-a-dire que l'indicateur
+        // s'ameliorerait quand la situation empire.
+        var sessionsAnalysees = await db.Sessions.AsNoTracking()
+            .Where(s => s.EnvironmentId == environmentId
+                     && s.AnalysedAt != null
+                     && s.AnalysedAt >= depuis)
+            .Select(s => new { s.CreatedAt, s.AnalysedAt })
+            .ToListAsync();
+
+        var dureesDiagnostic = sessionsAnalysees
+            .Select(s => (s.AnalysedAt!.Value - s.CreatedAt).TotalMinutes)
+            .Where(m => m >= 0)
+            .ToList();
+
         return new SlaReportDto
         {
+            DiagnosticSessionsAnalysed = dureesDiagnostic.Count,
+            AverageDiagnosticMinutes = dureesDiagnostic.Count == 0
+                ? null
+                : Math.Round(dureesDiagnostic.Average(), 1),
+
             EnvironmentId = env.Id,
             EnvironmentCode = env.Code,
             EnvironmentName = env.Name,

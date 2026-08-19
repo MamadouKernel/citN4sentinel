@@ -79,10 +79,24 @@ public sealed class ExecutionService(
 
         if (workflow is null) return PrepareResult.Failed("Workflow introuvable.");
 
-        if (!workflow.IsRunnable)
+        // FR-005 : une SIMULATION peut se lancer sur un workflow non encore
+        // validé — c'est même la seule façon de satisfaire l'obligation de
+        // simuler AVANT de valider. Rien ne le justifierait d'ailleurs : une
+        // simulation n'émet aucune commande et ne touche à rien. Le cycle de
+        // vie devient : brouillon → simulé → validé → lançable en réel.
+        //
+        // Une étape reste exigée dans les deux cas : dérouler une séquence
+        // vide ne prouverait rien.
+        if (workflow.Steps.Count == 0)
             return PrepareResult.Failed(
-                $"Le workflow « {workflow.Name} » est en état {workflow.Status} et compte "
-                + $"{workflow.Steps.Count} étape(s). Il doit être validé et comporter au moins une étape.");
+                $"Le workflow « {workflow.Name} » ne comporte aucune étape : "
+                + "il n'y a rien à dérouler, même en simulation.");
+
+        if (!isSimulation && !workflow.IsRunnable)
+            return PrepareResult.Failed(
+                $"Le workflow « {workflow.Name} » est en état {workflow.Status}. Il doit être "
+                + "validé pour être lancé en réel. Lancez-le d'abord en simulation : elle "
+                + "n'émet aucune commande, et sa réussite est la condition pour le valider.");
 
         if (string.IsNullOrWhiteSpace(reason))
             return PrepareResult.Failed(

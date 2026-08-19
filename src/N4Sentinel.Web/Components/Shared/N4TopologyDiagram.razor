@@ -616,12 +616,8 @@
             // FR-050 : les dépendances déclarées, pour les rendre visibles sur
             // la carte. Elles n'existaient jusqu'ici que sur la fiche d'un
             // composant, où il fallait déjà savoir lequel ouvrir.
-            _dependances = [];
-            foreach (var c in _allComponents)
-            {
-                var liens = await Referential.GetDependenciesAsync(c.Id);
-                if (liens.Count > 0) _dependances[c.Id] = liens;
-            }
+            _dependances = await Referential.GetDependenciesByEnvironmentAsync(
+                _selectedEnvironmentId.Value);
         }
         else
         {

@@ -5,11 +5,27 @@ a évalué 148 exigences numérotées à 75 Fait / 59 Partiel / 14 Absent.
 Ce document convertit chaque écart en action concrète, organisée en phases,
 pour fermer les 73 exigences Partiel/Absent une par une.
 
-**État au 19/08/2026** : **Phase I (14/14), Phase II (11/11), Phase III (6/6).**
-Suite de tests complète au vert : **504 tests, 0 échec**.
+**État au 19/08/2026** : **toutes les phases terminées — I (14/14), II (11/11),
+III (6/6), IV (4/4), V (10/10), VI (4/4).** Suite complète au vert :
+**517 tests, 0 échec**.
 
-> **Deux défauts réels trouvés en vérifiant, pas en lisant.** Ils ne
-> figuraient dans aucune ligne du plan :
+Restent hors de portée du code seul les exigences listées en fin de document
+(elles demandent un accès à un vrai N4, une décision de gouvernance ou une
+ressource externe).
+
+> **Cinq défauts réels trouvés en vérifiant, pas en lisant.** Aucun ne
+> figurait dans une ligne du plan — le plan décrivait des fonctions à écrire,
+> pas des fonctions écrites qui ne marchaient pas :
+>
+> 3. **La commande émise était conservée en clair** alors que FR-028 exige
+>    qu'elle soit masquée (voir Phase IV).
+> 4. **La sonde de santé n'était exposée nulle part** — enregistrée dans le
+>    conteneur, joignable par personne (voir Phase VI).
+> 5. **Un workflow pouvait être validé sans avoir jamais été simulé**, donc
+>    devenir lançable en réel sur la production sans avoir été déroulé une
+>    seule fois (voir Phase V).
+>
+> Les deux premiers :
 >
 > 1. **Le bouton « Annuler » échouait pendant qu'une exécution tournait.**
 >    `RequestCancelAsync` enregistrait la demande via l'entité suivie ; le
@@ -221,18 +237,42 @@ suppose de passer la carte en SVG.
 **Risque de collision : faible.** `SlaService.cs`, nouveau
 `NotificationService`, `ExecutionReportService.cs`.
 
-1. **FR-094** : ajouter au `SlaService` — étapes les plus lentes (déjà dans
-   `ExecutionStep.Duration`), incidents par cause (`AlertKind`), erreurs
-   récurrentes, temps de diagnostic moyen.
-2. **FR-095** : `NotificationService` réel utilisant `SmtpEmailSender` déjà
-   existant, déclenché par `OrchestrationEngine`/`AlertService` au lancement,
-   en cas de blocage et à la fin — destinataires : demandeur + approbateurs +
-   liste configurable par environnement.
-3. **FR-096** : `IncidentReportService` qui assemble automatiquement, à la
-   clôture d'une alerte/session de diagnostic, le rapport structuré complet
-   (détection, prise en charge, fin, cause, preuves, actions, SOP associé).
-4. **FR-028** : capturer la commande réellement envoyée (sous forme masquée)
-   dans `ExecutionStep` et le rapport.
+**État au 19/08 : 4/4.**
+
+| # | Fait | Exigence | Vérification |
+|---|---|---|---|
+| 1 | ✅ | FR-094 | `SlowSteps`, `RecurringCauses` (une occurrence unique n'est jamais présentée comme une récurrence), `SuccessRateByOperation`, MTTR/MTBF. **Complété le 19/08** : `AverageDiagnosticMinutes` manquait — ajouté, calculé sur les seules sessions réellement analysées, et `null` (non zéro) quand il n'y en a aucune |
+| 2 | ✅ | FR-095 | `OperationNotificationService` branché au lancement (`ExecutionService`), au blocage et à la fin (`OrchestrationEngine`) |
+| 3 | ✅ | FR-096 | `IncidentReportService` + tests dédiés |
+| 4 | ✅ | FR-028 | `ExecutedCommand` sur `ExecutionStep`, alimenté par le connecteur — migration `FR028_CommandesMasquees`. **Trou de sécurité corrigé le 19/08**, voir ci-dessous |
+
+### FR-028 — la commande était conservée en clair
+
+L'exigence demande la commande réellement émise **sous forme masquée**. Elle
+était capturée, mais pas masquée : `SecretMasker` n'était appliqué qu'au
+`Message` de `StepOutcome`, jamais à `ExecutedCommand`. Une commande de
+service portant un identifiant technique s'écrivait donc en clair dans
+`ExecutionStep.ExecutedCommand`, et de là dans le rapport d'exécution.
+
+Le fichier portait pourtant déjà le bon raisonnement en commentaire — masquer
+« au seul point de construction, sans dépendre de la discipline de chaque
+appelant ». `ExecutedCommand` contournait exactement cela.
+
+Corrigé en portant le masquage sur la **propriété** et non sur les trois
+fabriques : le redémarrage et l'attente de marqueur posent la commande par
+`with { ExecutedCommand = … }`, et ces deux chemins seraient restés ouverts.
+4 tests ajoutés (`OrchestrationMasquageTests`), dont un qui vérifie qu'une
+commande sans secret reste lisible — un masquage qui rend le rapport
+inutilisable ne vaut guère mieux que pas de masquage.
+
+### Note sur les indicateurs « zéro » (FR-094)
+
+`AverageDiagnosticMinutes` est nullable à dessein. Afficher `0 min` quand
+aucune session n'a été analysée se lirait comme « diagnostic instantané »
+alors que cela veut dire « aucune donnée ». Même raison pour n'inclure que les
+sessions effectivement analysées : compter les sessions encore ouvertes ferait
+*baisser* la moyenne à mesure qu'elles s'accumulent, c'est-à-dire que
+l'indicateur s'améliorerait quand la situation empire.
 
 ---
 
@@ -242,6 +282,44 @@ suppose de passer la carte en SVG.
 `WorkflowExecution.cs`, `OrchestrationEngine.cs`, `SequenceValidator.cs`,
 `ExecutionService.cs` — le territoire exact où l'autre session travaille.
 **Ne pas commencer avant qu'elle ait committé.**
+
+**État au 19/08 : 10/10.** L'autre session a livré l'essentiel ; chaque item
+porte son étiquette d'exigence dans le code (`AC-05` dans `SequenceValidator`,
+`FR-031` garde-fou des jobs conditionnels, `FR-035`/`FR-037` comme étapes
+nommées de `WorkflowService`, `FR-043` scénarios ciblés, `FR-046` bascule
+Standby, `FR-011`/`FR-016` fenêtre d'intervention et durée agrégée —
+migration `PhaseV_OrchestrationComplete`).
+
+**Un seul écart réel, sur FR-005 : la simulation obligatoire avant validation
+n'existait pas.** Un workflow d'arrêt complet pouvait passer en « Validé »,
+donc devenir lançable en réel sur la production, sans avoir jamais été déroulé
+une seule fois, même à blanc.
+
+Corrigé le 19/08, en trois temps :
+
+1. **Le contrôle lit la preuve, pas un drapeau.** `ChangeStatusAsync` exige
+   une exécution de simulation terminée avec succès **pour cette version du
+   workflow**. Un drapeau posé à la main resterait vrai après modification des
+   étapes — on validerait alors une séquence que personne n'a déroulée. Un
+   test couvre précisément ce piège : simuler la v1, modifier, valider la v2.
+2. **L'exigence était circulaire, il a fallu ouvrir la porte.** Un workflow
+   devait déjà être validé pour être lancé, simulation comprise : la
+   validation devenait inatteignable. `PrepareAsync` autorise désormais la
+   simulation d'un workflow non validé — elle n'émet aucune commande et ne
+   touche à rien, rien ne justifiait de l'interdire. Le cycle de vie devient
+   **brouillon → simulé → validé → lançable en réel**. Une étape reste exigée
+   dans les deux cas : dérouler une séquence vide ne prouverait rien.
+3. **La règle se lève par une dérogation explicite et tracée (FR-004)**, pas
+   par un réglage silencieux. Un site sans écosystème de simulation doit
+   pouvoir avancer, mais en écrivant pourquoi : la justification part dans la
+   piste d'audit sous la mention « VALIDÉ SANS SIMULATION PRÉALABLE ». À
+   l'écran, le champ de dérogation n'apparaît **qu'après** le refus, pour ne
+   pas présenter le contournement comme le chemin normal.
+
+4 tests ajoutés (refus, dérogation auditée, simulation valide, simulation
+d'une autre version).
+
+---
 
 1. **AC-05** : étendre la règle « Cluster un par un » de `SequenceValidator`
    à `StepAction.Arreter`, pas seulement `Demarrer`/`Redemarrer`.
@@ -276,17 +354,59 @@ suppose de passer la carte en SVG.
 
 **Risque de collision : faible**, sauf item 3.
 
-1. **NFR-006** : intégrer un outil de couverture (`coverlet` + rapport) pour
-   remplacer « non mesuré » par un chiffre réel.
-2. **NFR-007** : documenter/gérer explicitement l'absence de repli hors
-   Windows pour la protection DPAPI du coffre à secrets, ou restreindre
-   explicitement le déploiement à Windows.
-3. **§3.19** : comportement dégradé explicite au-delà des 3 tentatives de
-   reconnexion base (page de statut applicatif, health check exposé) —
-   *dépend de `DependencyInjection.cs`, coordonner avec l'autre session.*
-4. **Approbation** : évaluer si une entité `Approbation` dédiée apporte une
-   valeur réelle par rapport aux champs actuels sur `WorkflowExecution`
-   (actuellement fonctionnel — priorité basse).
+**État au 19/08 : 4/4.**
+
+| # | Fait | Exigence | Vérification |
+|---|---|---|---|
+| 1 | ✅ | NFR-006 | `coverlet.collector` + `coverlet.msbuild` référencés ; `run-tests.ps1 -Coverage` produit un rapport Cobertura |
+| 2 | ✅ | NFR-007 | `docs/ADR/ADR-SEC-007-DPAPI.md` — décision documentée et déploiement restreint à Windows |
+| 3 | ✅ | §3.19 | 3 tentatives de reconnexion (`EnableRetryOnFailure`, délai max 5 s) **et** sonde de santé désormais **exposée** — voir ci-dessous |
+| 4 | ✅ | Approbation | Évalué, **non retenu** — voir ci-dessous |
+
+### §3.19 — la sonde de santé existait sans être joignable
+
+`AddHealthChecks().AddDbContextCheck<N4SentinelDbContext>()` était enregistré
+dans le conteneur, mais **aucun `MapHealthChecks` ne l'exposait**. Un contrôle
+de santé injoignable revient à ne pas en avoir : rien, ni IIS ni un
+répartiteur de charge ni un outil de supervision, ne pouvait l'interroger.
+
+Deux points d'entrée volontairement distincts :
+
+- **`/health`** — anonyme, réponse minimale (`Healthy` / `Unhealthy`). C'est
+  ce qu'interroge un répartiteur de charge, qui n'est pas authentifié et n'a
+  pas à connaître le détail.
+- **`/health/detail`** — réservé aux habilités (`PeutConsulter`) : nomme le
+  contrôle en échec et son motif. Savoir que la base est injoignable est une
+  information d'exploitation, pas une information publique.
+
+Deux précautions :
+
+- **La sonde est exclue du limiteur de débit.** Un répartiteur interroge
+  `/health` toutes les quelques secondes ; l'étrangler à 300 requêtes/minute
+  ferait déclarer l'application morte alors qu'elle va bien.
+- **La réponse détaillée dit ce qu'elle ne couvre PAS.** Le contrôle porte sur
+  N4 Sentinel (base, application), pas sur l'écosystème N4 supervisé. Sans
+  cette phrase, « Healthy » se lirait comme « tout va bien » — exactement la
+  confusion que le principe fondateur de l'application interdit.
+
+> **Non vérifié à l'exécution.** Les deux points d'entrée compilent et sont
+> enregistrés, mais l'application n'a pas été démarrée pour les interroger :
+> cela suppose la base de développement, et je n'allais pas la solliciter sans
+> qu'on me le demande. À contrôler au premier lancement — un `GET /health`
+> doit répondre `Healthy` en texte brut.
+
+### Approbation — entité dédiée évaluée, non retenue
+
+Les champs portés par `WorkflowExecution` (demandeur, approbateurs, double
+approbation, matrice de criticité) couvrent les exigences telles qu'elles sont
+écrites. Une entité `Approbation` séparée n'ajouterait ni contrainte ni
+information : elle déplacerait des colonnes vers une table, au prix d'une
+jointure et d'une migration sur un domaine qui fonctionne. Aucune exigence ne
+demande l'historique de plusieurs approbations successives sur une même
+exécution — c'est le seul cas qui justifierait la table.
+
+**À reconsidérer si** une exigence future impose de conserver les approbations
+révoquées, ou une chaîne d'approbation de plus de deux niveaux.
 
 ---
 

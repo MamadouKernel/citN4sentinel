@@ -1674,8 +1674,127 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
     private async Task ValiderAsync(Guid workflowId)
     {
-        var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test");
+        // FR-005 : la validation exige une simulation reussie de cette version.
+        // Ces tests portent sur les pre-checks, l'approbation et le rapport ;
+        // ils ne deroulent pas le moteur. La derogation tracee est donc le
+        // chemin exact prevu pour ce cas — la meme porte qu'utiliserait un site
+        // sans ecosysteme de simulation.
+        var erreur = await _workflows.ChangeStatusAsync(
+            workflowId, LifecycleStatus.Valide, "test",
+            "Jeu de tests : le moteur n'est pas deroule pour cette verification.");
         Assert.Null(erreur);
+    }
+
+    // =======================================================================
+    // FR-005 — simulation obligatoire avant validation, FR-004 — dérogation
+    // =======================================================================
+
+    [Fact(DisplayName = "FR-005 : valider un workflow jamais simulé est refusé")]
+    public async Task Valider_Sans_Simulation_Est_Refuse()
+    {
+        var workflowId = await CreerWorkflowAsync(
+            $"WF-{Guid.NewGuid():N}"[..12], WorkflowKind.DemarrageComplet);
+
+        var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("simulé", erreur!);
+
+        // Le refus doit dire quoi faire, pas seulement dire non.
+        Assert.Contains("simulation", erreur!, StringComparison.OrdinalIgnoreCase);
+
+        await using var db = _factory.CreateDbContext();
+        var workflow = await db.Workflows.FirstAsync(w => w.Id == workflowId);
+        Assert.NotEqual(LifecycleStatus.Valide, workflow.Status);
+    }
+
+    [Fact(DisplayName = "FR-004 : la dérogation lève le refus et reste inscrite à l'audit")]
+    public async Task Valider_Sans_Simulation_Passe_Avec_Une_Derogation_Tracee()
+    {
+        var workflowId = await CreerWorkflowAsync(
+            $"WF-{Guid.NewGuid():N}"[..12], WorkflowKind.DemarrageComplet);
+
+        var erreur = await _workflows.ChangeStatusAsync(
+            workflowId, LifecycleStatus.Valide, "m.konate",
+            "Aucun écosystème de simulation disponible sur ce site.");
+
+        Assert.Null(erreur);
+
+        await using var db = _factory.CreateDbContext();
+
+        var workflow = await db.Workflows.FirstAsync(w => w.Id == workflowId);
+        Assert.Equal(LifecycleStatus.Valide, workflow.Status);
+
+        // Le point qui compte : la dérogation ne doit pas être silencieuse.
+        var trace = await db.AuditEntries
+            .Where(a => a.EntityId == workflowId.ToString()
+                     && a.Action == AuditAction.ChangementDeStatut)
+            .OrderByDescending(a => a.OccurredAt)
+            .FirstAsync();
+
+        Assert.Contains("SANS SIMULATION", trace.Reason!);
+        Assert.Contains("Aucun écosystème de simulation", trace.Reason!);
+    }
+
+    [Fact(DisplayName = "FR-005 : une simulation réussie de cette version suffit à valider")]
+    public async Task Une_Simulation_Reussie_Ouvre_La_Validation()
+    {
+        var workflowId = await CreerWorkflowAsync(
+            $"WF-{Guid.NewGuid():N}"[..12], WorkflowKind.DemarrageComplet);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var workflow = await db.Workflows.FirstAsync(w => w.Id == workflowId);
+
+            db.Executions.Add(new WorkflowExecution
+            {
+                WorkflowId = workflowId,
+                WorkflowVersion = workflow.Version,
+                WorkflowName = workflow.Name,
+                EnvironmentId = workflow.EnvironmentId,
+                IsSimulation = true,
+                Status = ExecutionStatus.TermineSucces,
+                RequestedBy = "test",
+                Reason = "Simulation de contrôle."
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test");
+
+        Assert.Null(erreur);
+    }
+
+    [Fact(DisplayName = "FR-005 : une simulation d'une AUTRE version ne vaut pas preuve")]
+    public async Task Une_Simulation_D_Une_Autre_Version_Ne_Suffit_Pas()
+    {
+        // Le piège : simuler la v1, modifier les étapes, puis valider la v2.
+        // La séquence validée ne serait alors pas celle qui a été déroulée.
+        var workflowId = await CreerWorkflowAsync(
+            $"WF-{Guid.NewGuid():N}"[..12], WorkflowKind.DemarrageComplet);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var workflow = await db.Workflows.FirstAsync(w => w.Id == workflowId);
+
+            db.Executions.Add(new WorkflowExecution
+            {
+                WorkflowId = workflowId,
+                WorkflowVersion = workflow.Version + 1,
+                WorkflowName = workflow.Name,
+                EnvironmentId = workflow.EnvironmentId,
+                IsSimulation = true,
+                Status = ExecutionStatus.TermineSucces,
+                RequestedBy = "test",
+                Reason = "Simulation d'une autre version."
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var erreur = await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test");
+
+        Assert.NotNull(erreur);
+        Assert.Contains("simulé", erreur!);
     }
 
     [Fact(DisplayName = "Valider un workflow laisse une trace d'audit (FR-091)")]

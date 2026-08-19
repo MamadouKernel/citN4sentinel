@@ -132,6 +132,28 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
     }
 
     /// <summary>
+    /// FR-050 : toutes les dependances d'un environnement en UNE requete,
+    /// indexees par composant dependant. La carte de topologie les affiche pour
+    /// chaque noeud : les demander composant par composant ouvrirait autant de
+    /// connexions qu'il y a de composants, a chaque changement d'environnement.
+    /// </summary>
+    public async Task<Dictionary<Guid, List<ComponentDependency>>> GetDependenciesByEnvironmentAsync(
+        Guid environmentId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var liens = await db.ComponentDependencies
+            .AsNoTracking()
+            .Include(d => d.DependsOnComponent)
+            .Where(d => d.Component!.EnvironmentId == environmentId)
+            .OrderBy(d => d.Kind)
+            .ToListAsync(ct);
+
+        return liens.GroupBy(d => d.ComponentId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    /// <summary>
     /// Composants qui dependent de celui-ci. C'est la question a laquelle il
     /// faut repondre AVANT d'arreter quoi que ce soit : qui va tomber avec lui.
     /// </summary>

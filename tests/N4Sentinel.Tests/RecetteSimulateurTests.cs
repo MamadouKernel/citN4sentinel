@@ -568,7 +568,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             await db.SaveChangesAsync();
         }
 
-        Assert.Null(await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test"));
+        Assert.Null(await _workflows.ChangeStatusAsync(
+            workflowId, LifecycleStatus.Valide, "test", JustificationRecette));
 
         var execution = await PreparerEtLancerAsync(workflowId);
 
@@ -626,7 +627,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             await db.SaveChangesAsync();
         }
 
-        Assert.Null(await _workflows.ChangeStatusAsync(workflowId, LifecycleStatus.Valide, "test"));
+        Assert.Null(await _workflows.ChangeStatusAsync(
+            workflowId, LifecycleStatus.Valide, "test", JustificationRecette));
 
         var execution = await PreparerEtLancerAsync(workflowId);
         await DeroulerAsync(execution);
@@ -689,7 +691,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
 
         await db.SaveChangesAsync();
 
-        Assert.Null(await _workflows.ChangeStatusAsync(id, LifecycleStatus.Valide, "test"));
+        Assert.Null(await _workflows.ChangeStatusAsync(
+            id, LifecycleStatus.Valide, "test", JustificationRecette));
         return id;
     }
 
@@ -736,6 +739,14 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
     /// L'attente reste bornée : si le verrou n'est jamais rendu, c'est un vrai
     /// défaut et le test doit le dire.
     /// </summary>
+    /// <summary>
+    /// FR-005 : la validation exige une simulation réussie de cette version.
+    /// Ces scénarios construisent le workflow puis le déroulent immédiatement ;
+    /// la dérogation tracée est la porte exacte prévue pour ce cas.
+    /// </summary>
+    private const string JustificationRecette =
+        "Recette automatisée : le workflow est déroulé immédiatement après validation.";
+
     private async Task AttendreLiberationDuVerrouAsync()
     {
         var limite = DateTimeOffset.UtcNow.AddSeconds(10);

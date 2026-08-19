@@ -603,7 +603,8 @@ public sealed class WorkflowService(
     };
 
     public async Task<string?> ChangeStatusAsync(
-        Guid workflowId, LifecycleStatus cible, string actor, CancellationToken ct = default)
+        Guid workflowId, LifecycleStatus cible, string actor,
+        string? justificationSansSimulation = null, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -615,6 +616,42 @@ public sealed class WorkflowService(
 
         if (cible is LifecycleStatus.Valide or LifecycleStatus.Actif && workflow.Steps.Count == 0)
             return "Un workflow sans étape ne peut pas être validé.";
+
+        // FR-005 : simulation obligatoire avant validation. Valider un
+        // workflow le rend lancable pour de vrai sur l'ecosysteme ; l'avoir
+        // deroule au moins une fois a blanc est le minimum avant d'autoriser
+        // cela.
+        //
+        // On interroge la PREUVE plutot qu'un drapeau : une simulation reussie
+        // de CETTE version, enregistree comme execution. Un drapeau pose a la
+        // main resterait vrai apres modification des etapes, ce qui reviendrait
+        // a valider une sequence que personne n'a jamais deroulee.
+        var derogationSimulation = false;
+
+        if (cible is LifecycleStatus.Valide or LifecycleStatus.Actif)
+        {
+            var simulee = await db.Executions.AsNoTracking().AnyAsync(
+                e => e.WorkflowId == workflowId
+                  && e.WorkflowVersion == workflow.Version
+                  && e.IsSimulation
+                  && e.Status == ExecutionStatus.TermineSucces, ct);
+
+            if (!simulee)
+            {
+                // FR-004 : l'interdiction se lève par une dérogation EXPLICITE
+                // et TRACÉE, jamais par un réglage silencieux. Un site sans
+                // écosystème de simulation doit pouvoir avancer — mais en
+                // écrivant pourquoi, et en le laissant dans la piste d'audit.
+                if (string.IsNullOrWhiteSpace(justificationSansSimulation))
+                    return $"Ce workflow (version {workflow.Version}) n'a jamais été simulé avec "
+                         + "succès. Lancez-le en simulation : elle n'émet aucune commande et ne "
+                         + "touche à rien. Une séquence que personne n'a déroulée, même à blanc, "
+                         + "ne doit pas devenir lançable en réel. À défaut, une dérogation "
+                         + "justifiée est exigée — elle sera tracée.";
+
+                derogationSimulation = true;
+            }
+        }
 
         var precedent = workflow.Status;
         workflow.Status = cible;
@@ -628,7 +665,11 @@ public sealed class WorkflowService(
             entityType: nameof(Workflow), entityId: workflow.Id.ToString(),
             entityLabel: $"{workflow.Name} v{workflow.Version}",
             environmentId: workflow.EnvironmentId,
-            reason: $"{precedent} → {cible}.", ct: ct);
+            reason: derogationSimulation
+                ? $"{precedent} → {cible}. VALIDÉ SANS SIMULATION PRÉALABLE (FR-005), "
+                  + $"dérogation justifiée : {justificationSansSimulation!.Trim()}"
+                : $"{precedent} → {cible}.",
+            ct: ct);
 
         return null;
     }

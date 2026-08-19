@@ -52,6 +52,27 @@ else
                     <i class="bi bi-save"></i> @(_enregistrement ? "Enregistrement…" : "Enregistrer")
                 </button>
             </div>
+
+            @* FR-005/FR-004 : la validation exige une simulation réussie de cette
+               version. À défaut, une dérogation écrite — jamais un réglage
+               silencieux. Le champ n'apparaît qu'après le refus, pour ne pas
+               présenter le contournement comme le chemin normal. *@
+            @if (_simulationManquante)
+            {
+                <div class="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                    <div class="text-[11px] text-amber-200 font-bold">
+                        Valider sans simulation préalable exige une justification, qui sera tracée.
+                    </div>
+                    <input @bind="_justificationSansSimulation" @bind:event="oninput"
+                           placeholder="Pourquoi cette séquence est validée sans avoir été déroulée à blanc"
+                           class="w-full px-3 py-2 rounded-lg bg-slate-950/60 border border-slate-700 text-xs text-slate-200" />
+                    <button class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] transition disabled:opacity-40"
+                            disabled="@string.IsNullOrWhiteSpace(_justificationSansSimulation)"
+                            @onclick="ValiderAvecDerogation">
+                        <i class="bi bi-exclamation-triangle"></i> Valider avec dérogation
+                    </button>
+                </div>
+            }
         </div>
 
         @if (_workflow.HasBeenExecuted)
@@ -446,18 +467,41 @@ else
         Signaler("Étapes enregistrées.", true);
     }
 
-    private async Task Valider()
+    private bool _simulationManquante;
+    private string _justificationSansSimulation = string.Empty;
+
+    private Task Valider() => ValiderInterneAsync(null);
+
+    private Task ValiderAvecDerogation() => ValiderInterneAsync(_justificationSansSimulation);
+
+    private async Task ValiderInterneAsync(string? justification)
     {
         if (_workflow is null) return;
 
         var etat = await AuthProvider.GetAuthenticationStateAsync();
         var acteur = etat.User.Identity?.Name ?? "inconnu";
 
-        var erreur = await Workflows.ChangeStatusAsync(_workflow.Id, LifecycleStatus.Valide, acteur);
-        if (erreur is not null) { Signaler(erreur, false); return; }
+        var erreur = await Workflows.ChangeStatusAsync(
+            _workflow.Id, LifecycleStatus.Valide, acteur, justification);
+
+        if (erreur is not null)
+        {
+            // Le refus pour absence de simulation est le seul qui se rattrape :
+            // il ouvre le champ de dérogation. Les autres refus restent des
+            // refus.
+            _simulationManquante = erreur.Contains("simulé", StringComparison.OrdinalIgnoreCase);
+            Signaler(erreur, false);
+            return;
+        }
+
+        _simulationManquante = false;
+        _justificationSansSimulation = string.Empty;
 
         await OnParametersSetAsync();
-        Signaler("Workflow validé : il peut désormais être lancé.", true);
+        Signaler(justification is null
+            ? "Workflow validé : il peut désormais être lancé."
+            : "Workflow validé par dérogation. L'absence de simulation préalable est inscrite à la piste d'audit.",
+            true);
     }
 
     private void Signaler(string message, bool succes)

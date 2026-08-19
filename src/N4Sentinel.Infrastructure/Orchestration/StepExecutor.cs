@@ -662,7 +662,26 @@ public sealed record StepOutcome
 {
     public ExecutionStepState State { get; init; }
     public string Message { get; init; } = string.Empty;
-    public string? ExecutedCommand { get; init; }
+
+    private readonly string? _executedCommand;
+
+    /// <summary>
+    /// FR-028 : la commande réellement émise, conservée pour le rapport —
+    /// **sous forme masquée**, comme l'exige FR-028 elle-même.
+    ///
+    /// Le masquage est porté par la propriété et non par les fabriques
+    /// ci-dessous : une commande de connexion à un service distant peut porter
+    /// un secret, et elle transite ici par plusieurs chemins — les trois
+    /// fabriques, mais aussi les expressions <c>with { ExecutedCommand = … }</c>
+    /// du redémarrage et de l'attente. Masquer dans les fabriques seulement
+    /// aurait laissé ces deux chemins écrire en clair, ce qui est précisément
+    /// le genre de trou que le commentaire ci-dessus dit vouloir éviter.
+    /// </summary>
+    public string? ExecutedCommand
+    {
+        get => _executedCommand;
+        init => _executedCommand = value is null ? null : SecretMasker.Masquer(value).Texte;
+    }
 
     /// <summary>§3.19 : classification exacte de l'échec, quand elle est déterminable. Null hors échec.</summary>
     public StepErrorType? ErrorType { get; init; }

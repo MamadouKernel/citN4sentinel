@@ -65,4 +65,54 @@ public sealed class OrchestrationMasquageTests
 
         Assert.Equal(message, issue.Message);
     }
+
+    // =======================================================================
+    // FR-028 — la commande réellement émise, conservée SOUS FORME MASQUÉE
+    // =======================================================================
+
+    [SkippableFact]
+    public void La_Commande_Emise_Est_Masquee_Comme_Le_Message()
+    {
+        // FR-028 exige la commande « sous forme masquée ». Elle était
+        // conservée en clair : le masquage vivait dans les fabriques et ne
+        // portait que sur le message.
+        var issue = StepOutcome.Succeeded(
+            "Service démarré.",
+            "Start-Service -Name N4Bridge -Credential (svc_n4;password=Prod2026Secret)");
+
+        Assert.DoesNotContain("Prod2026Secret", issue.ExecutedCommand!);
+        Assert.Contains("***MASQUÉ***", issue.ExecutedCommand!);
+    }
+
+    [SkippableFact]
+    public void La_Commande_Reste_Masquee_Quand_Elle_Est_Posee_Par_Une_Expression_With()
+    {
+        // Le redémarrage et l'attente de marqueur reposent sur
+        // « with { ExecutedCommand = … } » : masquer dans les fabriques
+        // seulement aurait laissé ces chemins écrire en clair.
+        var issue = StepOutcome.Succeeded("Redémarrage terminé.")
+            with { ExecutedCommand = "Restart-Service -ArgumentList 'apikey=AbCdEf123456'" };
+
+        Assert.DoesNotContain("AbCdEf123456", issue.ExecutedCommand!);
+        Assert.Contains("***MASQUÉ***", issue.ExecutedCommand!);
+    }
+
+    [SkippableFact]
+    public void Une_Commande_Sans_Secret_Reste_Lisible()
+    {
+        // Le masquage ne doit pas rendre le rapport inutilisable : sans
+        // secret, la commande se lit telle quelle.
+        const string commande = "Stop-Service -Name N4Bridge -Force";
+        var issue = StepOutcome.Succeeded("Service arrêté.", commande);
+
+        Assert.Equal(commande, issue.ExecutedCommand);
+    }
+
+    [SkippableFact]
+    public void Une_Commande_Absente_Reste_Absente()
+    {
+        var issue = StepOutcome.Succeeded("Étape sans commande.");
+
+        Assert.Null(issue.ExecutedCommand);
+    }
 }

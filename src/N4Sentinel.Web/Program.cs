@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure;
@@ -42,6 +43,12 @@ builder.Services.AddRateLimiter(options =>
                 || chemin.StartsWithSegments("/_content")
                 || Path.HasExtension(chemin.Value))
                 return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("statique");
+
+            // §3.19 : la sonde de sante n'est pas limitee. Un repartiteur de
+            // charge interroge /health toutes les quelques secondes ; l'etrangler
+            // ferait declarer l'application morte alors qu'elle va bien.
+            if (chemin.StartsWithSegments("/health"))
+                return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("sante");
 
             var cle = contexte.Connection.RemoteIpAddress?.ToString() ?? "inconnu";
 
@@ -305,6 +312,54 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapAdditionalIdentityEndpoints();
+
+// §3.19 : comportement dégradé explicite. AddHealthChecks() était enregistré
+// mais n'était exposé nulle part — le contrôle existait sans être joignable,
+// ce qui revient à ne pas en avoir.
+//
+// Deux points d'entrée volontairement distincts :
+//
+//   /health  — anonyme, réponse minimale (« Healthy » / « Unhealthy »). C'est
+//              ce qu'interroge IIS ou un répartiteur de charge, qui n'est pas
+//              authentifié et n'a pas à connaître le détail.
+//
+//   /health/detail — réservé aux habilités : nomme le contrôle en échec et sa
+//              description. Savoir que la base est injoignable est une
+//              information d'exploitation, pas une information publique.
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (contexte, rapport) =>
+    {
+        contexte.Response.ContentType = "text/plain; charset=utf-8";
+        await contexte.Response.WriteAsync(rapport.Status.ToString());
+    }
+}).AllowAnonymous();
+
+app.MapHealthChecks("/health/detail", new HealthCheckOptions
+{
+    ResponseWriter = async (contexte, rapport) =>
+    {
+        contexte.Response.ContentType = "text/plain; charset=utf-8";
+
+        var lignes = new List<string> { $"Statut global : {rapport.Status}" };
+
+        foreach (var (nom, controle) in rapport.Entries)
+        {
+            lignes.Add($"{nom} : {controle.Status}"
+                + (controle.Description is { Length: > 0 } d ? $" — {d}" : string.Empty)
+                + (controle.Exception is not null ? $" — {controle.Exception.Message}" : string.Empty));
+        }
+
+        // Ce que le contrôle NE dit PAS doit être dit aussi : une base
+        // joignable ne prouve pas qu'un composant N4 tourne. Sans cette
+        // phrase, « Healthy » se lit comme « tout va bien ».
+        lignes.Add(string.Empty);
+        lignes.Add("Ce contrôle porte sur N4 Sentinel lui-même (base, application),");
+        lignes.Add("PAS sur l'état de l'écosystème N4 supervisé. Voir l'écran Supervision.");
+
+        await contexte.Response.WriteAsync(string.Join('\n', lignes));
+    }
+}).RequireAuthorization(N4Policies.PeutConsulter);
 
 // NFR-008 : métriques d'exploitation exposées au format texte (compatible
 // scrape Prometheus), pour un outil d'APM externe — au-delà des logs.
