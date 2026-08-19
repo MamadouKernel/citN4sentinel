@@ -297,6 +297,25 @@ app.Use(async (context, next) =>
     // reclame l'assistant vocal - et uniquement depuis l'application elle-meme.
     entetes["Permissions-Policy"] = "camera=(), geolocation=(), microphone=(self), payment=(), usb=()";
 
+    // Jeton a usage unique, regenere a CHAQUE requete. C'est ce qui distingue
+    // un nonce de 'unsafe-inline' : seul le script portant ce jeton precis
+    // s'execute, et un script injecte par un attaquant ne peut pas le deviner.
+    //
+    // Il sert exclusivement au <script type="importmap"> qu'emet Blazor
+    // lui-meme : ce bloc est genere par le framework, on ne peut pas le sortir
+    // dans un fichier, et sans nonce il etait bloque a chaque chargement de
+    // page. Aucun code du produit ne doit s'en servir pour ecrire du script en
+    // ligne — le geste correct reste un fichier servi depuis l'origine, comme
+    // password-toggle.js et sw-register.js.
+    // Hexadecimal et non base64 : base64 produit des '+' et des '/' que Razor
+    // encode en entites HTML dans l'attribut ('+' devient '&#x2B;'). Le
+    // navigateur les redecode, donc cela fonctionne — mais toute comparaison
+    // manuelle entre l'en-tete et la balise donne un faux ecart, et un futur
+    // lecteur y perdrait du temps. L'hexadecimal traverse sans transformation.
+    var nonce = Convert.ToHexString(
+        System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+    context.Items[N4Sentinel.Web.Security.CspNonce.CleContexte] = nonce;
+
     // Politique de contenu. 'unsafe-inline' sur les styles est impose par
     // Blazor, qui genere des styles en ligne ; le retirer casserait le rendu
     // sans rien apporter, l'injection de style n'etant pas un vecteur ici.
@@ -306,7 +325,7 @@ app.Use(async (context, next) =>
     if (!entetes.ContainsKey("Content-Security-Policy"))
         entetes["Content-Security-Policy"] =
             "default-src 'self'; "
-            + "script-src 'self'; "
+            + $"script-src 'self' 'nonce-{nonce}'; "
             + "style-src 'self' 'unsafe-inline'; "
             + "img-src 'self' data:; "
             + "font-src 'self'; "

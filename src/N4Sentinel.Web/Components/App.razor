@@ -37,7 +37,10 @@
 
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["N4Sentinel.Web.styles.css"]" />
-    <ImportMap />
+    @* Seul bloc de script en ligne de l'application : Blazor le genere, on ne
+       peut pas le sortir dans un fichier. Le nonce le laisse s'executer sans
+       ouvrir 'unsafe-inline' a tout le reste. *@
+    <ImportMap nonce="@Nonce" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2" />
     <link rel="icon" type="image/png" href="favicon.png?v=2" />
     <link rel="manifest" href="manifest.json" />
@@ -70,4 +73,7 @@
 
     private IComponentRenderMode? PageRenderMode =>
         HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+
+    /// <summary>Jeton CSP de la requête, posé par l'intergiciel d'en-têtes.</summary>
+    private string? Nonce => N4Sentinel.Web.Security.CspNonce.Lire(HttpContext);
 }
