@@ -42,6 +42,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\N4Sentinel.Infrastructure\N4Sentinel.Infrastructure.csproj" />
+    <ProjectReference Include="..\N4Sentinel.Migrations.Sqlite\N4Sentinel.Migrations.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

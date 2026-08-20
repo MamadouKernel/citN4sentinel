@@ -848,5 +848,88 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.DisplayName).HasMaxLength(150);
             e.Property(x => x.Department).HasMaxLength(150);
         });
+
+        AdapterLesJetonsDeConcurrencePourSqlite(builder);
+    }
+
+    // =======================================================================
+    // Concurrence optimiste sur SQLite
+    // =======================================================================
+
+    /// <summary>
+    /// SQLite n'a pas de type <c>rowversion</c> : les 31 appels
+    /// <c>IsRowVersion()</c> ci-dessus n'y sont pas traduisibles.
+    ///
+    /// Plutôt que de les dupliquer par fournisseur — trente et une occasions
+    /// d'en oublier un, et un oubli ne se voit pas : il supprime
+    /// silencieusement la détection d'écriture concurrente sur UNE table —
+    /// on les reconfigure en une passe. Le jeton reste un jeton de
+    /// concurrence, mais c'est l'application qui l'incrémente, dans
+    /// <see cref="EstampillerLesJetons"/>.
+    ///
+    /// La garantie obtenue est la même pour tout ce qui passe par le suivi de
+    /// modifications : deux écritures concurrentes sur la même ligne, la
+    /// seconde échoue avec <c>DbUpdateConcurrencyException</c>.
+    ///
+    /// CE QUI DIFFÈRE, ET QU'IL FAUT SAVOIR : sur SQL Server, le moteur
+    /// incrémente le jeton même lors d'un <c>ExecuteUpdate</c>, qui contourne
+    /// le suivi de modifications. Ici non. Les deux seuls appels concernés —
+    /// la demande d'annulation et l'écriture de progression — sont
+    /// précisément ceux qui ont été écrits pour ne PAS entrer en conflit ;
+    /// l'écart est donc sans conséquence, mais il cesserait de l'être si l'on
+    /// se mettait à utiliser ExecuteUpdate ailleurs.
+    /// </summary>
+    private void AdapterLesJetonsDeConcurrencePourSqlite(ModelBuilder builder)
+    {
+        if (!Database.IsSqlite()) return;
+
+        foreach (var entite in builder.Model.GetEntityTypes())
+        {
+            if (entite.FindProperty(nameof(AuditableEntity.RowVersion)) is null) continue;
+
+            builder.Entity(entite.ClrType)
+                .Property(nameof(AuditableEntity.RowVersion))
+                .ValueGeneratedNever()
+                .IsConcurrencyToken()
+                .HasColumnType("BLOB");
+        }
+    }
+
+    /// <summary>
+    /// Donne une nouvelle valeur au jeton de concurrence à chaque écriture,
+    /// sur SQLite uniquement. Sur SQL Server, c'est le moteur qui s'en charge
+    /// et y toucher fausserait la comparaison.
+    /// </summary>
+    private void EstampillerLesJetons()
+    {
+        if (!Database.IsSqlite()) return;
+
+        foreach (var entree in ChangeTracker.Entries())
+        {
+            if (entree.State is not (EntityState.Added or EntityState.Modified)) continue;
+
+            var jeton = entree.Properties.FirstOrDefault(
+                p => p.Metadata.Name == nameof(AuditableEntity.RowVersion));
+
+            if (jeton is null) continue;
+
+            // La valeur d'ORIGINE est laissée intacte : c'est elle que le
+            // fournisseur place dans la clause WHERE. La remplacer ici
+            // ferait passer une écriture périmée pour valide.
+            jeton.CurrentValue = Guid.NewGuid().ToByteArray();
+        }
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        EstampillerLesJetons();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        EstampillerLesJetons();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 }

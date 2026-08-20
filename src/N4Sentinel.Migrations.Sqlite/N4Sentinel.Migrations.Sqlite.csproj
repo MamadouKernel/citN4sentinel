@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Migrations SQLite, dans un assemblage SEPARE.
+
+    EF Core decouvre toutes les classes Migration presentes dans l'assemblage
+    de migrations, sans distinguer le fournisseur. Laisser les deux jeux
+    ensemble ferait tenter d'appliquer a SQLite des migrations qui parlent de
+    nvarchar, d'uniqueidentifier et de rowversion : elles echoueraient, et
+    l'echec surviendrait au demarrage, chez le client.
+
+    Ce projet ne contient donc QUE des migrations. Aucun code metier.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>N4Sentinel.Migrations.Sqlite</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\N4Sentinel.Infrastructure\N4Sentinel.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

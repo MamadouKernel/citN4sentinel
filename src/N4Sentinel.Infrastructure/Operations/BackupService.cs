@@ -192,6 +192,12 @@ public sealed class BackupService(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var chaine = db.Database.GetConnectionString();
 
+        if (db.Database.IsSqlite())
+        {
+            await SauvegarderSqliteAsync(db, chemin, ct);
+            return;
+        }
+
         await using var connexion = new SqlConnection(chaine);
         await connexion.OpenAsync(ct);
 
@@ -208,6 +214,32 @@ public sealed class BackupService(
         commande.Parameters.AddWithValue("@chemin", chemin);
 
         await commande.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    /// Sauvegarde SQLite par <c>VACUUM INTO</c>.
+    ///
+    /// COPIER LE FICHIER NE SUFFIRAIT PAS. Une base SQLite en service a des
+    /// écritures en cours et un journal d'écriture anticipée non replié : la
+    /// copie obtenue serait celle d'un instant qui n'a jamais existé, et le
+    /// défaut ne se verrait qu'au jour de la restauration.
+    ///
+    /// <c>VACUUM INTO</c> demande au moteur d'écrire une base COMPLÈTE et
+    /// COHÉRENTE dans un fichier neuf, sans interrompre le service. C'est
+    /// l'équivalent SQLite du <c>BACKUP DATABASE</c> ci-dessus : la garantie
+    /// vient du moteur, pas du système de fichiers.
+    /// </summary>
+    private static async Task SauvegarderSqliteAsync(
+        N4SentinelDbContext db, string chemin, CancellationToken ct)
+    {
+        // VACUUM INTO refuse d'écraser : le fichier ne doit pas exister.
+        if (File.Exists(chemin)) File.Delete(chemin);
+
+        // Le chemin ne peut pas être paramétré dans VACUUM INTO ; on l'échappe
+        // à la façon SQL. Il est construit par l'application, jamais saisi.
+        var echappe = chemin.Replace("'", "''");
+
+        await db.Database.ExecuteSqlRawAsync($"VACUUM INTO '{echappe}';", ct);
     }
 
     // -----------------------------------------------------------------------
@@ -314,6 +346,12 @@ public sealed class BackupService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
+        if (db.Database.IsSqlite())
+        {
+            await VerifierSqliteAsync(chemin, ct);
+            return;
+        }
+
         await using var connexion = new SqlConnection(db.Database.GetConnectionString());
         await connexion.OpenAsync(ct);
 
@@ -323,6 +361,40 @@ public sealed class BackupService(
         commande.Parameters.AddWithValue("@chemin", chemin);
 
         await commande.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    /// Vérification d'une sauvegarde SQLite par <c>PRAGMA integrity_check</c>,
+    /// exécuté SUR LE FICHIER DE SAUVEGARDE et non sur la base en service.
+    ///
+    /// Équivalent de <c>RESTORE VERIFYONLY</c> : c'est le moteur qui relit la
+    /// structure et le contenu et dit s'ils tiennent. Constater qu'un fichier
+    /// existe et pèse quelques mégaoctets ne prouve rien — c'est exactement le
+    /// genre de preuve faible que ce produit refuse ailleurs.
+    /// </summary>
+    private static async Task VerifierSqliteAsync(string chemin, CancellationToken ct)
+    {
+        // Lecture seule : vérifier une sauvegarde ne doit jamais la modifier.
+        var chaine = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+        {
+            DataSource = chemin,
+            Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly
+        }.ToString();
+
+        await using var connexion = new Microsoft.Data.Sqlite.SqliteConnection(chaine);
+        await connexion.OpenAsync(ct);
+
+        var commande = connexion.CreateCommand();
+        commande.CommandText = "PRAGMA integrity_check;";
+
+        var resultat = (await commande.ExecuteScalarAsync(ct))?.ToString();
+
+        // Le moteur répond « ok » quand tout tient, et énumère les anomalies
+        // sinon. Traiter autre chose qu'« ok » comme un succès reviendrait à
+        // déclarer restaurable une sauvegarde qui ne l'est pas.
+        if (!string.Equals(resultat, "ok", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Le contrôle d'intégrité de la sauvegarde a échoué : {resultat ?? "aucune réponse du moteur"}.");
     }
 
     // -----------------------------------------------------------------------

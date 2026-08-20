@@ -29,6 +29,32 @@ public static class DependencyInjection
     /// </summary>
     public const string ConnectionStringName = "N4Sentinel";
 
+    /// <summary>
+    /// Fournisseur de base de donnees : <c>SqlServer</c> (defaut) ou
+    /// <c>Sqlite</c>.
+    ///
+    /// SQLite existe pour un cas precis : deployer sur une VM ou l'on ne veut
+    /// pas installer SQL Server. Un seul fichier, aucun serveur, aucune
+    /// licence — et de vraies transactions, de vrais index uniques, une vraie
+    /// concurrence optimiste. Ce n'est PAS un mode degrade.
+    ///
+    /// Ce qui change reellement, et qui est traite ailleurs :
+    ///   — la sauvegarde ne passe plus par BACKUP DATABASE (voir BackupService) ;
+    ///   — le jeton de concurrence est estampille par l'application et non par
+    ///     le moteur (voir N4SentinelDbContext).
+    /// </summary>
+    public const string ProviderKey = "N4Sentinel:Database:Provider";
+
+    public static bool UtiliseSqlite(IConfiguration configuration)
+        => string.Equals(configuration[ProviderKey], "Sqlite", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Assemblage portant les migrations SQLite. Reference par son NOM et non
+    /// par son type : l'Infrastructure ne doit pas dependre du projet de
+    /// migrations, qui depend d'elle.
+    /// </summary>
+    public const string AssemblageMigrationsSqlite = "N4Sentinel.Migrations.Sqlite";
+
     public static IServiceCollection AddN4SentinelInfrastructure(
         this IServiceCollection services, IConfiguration configuration)
     {
@@ -64,16 +90,36 @@ public static class DependencyInjection
         // Fabrique enregistree a PORTEE DE REQUETE, et non en singleton comme
         // par defaut : l'intercepteur d'audit doit connaitre l'utilisateur
         // courant, ce qu'un service singleton ne peut pas resoudre.
+        var sqlite = UtiliseSqlite(configuration);
+
         services.AddDbContextFactory<N4SentinelDbContext>((sp, options) =>
         {
-            options.UseSqlServer(connectionString, sql =>
+            if (sqlite)
             {
-                sql.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(5),
-                    errorNumbersToAdd: null);
-                sql.CommandTimeout(60);
-            });
+                options.UseSqlite(connectionString, s =>
+                {
+                    s.CommandTimeout(60);
+
+                    // Les migrations SQLite vivent dans un ASSEMBLAGE SEPARE.
+                    // EF decouvre toutes les classes Migration d'un assemblage
+                    // sans distinguer le fournisseur : melangees, celles de SQL
+                    // Server seraient tentees sur SQLite et echoueraient au
+                    // demarrage, chez le client.
+                    s.MigrationsAssembly(AssemblageMigrationsSqlite);
+                });
+            }
+            else
+            {
+                options.UseSqlServer(connectionString, sql =>
+                {
+                    sql.EnableRetryOnFailure(
+                        maxRetryCount: 3,
+                        maxRetryDelay: TimeSpan.FromSeconds(5),
+                        errorNumbersToAdd: null);
+                    sql.CommandTimeout(60);
+                });
+            }
+
             options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
             options.AddInterceptors(sp.GetRequiredService<AuditingInterceptor>());
         }, lifetime: ServiceLifetime.Scoped);
