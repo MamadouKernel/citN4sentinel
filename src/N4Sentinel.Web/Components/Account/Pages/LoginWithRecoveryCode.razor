@@ -47,6 +47,9 @@
     private string? message;
     private ApplicationUser user = default!;
 
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = default!;
 
@@ -57,8 +60,27 @@
     {
         Input ??= new();
 
-        user = await SignInManager.GetTwoFactorAuthenticationUserAsync() ??
-            throw new InvalidOperationException("Impossible de charger l'utilisateur pour la vérification du code de récupération.");
+        // Même situation que LoginWith2fa : cette page dépend d'un cookie posé
+        // par la première étape de connexion. Quand il manque, on renvoie à la
+        // connexion avec une explication — quelqu'un qui en est réduit à son
+        // code de secours a déjà perdu son téléphone, il n'a pas besoin d'une
+        // trace d'exception en plus.
+        var utilisateur = await SignInManager.GetTwoFactorAuthenticationUserAsync();
+
+        if (utilisateur is null)
+        {
+            Logger.LogInformation(
+                "Code de secours demandé sans étape de connexion préalable : cookie absent ou expiré.");
+
+            RedirectManager.RedirectToWithStatus(
+                "Account/Login",
+                "Erreur : votre session de connexion a expiré avant la saisie du code de secours. "
+                + "Saisissez à nouveau votre identifiant et votre mot de passe.",
+                HttpContext);
+            return;
+        }
+
+        user = utilisateur;
     }
 
     private async Task OnValidSubmitAsync()

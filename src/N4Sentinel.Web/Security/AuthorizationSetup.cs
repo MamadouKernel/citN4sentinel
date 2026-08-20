@@ -69,20 +69,39 @@ public static class AuthorizationSetup
                 N4Roles.AdministrateurInfrastructure,
                 N4Roles.AdministrateurSolution))
 
-            // Executer, c'est agir sur la Production. Ni le Validateur ni
-            // l'Auditeur ne figurent ici : approuver et controler ne donnent
-            // pas le droit d'executer.
+            // L'ADMINISTRATEUR DE LA SOLUTION DETIENT TOUTES LES CAPACITES.
+            //
+            // Decision d'exploitation du 20/08 : sur ce site, l'administrateur
+            // doit pouvoir tout faire depuis l'application, sans avoir a
+            // s'attribuer un role supplementaire pour chaque geste.
+            //
+            // Ce que cela NE supprime PAS, et c'est ce qui rend la decision
+            // tenable : le refus d'auto-approbation ne dependant pas des roles
+            // mais des NOMS (ApproveExecutionUseCase compare le demandeur a
+            // l'approbateur), un administrateur qui lance une operation ne peut
+            // toujours pas approuver la sienne. Le controle a quatre yeux tient
+            // donc, meme avec un compte qui detient tout.
+            //
+            // Restent egalement en place : le second facteur exige en
+            // Production (SEC-001, pose dans le pre-check), le cloisonnement
+            // par environnement, et la piste d'audit qui nomme l'acteur reel.
+            //
+            // Ce qui se perd, en revanche : sur un site n'ayant qu'un seul
+            // compte, plus rien ne distingue qui administre de qui exploite. La
+            // separation des roles reste recommandee pour la Production — elle
+            // s'obtient en creant des comptes d'operateurs distincts, pas en
+            // restreignant celui-ci.
             .AddPolicy(N4Policies.PeutExecuter, p =>
             {
-                p.RequireRole(N4Roles.OperateurN4, N4Roles.AdministrateurN4);
+                p.RequireRole(
+                    N4Roles.OperateurN4, N4Roles.AdministrateurN4, N4Roles.AdministrateurSolution);
                 Action(p);
             })
 
-            // Sous-ensemble de PeutExecuter : actions sensibles (ex. SOP
-            // RequiresElevatedRole) reservees a l'Administrateur N4.
+            // Actions sensibles (ex. SOP RequiresElevatedRole).
             .AddPolicy(N4Policies.PeutExecuterActionsSensibles, p =>
             {
-                p.RequireRole(N4Roles.AdministrateurN4);
+                p.RequireRole(N4Roles.AdministrateurN4, N4Roles.AdministrateurSolution);
                 Action(p);
             })
 
@@ -92,15 +111,20 @@ public static class AuthorizationSetup
             // de resserrer l'une sans toucher l'autre.
             .AddPolicy(N4Policies.PeutExecuterActionUnitaire, p =>
             {
-                p.RequireRole(N4Roles.OperateurN4, N4Roles.AdministrateurN4);
+                p.RequireRole(
+                    N4Roles.OperateurN4, N4Roles.AdministrateurN4, N4Roles.AdministrateurSolution);
                 Action(p);
             })
 
             // Approuver engage autant qu'executer : c'est la signature qui
             // autorise l'arret. Le second facteur s'y applique aussi.
+            //
+            // L'administrateur y figure, mais le refus d'auto-approbation le
+            // rattrape : il peut approuver l'operation d'un autre, jamais la
+            // sienne.
             .AddPolicy(N4Policies.PeutApprouver, p =>
             {
-                p.RequireRole(N4Roles.Validateur);
+                p.RequireRole(N4Roles.Validateur, N4Roles.AdministrateurSolution);
                 Action(p);
             })
 

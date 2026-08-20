@@ -123,6 +123,12 @@ public static class DependencyInjection
         services.AddScoped<NodeVitalsService>();
         services.AddSingleton<UpdateReadingCache>();
         services.AddSingleton<SupervisionStateCache>();
+
+        // Portee de requete : consomme IDbContextFactory, lui-meme a portee de
+        // requete. L'ecran /admin/rapports l'injectait sans qu'il soit jamais
+        // enregistre — la page levait une exception a l'affichage.
+        services.AddScoped<SlaService>();
+
         services.AddScoped<Referential.EnvironmentDuplicationService>();
         services.AddScoped<Referential.ReferentialCsvImporter>();
         services.AddScoped<Security.AzureAdSettingsService>();

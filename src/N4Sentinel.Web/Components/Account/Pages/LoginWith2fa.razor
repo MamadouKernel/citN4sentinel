@@ -81,8 +81,31 @@
     {
         Input ??= new();
 
-        user = await SignInManager.GetTwoFactorAuthenticationUserAsync() ??
-            throw new InvalidOperationException("Impossible de charger l'utilisateur pour l'authentification à deux facteurs.");
+        // Cette page n'est atteignable QU'ENTRE les deux étapes de connexion :
+        // elle lit un cookie posé par la première. Il manque dès qu'on arrive
+        // ici autrement — lien direct, onglet resté ouvert trop longtemps,
+        // rafraîchissement après expiration, application redémarrée.
+        //
+        // Le modèle d'origine levait une exception : l'opérateur recevait une
+        // page d'erreur brute là où il attendait un champ de code. On le
+        // renvoie à la connexion en lui disant quoi faire. Un incident à 3 h du
+        // matin ne doit pas commencer par une trace d'exception.
+        var utilisateur = await SignInManager.GetTwoFactorAuthenticationUserAsync();
+
+        if (utilisateur is null)
+        {
+            Logger.LogInformation(
+                "Second facteur demandé sans étape de connexion préalable : cookie absent ou expiré.");
+
+            RedirectManager.RedirectToWithStatus(
+                "Account/Login",
+                "Erreur : votre session de connexion a expiré avant la saisie du code. "
+                + "Saisissez à nouveau votre identifiant et votre mot de passe.",
+                HttpContext);
+            return;
+        }
+
+        user = utilisateur;
     }
 
     private async Task OnValidSubmitAsync()
