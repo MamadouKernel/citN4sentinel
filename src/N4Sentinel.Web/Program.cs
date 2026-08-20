@@ -13,6 +13,26 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// HEBERGEMENT EN SERVICE WINDOWS.
+//
+// Sans cet appel, le gestionnaire de services lance bien l'executable, mais
+// le processus ne se declare jamais aupres de lui : au bout de trente
+// secondes, le SCM abandonne sur l'erreur 1053, « le service n'a pas repondu
+// a temps ». Le service ne demarre pas du tout, alors que l'application
+// fonctionne parfaitement lancee a la main — d'ou un diagnostic qui peut
+// couter des heures.
+//
+// Il corrige aussi la RACINE DE CONTENU. Un service demarre avec
+// C:\Windows\System32 comme repertoire courant : sans correction,
+// appsettings.json et wwwroot sont introuvables.
+//
+// L'appel est sans effet hors service : il detecte le contexte lui-meme, donc
+// le lancement en console pour le developpement n'est pas affecte.
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = "N4Sentinel";
+});
+
 // L'en-tete Server annonce la technologie a qui cartographie le parc (audit
 // SEC-A9). L'effet est modeste, le cout nul.
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);

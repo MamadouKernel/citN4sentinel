@@ -141,6 +141,11 @@ Write-Host "  [4/4] Outils et documentation..." -ForegroundColor Cyan
 
 Copy-Item (Join-Path $PSScriptRoot 'Installer-N4Sentinel.ps1') $dossier -Force
 
+# Le script de verification part avec l'installeur : constater que le service
+# rend reellement le service fait partie de la mise en service, pas d'un
+# outillage optionnel qu'on garde sur son poste.
+Copy-Item (Join-Path $PSScriptRoot 'Verifier-N4Sentinel.ps1') $dossier -Force
+
 $docs = Join-Path $racine 'doc'
 $guide = Join-Path $docs 'Guide-deploiement.md'
 if (Test-Path $guide) {
