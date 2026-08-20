@@ -29,7 +29,9 @@
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8080,
+    # Meme defaut que Installer-N4Sentinel.ps1 : deux valeurs differentes
+    # feraient conclure a tort que le port ne repond pas.
+    [int]$Port = 8443,
     [string]$NomService = 'N4Sentinel',
     [int]$DelaiSecondes = 120
 )
