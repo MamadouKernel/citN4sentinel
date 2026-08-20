@@ -373,27 +373,15 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 
 app.MapHealthChecks("/health/detail", new HealthCheckOptions
 {
+    // La mise en forme vit dans HealthReportFormatter, pour etre testable sans
+    // authentification : le contenu de ce point d'entree n'est lisible que
+    // connecte, et le controler dans un navigateur supposerait de saisir un
+    // mot de passe.
     ResponseWriter = async (contexte, rapport) =>
     {
         contexte.Response.ContentType = "text/plain; charset=utf-8";
-
-        var lignes = new List<string> { $"Statut global : {rapport.Status}" };
-
-        foreach (var (nom, controle) in rapport.Entries)
-        {
-            lignes.Add($"{nom} : {controle.Status}"
-                + (controle.Description is { Length: > 0 } d ? $" — {d}" : string.Empty)
-                + (controle.Exception is not null ? $" — {controle.Exception.Message}" : string.Empty));
-        }
-
-        // Ce que le contrôle NE dit PAS doit être dit aussi : une base
-        // joignable ne prouve pas qu'un composant N4 tourne. Sans cette
-        // phrase, « Healthy » se lit comme « tout va bien ».
-        lignes.Add(string.Empty);
-        lignes.Add("Ce contrôle porte sur N4 Sentinel lui-même (base, application),");
-        lignes.Add("PAS sur l'état de l'écosystème N4 supervisé. Voir l'écran Supervision.");
-
-        await contexte.Response.WriteAsync(string.Join('\n', lignes));
+        await contexte.Response.WriteAsync(
+            N4Sentinel.Web.Security.HealthReportFormatter.Formater(rapport));
     }
 }).RequireAuthorization(N4Policies.PeutConsulter);
 

@@ -101,17 +101,33 @@
                 </div>
             }
 
-            <div class="space-y-3">
-                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Sélectionnez la prochaine action :</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button @onclick='() => ChoisirAction("Preflight Check & Vérification Standby")' class="p-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 hover:text-white transition text-left">
-                        1. Exécuter un Pré-check complet du Standby avant interruption
-                    </button>
-                    <button @onclick='() => ChoisirAction("Arrêt Forcé Immédiat sans vérification")' class="p-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 hover:text-white transition text-left">
-                        2. Lancer immédiatement l'arrêt forcé du composant
-                    </button>
+            @* Les propositions viennent de l'ÉTAPE COURANTE du scénario. Deux
+               boutons figés ici offraient les mêmes choix à toutes les étapes
+               de tous les scénarios, y compris ceux qui ne parlent pas du
+               Standby. *@
+            @if (!_session.IsFinished && _session.CurrentStepActions.Count > 0)
+            {
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Sélectionnez la prochaine action :</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        @foreach (var proposition in _session.CurrentStepActions)
+                        {
+                            var choix = proposition;
+                            <button @onclick="() => ChoisirAction(choix)"
+                                    class="p-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 hover:text-white transition text-left">
+                                @choix
+                            </button>
+                        }
+                    </div>
                 </div>
-            </div>
+            }
+            else if (_session.IsFinished)
+            {
+                <div class="p-4 rounded-xl bg-sky-500/10 border border-sky-500/30 text-xs text-sky-200">
+                    <strong>Scénario terminé.</strong> Score : @($"{_session.ScorePercent:0}") %.
+                    Relancez un scénario pour poursuivre l'entraînement.
+                </div>
+            }
 
             <!-- Journal des événements du simulateur -->
             <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1 font-mono">
@@ -140,6 +156,8 @@
         var auth = await AuthProvider.GetAuthenticationStateAsync();
         var user = auth.User.Identity?.Name ?? "Operateur N4";
 
+        // StartSession retourne null si le scenario n'existe pas : auparavant
+        // n'importe quel identifiant produisait une session valide.
         _session = SimulatorService.StartSession(scenarioId, user);
         _lastResult = null;
     }
@@ -148,16 +166,11 @@
     {
         if (_session is null) return;
 
+        // Le service tient l'etat de session : score, niveau de stress,
+        // progression et journal. La page les recalculait ici, avec une
+        // instruction d'etape 2 ecrite en dur qui parlait de Hazelcast meme
+        // dans les scenarios qui n'en parlent pas.
         _lastResult = SimulatorService.ExecuteAction(_session.SessionId, action);
-        _session.ScorePercent = Math.Max(0, Math.Min(100, _session.ScorePercent + _lastResult.ScoreDelta));
-        _session.StressLevelPercent = _lastResult.UpdatedStressPercent;
-        _session.LogEvents.Add($"{DateTime.Now:HH:mm:ss} — Action sélectionnée : '{action}'. Result: {(_lastResult.IsSuccess ? "OK" : "KO")}");
-
-        if (_session.CurrentStepIndex < _session.TotalSteps)
-        {
-            _session.CurrentStepIndex++;
-            _session.CurrentStepInstructions = $"Étape {_session.CurrentStepIndex}/4 : Réaliser la bascule et contrôler la synchronisation Hazelcast.";
-        }
     }
 
     private void QuitterSession()

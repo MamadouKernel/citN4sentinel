@@ -6,6 +6,17 @@
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "src/N4Sentinel.Web", "--urls", "http://localhost:5161"],
       "port": 5161
+    },
+    {
+      "name": "n4sentinel-installation-neuve",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run", "--project", "src/N4Sentinel.Web",
+        "--urls", "http://localhost:5199",
+        "--ConnectionStrings:N4Sentinel", "Server=localhost;Database=n4sentinel_neuf;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True",
+        "--N4Sentinel:AmorcageTopologieDemo", "true"
+      ],
+      "port": 5199
     }
   ]
 }

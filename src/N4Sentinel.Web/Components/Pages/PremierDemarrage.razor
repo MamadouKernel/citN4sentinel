@@ -121,6 +121,21 @@ else if (_ouvert)
     private bool _enCours;
     private readonly List<string> _erreurs = [];
 
+    /// <summary>
+    /// [SupplyParameterFromForm] fait fonctionner ce formulaire MÊME SANS
+    /// circuit interactif.
+    ///
+    /// Sans cet attribut, une soumission qui arrive en POST HTML classique —
+    /// JavaScript indisponible, circuit pas encore établi, poste bridé — était
+    /// ré-affichée avec un modèle neuf : l'opérateur voyait « obligatoire » sur
+    /// les quatre champs qu'il venait de remplir, sans aucune explication.
+    /// C'est exactement la panne qu'a produite le blocage de /_blazor, et elle
+    /// pouvait revenir par n'importe quelle autre cause.
+    ///
+    /// C'est l'écran le plus critique du produit : sans lui, une installation
+    /// neuve n'a aucun compte et personne ne peut entrer.
+    /// </summary>
+    [SupplyParameterFromForm]
     private InputModel Input { get; set; } = new();
 
     protected override async Task OnInitializedAsync()

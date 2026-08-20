@@ -73,8 +73,18 @@
             <i class="bi bi-shield-check"></i>
         </div>
 
+        @* FR-050 : conteneur de reference pour le trace des dependances.
+           La carte est une grille responsive, pas un canevas a coordonnees :
+           les positions sont donc mesurees dans le navigateur et le trace est
+           recalcule a chaque redimensionnement. Le calque SVG est en arriere-
+           plan et ne capte aucun clic. *@
+        <div class="relative" data-carte-topologie data-dependances="@_dependancesJson">
+            <svg data-calque-dependances
+                 class="absolute inset-0 w-full h-full pointer-events-none"
+                 style="z-index:0" aria-hidden="true"></svg>
+
         <!-- TOP / LEFT SYSTEM LAYOUT GRID -->
-        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch relative" style="z-index:1">
             
             <!-- LEFT COLUMN: EXTERNAL SYSTEMS (GOS, SFTP, IPAK) -->
             <div class="xl:col-span-2 space-y-4 flex flex-col justify-between p-4 rounded-2xl bg-slate-900/40 border border-slate-800">
@@ -271,6 +281,7 @@
                 }
             </div>
         }
+        </div>@* fin du conteneur de trace FR-050 *@
     </div>
 </div>
 
@@ -503,6 +514,27 @@
     private List<ComponentDependency> DependancesDe(Guid componentId)
         => _dependances.TryGetValue(componentId, out var d) ? d : [];
 
+    /// <summary>
+    /// FR-050 : couples « dépendant → dont il dépend », transmis au tracé.
+    /// Seuls les couples dont LES DEUX extrémités sont affichées sur la carte
+    /// sont retenus : une arête vers un nœud absent partirait dans le vide.
+    /// </summary>
+    private string _dependancesJson = "[]";
+
+    private void RecalculerDependancesJson()
+    {
+        var affiches = _allComponents.Select(c => c.Id).ToHashSet();
+
+        var couples = _dependances
+            .Where(kv => affiches.Contains(kv.Key))
+            .SelectMany(kv => kv.Value
+                .Where(d => affiches.Contains(d.DependsOnComponentId))
+                .Select(d => new { de = kv.Key, vers = d.DependsOnComponentId }))
+            .ToList();
+
+        _dependancesJson = System.Text.Json.JsonSerializer.Serialize(couples);
+    }
+
     /// <summary>Vrai si ce composant est une dépendance du composant mis en évidence.</summary>
     private bool EstDependanceMiseEnEvidence(Guid componentId)
         => _dependancesMisesEnEvidence is { } source
@@ -625,6 +657,8 @@
             _allServers = [];
             _dependances = [];
         }
+
+        RecalculerDependancesJson();
 
         CategorizeComponents();
     }
@@ -814,6 +848,7 @@
         var estDependance = EstDependanceMiseEnEvidence(comp.Id);
 
         <div @onclick="() => OpenComponentNodeModalAsync(comp)"
+             data-composant-id="@comp.Id"
              class="flex flex-col items-center p-3.5 sm:p-4 rounded-3xl border-2 transition-all duration-300 shadow-xl relative group cursor-pointer hover:scale-105 hover:-translate-y-1 @bgGradient @borderStyle w-full min-w-0 @(isMatch ? "ring-4 ring-sky-400 shadow-sky-500/80 animate-pulse" : "") @(estDependance ? "ring-4 ring-amber-400 shadow-amber-500/60" : "")">
             <!-- Cylinder Top Oval Cap -->
             <div class="w-full h-3 rounded-t-full bg-white/20 border-b border-white/30 mb-1.5 flex items-center justify-center">

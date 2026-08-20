@@ -29,21 +29,142 @@ namespace N4Sentinel.Tests;
 /// </summary>
 public sealed class IntelligenceSuiteTests
 {
-    [SkippableFact]
-    public void FlightSimulatorService_Gere_Scenarios_Et_Calcul_Score()
-    {
-        var service = new FlightSimulatorService(NullLogger<FlightSimulatorService>.Instance);
+    // =======================================================================
+    // Flight Simulator — la mécanique, pas seulement le catalogue
+    // =======================================================================
+    //
+    // L'ancien test se contentait de vérifier qu'une session démarrait et
+    // qu'une action « correcte » rapportait des points. Il passait alors que
+    // la notation se faisait par sous-chaîne, indépendamment du scénario et de
+    // l'étape, et que la session n'était jamais conservée.
 
+    private static FlightSimulatorService CreerSimulateur()
+        => new(NullLogger<FlightSimulatorService>.Instance);
+
+    [SkippableFact]
+    public void Chaque_Scenario_Declare_Ses_Etapes_Et_Une_Bonne_Reponse_Proposee()
+    {
+        var service = CreerSimulateur();
         var scenarios = service.GetAvailableScenarios();
+
         Assert.NotEmpty(scenarios);
 
-        var session = service.StartSession("SIM-CRASH-DB", "M. KONATE");
-        Assert.NotNull(session);
-        Assert.Equal(100.0, session.ScorePercent);
+        foreach (var scenario in scenarios)
+        {
+            Assert.NotEmpty(scenario.Steps);
 
-        var result = service.ExecuteAction(session.SessionId, "Preflight Check & Vérification Standby");
-        Assert.True(result.IsSuccess);
-        Assert.True(result.ScoreDelta > 0);
+            foreach (var etape in scenario.Steps)
+            {
+                // La bonne réponse doit figurer parmi les propositions, sinon
+                // l'étape est impossible à réussir.
+                Assert.Contains(etape.CorrectAction, etape.ProposedActions);
+
+                // Au moins un mauvais choix, sinon l'exercice n'en est pas un.
+                Assert.True(etape.ProposedActions.Count > 1,
+                    $"L'étape « {etape.Instruction} » n'offre aucun choix.");
+
+                Assert.False(string.IsNullOrWhiteSpace(etape.WhatWasMissed));
+            }
+        }
+    }
+
+    [SkippableFact]
+    public void Un_Scenario_Inconnu_N_Ouvre_Aucune_Session()
+    {
+        var service = CreerSimulateur();
+
+        // Auparavant, n'importe quel identifiant produisait une session valide.
+        Assert.Null(service.StartSession("SIM-QUI-N-EXISTE-PAS", "M. KONATE"));
+    }
+
+    [SkippableFact]
+    public void Le_Score_S_Accumule_Reellement_D_Une_Etape_A_L_Autre()
+    {
+        var service = CreerSimulateur();
+        var session = service.StartSession("SIM-CRASH-DB", "M. KONATE")!;
+
+        Assert.Equal(100.0, session.ScorePercent);
+        var scenario = service.GetScenario("SIM-CRASH-DB")!;
+
+        // Deux mauvais choix de suite : le score doit baisser deux fois.
+        var mauvais1 = scenario.Steps[0].ProposedActions.First(a => a != scenario.Steps[0].CorrectAction);
+        var r1 = service.ExecuteAction(session.SessionId, mauvais1);
+
+        Assert.False(r1.IsSuccess);
+        var apresPremiere = session.ScorePercent;
+        Assert.True(apresPremiere < 100.0, "Le score n'a pas bougé après une erreur.");
+
+        var mauvais2 = scenario.Steps[1].ProposedActions.First(a => a != scenario.Steps[1].CorrectAction);
+        service.ExecuteAction(session.SessionId, mauvais2);
+
+        Assert.True(session.ScorePercent < apresPremiere,
+            "Le score ne s'accumule pas : la session n'est pas conservée.");
+    }
+
+    [SkippableFact]
+    public void La_Notation_Depend_De_L_Etape_Et_Non_D_Un_Mot_Contenu_Dans_Le_Libelle()
+    {
+        var service = CreerSimulateur();
+        var session = service.StartSession("SIM-KAHADB-CORRUPT", "M. KONATE")!;
+        var scenario = service.GetScenario("SIM-KAHADB-CORRUPT")!;
+
+        // La bonne réponse de l'étape 2 jouée à l'étape 1 doit être refusée :
+        // avec l'ancienne notation par sous-chaîne, tout libellé contenant
+        // « SOP » ou « Vérifier » passait, à n'importe quelle étape.
+        var bonneReponseEtape2 = scenario.Steps[1].CorrectAction;
+        var res = service.ExecuteAction(session.SessionId, bonneReponseEtape2);
+
+        Assert.False(res.IsSuccess);
+    }
+
+    [SkippableFact]
+    public void Le_Reproche_En_Cas_D_Erreur_Est_Celui_De_L_Etape_Jouee()
+    {
+        var service = CreerSimulateur();
+        var session = service.StartSession("SIM-KAHADB-CORRUPT", "M. KONATE")!;
+        var scenario = service.GetScenario("SIM-KAHADB-CORRUPT")!;
+
+        var mauvais = scenario.Steps[0].ProposedActions.First(a => a != scenario.Steps[0].CorrectAction);
+        var res = service.ExecuteAction(session.SessionId, mauvais);
+
+        // Le message accusait toujours le Standby, y compris dans ce scénario
+        // de corruption KahaDB qui n'en parle pas.
+        Assert.DoesNotContain("Standby", res.FeedbackMessage);
+        Assert.Contains(scenario.Steps[0].WhatWasMissed, res.FeedbackMessage);
+    }
+
+    [SkippableFact]
+    public void Le_Scenario_Se_Clot_Et_Refuse_Les_Actions_Suivantes()
+    {
+        var service = CreerSimulateur();
+        var session = service.StartSession("SIM-CENTER-FAILOVER", "M. KONATE")!;
+        var scenario = service.GetScenario("SIM-CENTER-FAILOVER")!;
+
+        SimulatorStepResult? dernier = null;
+        foreach (var etape in scenario.Steps)
+            dernier = service.ExecuteAction(session.SessionId, etape.CorrectAction);
+
+        Assert.True(dernier!.SessionEnded);
+        Assert.True(session.IsFinished);
+        Assert.Equal(100.0, session.ScorePercent);
+        Assert.Empty(session.CurrentStepActions);
+
+        // Rejouer après la clôture ne doit pas modifier le score.
+        var apres = service.ExecuteAction(session.SessionId, scenario.Steps[0].CorrectAction);
+        Assert.False(apres.IsSuccess);
+        Assert.Equal(100.0, session.ScorePercent);
+    }
+
+    [SkippableFact]
+    public void Une_Session_Inconnue_Le_Dit_Au_Lieu_D_Inventer_Un_Score()
+    {
+        var service = CreerSimulateur();
+
+        var res = service.ExecuteAction(Guid.NewGuid(), "Peu importe");
+
+        Assert.False(res.IsSuccess);
+        Assert.Equal(0, res.ScoreDelta);
+        Assert.Contains("introuvable", res.FeedbackMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     // =======================================================================

@@ -214,7 +214,38 @@ avait fait. Ajoutés sur `SharedFolderSnapshot` (migration
   qu'une suspicion était fausse évite de la relancer indéfiniment. Un constat
   écrit est exigé dans les deux cas.
 
-### FR-050 — dépendances sur la carte : ce qui a été fait, et ce qui ne l'a pas été
+### FR-050 — le tracé géométrique est livré (20/08)
+
+L'écart décrit ci-dessous est **fermé**. Les arêtes sont désormais dessinées :
+un calque SVG en arrière-plan de la carte, alimenté par
+`wwwroot/js/topology-edges.js`, qui mesure la position réelle de chaque nœud
+et trace une courbe fléchée du composant dépendant vers celui dont il dépend.
+Le sens est porté par une pointe de flèche : « A dépend de B » et « B dépend
+de A » n'ont pas les mêmes conséquences au démarrage comme à l'arrêt.
+
+Le bouton « dépend de N » sur chaque nœud est **conservé**. Les deux disent la
+même chose par deux moyens différents : si une mesure échoue ou si un nœud
+n'est pas rendu, l'arête disparaît en silence, alors que le bouton reste.
+
+Seuls les couples dont **les deux extrémités sont affichées** sont tracés —
+une arête vers un nœud absent partirait dans le vide.
+
+> **Défaut trouvé en vérifiant ce tracé.** La planification reposait sur
+> `requestAnimationFrame` avec un simple drapeau « déjà planifié ». Or rAF ne
+> se déclenche pas du tout dans un onglet d'arrière-plan : le drapeau restait
+> levé pour toujours et plus aucune demande ne passait, même après retour au
+> premier plan. La carte restait vide et le redimensionnement n'y changeait
+> rien. Corrigé par annulation/replanification, un filet de sécurité à 250 ms,
+> et un redessin sur `visibilitychange`.
+
+Vérifié dans le navigateur sur trois nœuds et deux dépendances : deux arêtes
+tracées, pointe de flèche présente, `viewBox` conforme au conteneur, centres
+calculés exacts, et **toujours deux arêtes après cinq redimensionnements** —
+le calque est bien vidé avant chaque tracé.
+
+---
+
+### Historique — l'écart tel qu'il était énoncé le 19/08
 
 **L'action décrite au plan était « dessiner les arêtes ». Ce n'est pas ce qui
 a été livré, et c'est un choix assumé.** La carte est une grille responsive

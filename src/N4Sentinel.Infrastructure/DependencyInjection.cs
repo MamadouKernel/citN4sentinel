@@ -128,7 +128,16 @@ public static class DependencyInjection
 
         // Sentinel Intelligence Suite V2.5
         services.AddSingleton<Procedures.FlightSimulatorService>();
-        services.AddSingleton<Ai.VoiceCopilotService>();
+        // PORTEE DE REQUETE, et non singleton : depuis qu'il lit les flux EDI,
+        // ce service consomme IDbContextFactory, lui-meme enregistre a portee
+        // de requete pour que l'intercepteur d'audit connaisse l'utilisateur
+        // courant. Un singleton qui consomme un service a portee de requete
+        // fait echouer la VALIDATION DU CONTENEUR AU DEMARRAGE : l'application
+        // ne demarre pas du tout.
+        //
+        // Les tests ne l'avaient pas vu — ils construisent le service a la
+        // main, sans passer par l'injection. Seul un demarrage reel le montre.
+        services.AddScoped<Ai.VoiceCopilotService>();
 
         services.AddHostedService<SupervisionBackgroundService>();
 
