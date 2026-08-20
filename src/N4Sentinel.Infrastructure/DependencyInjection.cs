@@ -123,6 +123,8 @@ public static class DependencyInjection
         services.AddScoped<NodeVitalsService>();
         services.AddSingleton<UpdateReadingCache>();
         services.AddSingleton<SupervisionStateCache>();
+        services.AddScoped<Referential.EnvironmentDuplicationService>();
+        services.AddScoped<Referential.ReferentialCsvImporter>();
         services.AddScoped<Security.AzureAdSettingsService>();
         services.AddScoped<AzureAdAuthProvider>();
 

@@ -1,0 +1,28 @@
+@* Bouton de dictée vocale, à poser À CÔTÉ d'un champ de texte libre.
+
+   NE PAS L'UTILISER sur un nom d'hôte, un nom de service Windows, un chemin
+   de journal ou une expression régulière : la reconnaissance vocale y
+   produirait une valeur crédible et fausse, et personne ne le verrait. Voir
+   wwwroot/js/dictee.js.
+
+   Le geste vit dans ce fichier JavaScript et non dans un attribut onclick :
+   la politique de sécurité de contenu déclare script-src 'self' sans
+   'unsafe-inline'. *@
+
+<button type="button"
+        data-dictee="@PourChampId"
+        tabindex="-1"
+        aria-pressed="false"
+        aria-label="Dicter le texte"
+        title="Dicter le texte. À relire : la reconnaissance vocale se trompe sans le dire."
+        class="@Classe">
+    <i class="bi bi-mic"></i>
+</button>
+
+@code {
+    /// <summary>Identifiant HTML du champ à remplir.</summary>
+    [Parameter, EditorRequired] public string PourChampId { get; set; } = string.Empty;
+
+    [Parameter] public string Classe { get; set; } =
+        "px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-sky-300 text-xs transition";
+}

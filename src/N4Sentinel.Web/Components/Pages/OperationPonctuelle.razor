@@ -201,8 +201,16 @@
                     <label class="block text-slate-400 font-semibold mb-1">
                         Motif <span class="text-rose-400">obligatoire</span>
                     </label>
-                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                           placeholder="Pourquoi cette opération, maintenant." @bind="_motif" />
+                    @* Dictée : le motif est de la prose, obligatoire à chaque
+                       lancement. C'est le champ où la voix fait gagner du temps
+                       sans risque — une erreur de transcription s'y voit. *@
+                    <div class="flex items-center gap-2">
+                        <input id="motif-operation"
+                               class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                               placeholder="Pourquoi cette opération, maintenant."
+                               @bind="_motif" @bind:event="oninput" />
+                        <BoutonDictee PourChampId="motif-operation" />
+                    </div>
                 </div>
                 <div>
                     <label class="block text-slate-400 font-semibold mb-1">Référence de ticket</label>

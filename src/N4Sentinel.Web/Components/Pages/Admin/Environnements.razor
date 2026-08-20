@@ -7,6 +7,8 @@
 @using N4Sentinel.Infrastructure.Persistence
 @inject ReferentialService Referential
 @inject DemonstrationSeeder Demonstration
+@inject EnvironmentDuplicationService Duplication
+@inject AuthenticationStateProvider AuthProvider
 @inject NavigationManager Nav
 
 <PageTitle>Environnements — N4 Sentinel</PageTitle>
@@ -113,6 +115,11 @@
                                     </span>
                                 </td>
                                 <td class="py-4 px-4 text-right whitespace-nowrap">
+                                    <button @onclick="() => OuvrirDuplication(env)"
+                                            title="Créer un environnement de même topologie à partir de celui-ci"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs transition mr-2">
+                                        <i class="bi bi-copy"></i> Dupliquer
+                                    </button>
                                     <a href="@($"/admin/environnements/{env.Id}")" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 font-semibold text-xs transition">
                                         <i class="bi bi-folder2-open"></i> Ouvrir
                                     </a>
@@ -220,6 +227,71 @@
             </EditForm>
         </div>
     }
+
+    @* Duplication d'un environnement. L'avertissement sur les noms d'hôte est
+       en tête et non en bas : c'est le seul risque réel de cette fonction. *@
+    @if (_sourceDuplication is not null)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <div class="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 space-y-4">
+                <h3 class="text-sm font-bold text-white">
+                    Dupliquer « @_sourceDuplication.Code — @_sourceDuplication.Name »
+                </h3>
+
+                <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 space-y-1">
+                    <div><strong>Les noms d'hôte ne sont pas copiés.</strong></div>
+                    <div class="text-amber-200/80">
+                        Sans cela, le nouvel environnement pointerait les machines de
+                        « @_sourceDuplication.Code » : un arrêt lancé dessus les arrêterait pour de bon,
+                        alors que l'écran afficherait l'autre nom. Chaque serveur naît donc avec un nom
+                        à renseigner, et l'environnement en brouillon.
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-400 mb-1">Code</label>
+                        <input @bind="_codeCopie" @bind:event="oninput" placeholder="UAT"
+                               class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-400 mb-1">Nom</label>
+                        <input @bind="_nomCopie" @bind:event="oninput" placeholder="Recette et qualification"
+                               class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-400 mb-1">Nature</label>
+                        <select @bind="_natureCopie"
+                                class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white">
+                            @foreach (var k in Enum.GetValues<EnvironmentKind>())
+                            {
+                                <option value="@k">@k</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                @if (_resultatDuplication is not null)
+                {
+                    <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300">
+                        @_resultatDuplication
+                    </div>
+                }
+
+                <div class="flex justify-end gap-2 pt-1">
+                    <button type="button" @onclick="FermerDuplication"
+                            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                        Fermer
+                    </button>
+                    <button type="button" @onclick="LancerDuplication"
+                            disabled="@(_duplicationEnCours || string.IsNullOrWhiteSpace(_codeCopie) || string.IsNullOrWhiteSpace(_nomCopie))"
+                            class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition disabled:opacity-40">
+                        @(_duplicationEnCours ? "Copie…" : "Dupliquer")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -229,6 +301,64 @@
     private bool _estNouveau;
     private string? _erreur;
     private bool _demoEnCours;
+
+    // --- Duplication ------------------------------------------------------
+    private N4Environment? _sourceDuplication;
+    private string _codeCopie = string.Empty;
+    private string _nomCopie = string.Empty;
+    private EnvironmentKind _natureCopie = EnvironmentKind.UAT;
+    private bool _duplicationEnCours;
+    private string? _resultatDuplication;
+
+    private void OuvrirDuplication(N4Environment source)
+    {
+        _sourceDuplication = source;
+        _codeCopie = string.Empty;
+        _nomCopie = string.Empty;
+        _natureCopie = source.IsProduction ? EnvironmentKind.UAT : source.Kind;
+        _resultatDuplication = null;
+        _erreur = null;
+    }
+
+    private void FermerDuplication()
+    {
+        _sourceDuplication = null;
+        _resultatDuplication = null;
+    }
+
+    private async Task LancerDuplication()
+    {
+        if (_sourceDuplication is null) return;
+
+        _duplicationEnCours = true;
+        _erreur = null;
+        _resultatDuplication = null;
+
+        try
+        {
+            var etat = await AuthProvider.GetAuthenticationStateAsync();
+            var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+            var r = await Duplication.DupliquerAsync(
+                _sourceDuplication.Id, _codeCopie, _nomCopie, _natureCopie, acteur);
+
+            if (!r.Succeeded)
+            {
+                _erreur = r.Erreur;
+                return;
+            }
+
+            _resultatDuplication =
+                $"{r.Serveurs} serveur(s), {r.Composants} composant(s) et {r.Dependances} dépendance(s) repris. "
+                + "Les noms d'hôte sont à renseigner avant toute validation.";
+
+            await Recharger();
+        }
+        finally
+        {
+            _duplicationEnCours = false;
+        }
+    }
 
     /// <summary>
     /// Crée l'environnement de démonstration pointé sur le simulateur.
