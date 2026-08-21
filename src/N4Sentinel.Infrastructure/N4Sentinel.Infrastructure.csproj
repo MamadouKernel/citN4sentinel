@@ -5,6 +5,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Les ordres de demarrage et d'arret N4 (WorkflowService.RangDemarrage /
+         RangArret) sont internes : ils n'ont pas a etre appeles depuis
+         l'interface. Ils doivent en revanche etre TESTES, car ils encodent une
+         procedure editeur dont l'inversion silencieuse produirait un arret
+         incorrect sur un terminal reel. -->
+    <InternalsVisibleTo Include="N4Sentinel.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- N4SignInManager et UserAdministrationService (comptes et roles, FR-091)
          ont besoin de SignInManager/IEmailSender<T>/IAuthenticationSchemeProvider,
          qui vivent dans le framework partage plutot que dans un paquet NuGet

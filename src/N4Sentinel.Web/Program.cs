@@ -105,10 +105,14 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 // ---------------------------------------------------------------------------
 // Health Checks (Phase IX)
 // ---------------------------------------------------------------------------
+// AddDbContextCheck ne faisait qu'un CanConnect. Sur SQLite, ouvrir un
+// fichier reussit TOUJOURS : un fichier vide, tronque, ou cree a l'instant par
+// une faute de frappe dans le chemin repondaient tous « connexion reussie ».
+// L'application annoncait donc Healthy avec une base sans la moindre table, et
+// le script de mise en service declarait le deploiement reussi.
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<N4SentinelDbContext>("database")
-    // Note: Ajouter d'autres checks liveness/readiness ici (stockage, etc.)
-    ;
+    .AddCheck<N4Sentinel.Infrastructure.Persistence.SchemaHealthCheck>(
+        N4Sentinel.Infrastructure.Persistence.SchemaHealthCheck.Nom);
 
 // ---------------------------------------------------------------------------
 // Interface

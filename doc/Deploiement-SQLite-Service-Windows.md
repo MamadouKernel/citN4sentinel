@@ -294,7 +294,14 @@ Le script établit trois constats, du plus faible au plus fort :
 |---|---|---|
 | Service `Running` | Le processus tourne. **Rien de plus.** | 2 |
 | Port ouvert | Kestrel écoute | 3 |
-| `/health` → `Healthy` | La base est joignable, migrations abouties | 4 ou 5 |
+| `/health` → `Healthy` | La base répond **et le schéma est à jour** | 4 ou 5 |
+
+> Le troisième constat vérifie l'absence de migration en attente, et non la
+> simple connexion. La nuance compte sur SQLite : ouvrir un fichier y réussit
+> toujours — un fichier vide, tronqué, ou créé à l'instant par une faute de
+> frappe dans le chemin répondraient tous « connexion réussie ». Une sonde
+> fondée sur la connexion aurait déclaré sain un déploiement sans la moindre
+> table.
 
 ## E.3 Créer le premier administrateur
 
