@@ -857,6 +857,55 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
         });
 
         AdapterLesJetonsDeConcurrencePourSqlite(builder);
+        AdapterLesHorodatagesPourSqlite(builder);
+    }
+
+    /// <summary>
+    /// SQLite ne sait pas trier des <see cref="DateTimeOffset"/>.
+    ///
+    /// EF les stocke en TEXTE au format « yyyy-MM-dd HH:mm:ss.fffffffzzz », et
+    /// refuse tout ORDER BY dessus — avec raison : deux instants équivalents
+    /// écrits dans des décalages différents ne se classent pas correctement en
+    /// comparaison de chaînes. Le fournisseur lève alors, À L'EXÉCUTION :
+    /// « SQLite does not support expressions of type 'DateTimeOffset' in ORDER
+    /// BY clauses ».
+    ///
+    /// Ce n'est pas un cas marginal : l'application trie par date presque
+    /// partout — historique, audit, alertes, exécutions, relevés. Sans cette
+    /// conversion, le mode SQLite s'effondre dès le premier écran qui liste
+    /// quelque chose, et l'erreur tue le circuit Blazor plutôt que d'afficher
+    /// un message.
+    ///
+    /// On stocke donc le nombre de TICS UTC, un entier, que SQLite trie
+    /// nativement. La conversion est sans perte ici : tous les horodatages
+    /// persistés sont produits par <c>DateTimeOffset.UtcNow</c> — les rares
+    /// <c>DateTimeOffset.Now</c> du code ne servent qu'à mettre en forme du
+    /// texte, jamais à alimenter une colonne.
+    /// </summary>
+    private void AdapterLesHorodatagesPourSqlite(ModelBuilder builder)
+    {
+        if (!Database.IsSqlite()) return;
+
+        var versTics = new Microsoft.EntityFrameworkCore.Storage.ValueConversion
+            .ValueConverter<DateTimeOffset, long>(
+                d => d.UtcTicks,
+                t => new DateTimeOffset(t, TimeSpan.Zero));
+
+        var versTicsNullable = new Microsoft.EntityFrameworkCore.Storage.ValueConversion
+            .ValueConverter<DateTimeOffset?, long?>(
+                d => d.HasValue ? d.Value.UtcTicks : null,
+                t => t.HasValue ? new DateTimeOffset(t.Value, TimeSpan.Zero) : null);
+
+        foreach (var entite in builder.Model.GetEntityTypes())
+        {
+            foreach (var propriete in entite.GetProperties().ToList())
+            {
+                if (propriete.ClrType == typeof(DateTimeOffset))
+                    propriete.SetValueConverter(versTics);
+                else if (propriete.ClrType == typeof(DateTimeOffset?))
+                    propriete.SetValueConverter(versTicsNullable);
+            }
+        }
     }
 
     // =======================================================================

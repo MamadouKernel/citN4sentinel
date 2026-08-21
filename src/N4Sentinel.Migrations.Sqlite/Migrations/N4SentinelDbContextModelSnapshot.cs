@@ -172,8 +172,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("AcknowledgedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("AcknowledgedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("AcknowledgedBy")
                         .HasMaxLength(256)
@@ -199,14 +199,14 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("FirstOccurredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("FirstOccurredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("LastOccurredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("LastOccurredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("OccurrenceCount")
                         .HasColumnType("INTEGER");
@@ -215,8 +215,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ResolvedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ResolvedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Severity")
                         .HasColumnType("INTEGER");
@@ -249,8 +249,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -265,8 +265,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("MinCriticality")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -341,8 +341,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid?>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("OccurredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Outcome")
                         .HasColumnType("INTEGER");
@@ -378,8 +378,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -388,8 +388,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -420,8 +420,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("ComponentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -433,8 +433,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -463,8 +463,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CapturedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CapturedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid>("ComponentId")
                         .HasColumnType("TEXT");
@@ -478,8 +478,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -488,8 +488,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -535,8 +535,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -550,8 +550,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("IsNegation")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -589,8 +589,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Confidence")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -604,8 +604,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -646,8 +646,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("CounterEvidence")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -661,11 +661,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EvidenceObservedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EvidenceObservedAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -705,22 +705,22 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("EnteredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("EnteredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("EnteredBy")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -751,11 +751,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("AnalysedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("AnalysedAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -769,8 +769,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EscalatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EscalatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("EscalatedBy")
                         .HasMaxLength(256)
@@ -783,8 +783,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("IsReferenceBaseline")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -836,11 +836,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("WindowEnd")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("WindowEnd")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("WindowStart")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("WindowStart")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -860,8 +860,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("ConclusiveSignatureConfidenceWeight")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -870,8 +870,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("HypothesisEstablishedThreshold")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -908,8 +908,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("CounterEvidence")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -929,8 +929,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -984,8 +984,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(8000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -998,8 +998,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1038,8 +1038,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("ConsecutiveRejections")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1050,21 +1050,21 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(260)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("FirstSeenAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("FirstSeenAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("IntegratedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("IntegratedAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("LastSeenAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("LastSeenAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("MessageType")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1096,8 +1096,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1106,14 +1106,14 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ExpiresAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ExpiresAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Level")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1152,8 +1152,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("AcquiredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("AcquiredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
@@ -1161,8 +1161,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("ExecutionId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("HeldBy")
                         .IsRequired()
@@ -1207,15 +1207,15 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ConfirmedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ConfirmedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ConfirmedBy")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1224,8 +1224,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid?>("DiagnosticSessionId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EndedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EndedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Error")
                         .HasMaxLength(2000)
@@ -1279,8 +1279,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("MaxRetries")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1310,15 +1310,15 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("RetryDelaySeconds")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("RetryNotBeforeAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("RetryNotBeforeAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("BLOB");
 
-                    b.Property<DateTimeOffset?>("SkipCoApprovedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("SkipCoApprovedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("SkipCoApprovedBy")
                         .HasColumnType("TEXT");
@@ -1331,8 +1331,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("StartedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("State")
                         .HasColumnType("INTEGER");
@@ -1363,8 +1363,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1386,14 +1386,14 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("OccurredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
@@ -1427,8 +1427,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1441,8 +1441,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1478,8 +1478,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ValidatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ValidatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ValidatedBy")
                         .HasMaxLength(256)
@@ -1503,8 +1503,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1513,8 +1513,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("DocumentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1535,8 +1535,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("Resolved")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ResolvedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ResolvedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ResolvedBy")
                         .HasMaxLength(256)
@@ -1548,8 +1548,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("ReviewStatus")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ReviewedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ReviewedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ReviewedBy")
                         .HasColumnType("TEXT");
@@ -1578,8 +1578,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1598,11 +1598,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("FirstLineNumber")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("FirstSeenAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("FirstSeenAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LastSeenAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastSeenAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Level")
                         .HasColumnType("TEXT");
@@ -1614,8 +1614,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1702,8 +1702,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("CorrelationId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1719,8 +1719,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EarliestEntryAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EarliestEntryAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Error")
                         .HasMaxLength(2000)
@@ -1744,8 +1744,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("InfoCount")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LatestEntryAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LatestEntryAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("LineCount")
                         .HasColumnType("INTEGER");
@@ -1753,8 +1753,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("MaskedSecretCount")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1816,8 +1816,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("ControlMode")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1854,11 +1854,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("MaintenanceReason")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("MaintenanceUntil")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("MaintenanceUntil")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1921,8 +1921,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -1950,8 +1950,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -1997,8 +1997,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2031,8 +2031,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(45)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2075,8 +2075,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("AuditRetentionDays")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2085,8 +2085,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("LogsRetentionDays")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2118,8 +2118,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool?>("CanWrite")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CapturedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CapturedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid>("ComponentId")
                         .HasColumnType("TEXT");
@@ -2138,8 +2138,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2162,17 +2162,17 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("NewestFileAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("NewestFileAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("OldestFileAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("OldestFileAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<double?>("OldestPendingAgeHours")
                         .HasColumnType("REAL");
@@ -2231,8 +2231,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2252,8 +2252,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("HasBeenExecuted")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2322,8 +2322,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid?>("ComponentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2335,8 +2335,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2384,15 +2384,15 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EndedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EndedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("EnvironmentCode")
                         .IsRequired()
@@ -2402,8 +2402,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2411,8 +2411,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int?>("Outcome")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("OutcomeDeclaredAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("OutcomeDeclaredAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("OutcomeDeclaredBy")
                         .HasColumnType("TEXT");
@@ -2450,8 +2450,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid?>("SourceDiagnosticSessionId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("StartedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("StartedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("StartedBy")
                         .IsRequired()
@@ -2491,15 +2491,15 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ConfirmedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ConfirmedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ConfirmedBy")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2509,8 +2509,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EndedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EndedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Evidence")
                         .HasMaxLength(2000)
@@ -2532,8 +2532,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("IsSkippable")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2556,8 +2556,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid>("SopExecutionId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("StartedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("State")
                         .HasColumnType("INTEGER");
@@ -2583,8 +2583,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid?>("ComponentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2602,8 +2602,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("IsSkippable")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2642,8 +2642,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2665,20 +2665,20 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("LastVerifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastVerifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Mode")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("PasswordSetAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("PasswordSetAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ProtectedPassword")
                         .HasMaxLength(4000)
@@ -2722,8 +2722,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2742,8 +2742,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2783,8 +2783,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ApprovedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ApprovedBy")
                         .HasMaxLength(256)
@@ -2800,8 +2800,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int?>("ContinuityChoice")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ContinuityChoiceAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ContinuityChoiceAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ContinuityChoiceBy")
                         .HasColumnType("TEXT");
@@ -2814,18 +2814,18 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("EndWindow")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EndWindow")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("EndedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("EndedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("EnvironmentCode")
                         .IsRequired()
@@ -2851,11 +2851,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastHeartbeatAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -2871,8 +2871,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("PostCancellationReport")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("PreflightAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("PreflightAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("PreflightBlocked")
                         .HasColumnType("INTEGER");
@@ -2899,17 +2899,17 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("BLOB");
 
-                    b.Property<DateTimeOffset?>("SecondApprovedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("SecondApprovedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("SecondApprovedBy")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("StartWindow")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("StartWindow")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("StartedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Status")
                         .HasColumnType("INTEGER");
@@ -2960,8 +2960,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<Guid?>("ComponentId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
@@ -2983,8 +2983,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("MaxRetries")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ModifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
@@ -3044,8 +3044,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Department")
                         .HasMaxLength(150)
@@ -3065,14 +3065,14 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<bool>("IsDisabled")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LastLoginAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LastLoginAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LockoutEnd")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("LockoutEnd")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
@@ -3082,11 +3082,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("PasswordChangedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("PasswordChangedAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("PasswordExpiresAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("PasswordExpiresAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("PasswordHash")
                         .HasColumnType("TEXT");
@@ -3130,8 +3130,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -3194,7 +3194,7 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                             b1.Property<byte[]>("ClientDataJson")
                                 .IsRequired();
 
-                            b1.Property<DateTimeOffset>("CreatedAt");
+                            b1.Property<long>("CreatedAt");
 
                             b1.Property<bool>("IsBackedUp");
 
@@ -3565,8 +3565,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                                 .HasColumnType("TEXT")
                                 .HasColumnName("SharedFolder_ErrorSubfolder");
 
-                            b1.Property<DateTimeOffset?>("LastBackupAt")
-                                .HasColumnType("TEXT")
+                            b1.Property<long?>("LastBackupAt")
+                                .HasColumnType("INTEGER")
                                 .HasColumnName("SharedFolder_LastBackupAt");
 
                             b1.Property<string>("LastBackupBy")

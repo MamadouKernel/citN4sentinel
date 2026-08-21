@@ -249,6 +249,112 @@ public sealed class SqliteTests : IDisposable
         }
     }
 
+    // =======================================================================
+    // Tri par date — le défaut qui a fait tomber le premier déploiement
+    // =======================================================================
+    //
+    // SQLite stocke les DateTimeOffset en TEXTE et refuse tout ORDER BY
+    // dessus : « SQLite does not support expressions of type 'DateTimeOffset'
+    // in ORDER BY clauses ». L'exception survient À L'EXÉCUTION, tue le
+    // circuit Blazor, et l'écran devient blanc.
+    //
+    // Mes premiers tests SQLite ne triaient rien : ils sont passés au vert sur
+    // un support incomplet, et le défaut a été découvert sur la VM du client.
+    // L'application trie par date presque partout — historique, audit,
+    // alertes, exécutions.
+
+    [Fact(DisplayName = "Trier par date fonctionne, dans les deux sens")]
+    public async Task Le_Tri_Par_Date_Fonctionne()
+    {
+        await using var db = Contexte();
+        await db.Database.MigrateAsync();
+
+        var reference = DateTimeOffset.UtcNow;
+
+        for (var i = 0; i < 5; i++)
+        {
+            db.AuditEntries.Add(new AuditEntry
+            {
+                OccurredAt = reference.AddMinutes(-i),
+                Action = AuditAction.Connexion,
+                Outcome = AuditOutcome.Succes,
+                Actor = $"acteur-{i}",
+                EntityType = "Essai"
+            });
+        }
+        await db.SaveChangesAsync();
+
+        // C'est cette requête qui levait l'exception sur la VM.
+        var recentes = await db.AuditEntries
+            .OrderByDescending(a => a.OccurredAt)
+            .Take(3)
+            .ToListAsync();
+
+        Assert.Equal(3, recentes.Count);
+        Assert.Equal("acteur-0", recentes[0].Actor);
+        Assert.Equal("acteur-2", recentes[2].Actor);
+
+        var anciennes = await db.AuditEntries.OrderBy(a => a.OccurredAt).ToListAsync();
+        Assert.Equal("acteur-4", anciennes[0].Actor);
+    }
+
+    [Fact(DisplayName = "Filtrer sur une plage de dates fonctionne")]
+    public async Task Le_Filtre_Par_Plage_De_Dates_Fonctionne()
+    {
+        await using var db = Contexte();
+        await db.Database.MigrateAsync();
+
+        var maintenant = DateTimeOffset.UtcNow;
+
+        db.AuditEntries.Add(new AuditEntry
+        {
+            OccurredAt = maintenant.AddDays(-10),
+            Action = AuditAction.Connexion, Outcome = AuditOutcome.Succes,
+            Actor = "ancien", EntityType = "Essai"
+        });
+        db.AuditEntries.Add(new AuditEntry
+        {
+            OccurredAt = maintenant.AddHours(-1),
+            Action = AuditAction.Connexion, Outcome = AuditOutcome.Succes,
+            Actor = "recent", EntityType = "Essai"
+        });
+        await db.SaveChangesAsync();
+
+        // Les rapports et l'historique filtrent tous sur une fenêtre.
+        var depuis = maintenant.AddDays(-1);
+        var dansLaFenetre = await db.AuditEntries
+            .Where(a => a.OccurredAt >= depuis)
+            .ToListAsync();
+
+        Assert.Single(dansLaFenetre);
+        Assert.Equal("recent", dansLaFenetre[0].Actor);
+    }
+
+    [Fact(DisplayName = "L'instant relu est bien celui qui a été écrit")]
+    public async Task L_Instant_Relu_Est_Celui_Ecrit()
+    {
+        // La conversion en tics UTC ne doit pas décaler les horodatages : un
+        // audit décalé d'une heure vaudrait mieux ne pas exister.
+        var instant = new DateTimeOffset(2026, 8, 21, 11, 14, 17, TimeSpan.Zero);
+
+        await using (var db = Contexte())
+        {
+            await db.Database.MigrateAsync();
+            db.AuditEntries.Add(new AuditEntry
+            {
+                OccurredAt = instant,
+                Action = AuditAction.Connexion, Outcome = AuditOutcome.Succes,
+                Actor = "essai", EntityType = "Essai"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using var relecture = Contexte();
+        var lu = await relecture.AuditEntries.SingleAsync();
+
+        Assert.Equal(instant.UtcDateTime, lu.OccurredAt.UtcDateTime);
+    }
+
     [Fact(DisplayName = "Le jeton de concurrence change à chaque écriture")]
     public async Task Le_Jeton_Change_A_Chaque_Ecriture()
     {
