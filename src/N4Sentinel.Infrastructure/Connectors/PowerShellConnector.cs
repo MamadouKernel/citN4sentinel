@@ -1009,10 +1009,21 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
             return (ConnectorFailure.NomNonResolu,
                 $"Nom '{target.HostName}' non resolu. Verifiez l'orthographe, le DNS et le suffixe du domaine.");
 
+        // Le conseil depend du transport : Enable-PSRemoting cree un ecouteur
+        // HTTP sur 5985 et RIEN sur 5986. Le donner tel quel a quelqu'un dont
+        // la fiche est en HTTPS l'envoie chercher pourquoi la commande n'a rien
+        // change.
+        var conseil = target.UseSsl
+            ? $"Le port {target.WinRmPort} est declare en HTTPS : Enable-PSRemoting ne suffit PAS, "
+              + "il cree un ecouteur HTTP sur 5985. Il faut un certificat serveur puis "
+              + "'winrm quickconfig -transport:https'. Verifiez ce qui ecoute avec "
+              + "'winrm enumerate winrm/config/listener'. A defaut de certificat, basculez "
+              + "cette fiche sur 5985 sans SSL."
+            : "Sur le serveur cible, en administrateur : Enable-PSRemoting -Force.";
+
         return (ConnectorFailure.Injoignable,
             $"{target.HostName} ne repond pas sur WinRM (port {target.WinRmPort}). " +
-            "Sur le serveur cible, en administrateur : Enable-PSRemoting -Force. " +
-            $"Detail : {ex.Message}");
+            conseil + $" Detail : {ex.Message}");
     }
 
     /// <summary>

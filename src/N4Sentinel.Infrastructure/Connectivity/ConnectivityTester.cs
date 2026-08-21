@@ -98,12 +98,44 @@ public sealed class ConnectivityTester(
         results.Add(await PingAsync(server.HostName, ct));
 
         // 3. Port WinRM : c'est lui qui conditionne tout le pilotage a venir.
+        //
+        // Le conseil depend du TRANSPORT. « Enable-PSRemoting -Force » cree un
+        // ecouteur HTTP sur 5985 et RIEN sur 5986 : donner ce conseil a
+        // quelqu'un dont la fiche est en HTTPS l'envoie chercher pendant une
+        // heure pourquoi la commande n'a rien change.
         results.Add(await TestPortAsync(server.HostName, server.WinRmPort,
             $"Port WinRM {server.WinRmPort}",
-            "Sans ce port, aucun pilotage ni collecte a distance n'est possible. " +
-            "Sur le serveur cible, en administrateur : Enable-PSRemoting -Force"));
+            "Sans ce port, aucun pilotage ni collecte a distance n'est possible. "
+            + ConseilWinRm(server)));
 
         return results;
+    }
+
+    /// <summary>
+    /// Conseil de remise en service WinRM, adapté au transport déclaré.
+    ///
+    /// Le piège vaut d'être nommé : <c>Enable-PSRemoting -Force</c> crée un
+    /// écouteur HTTP sur 5985 et n'en crée AUCUN sur 5986. Le HTTPS exige un
+    /// certificat serveur, qui vient de la PKI et non d'une commande.
+    /// Conseiller Enable-PSRemoting à quelqu'un dont la fiche est en HTTPS
+    /// l'envoie chercher pourquoi la commande « n'a rien fait ».
+    /// </summary>
+    private static string ConseilWinRm(N4Server server)
+    {
+        if (!server.UseSsl && server.WinRmPort == 5985)
+            return "Sur le serveur cible, en administrateur : Enable-PSRemoting -Force";
+
+        if (server.UseSsl)
+            return $"Le port {server.WinRmPort} est déclaré en HTTPS. « Enable-PSRemoting » ne suffit PAS : "
+                 + "il crée un écouteur HTTP sur 5985 et rien en HTTPS. Il faut un certificat serveur "
+                 + "portant le nom d'hôte, puis « winrm quickconfig -transport:https ». "
+                 + "Pour vérifier ce qui écoute réellement : « winrm enumerate winrm/config/listener ». "
+                 + "À défaut de certificat, basculez cette fiche sur 5985 sans SSL — sur un domaine "
+                 + "Active Directory, les identifiants restent protégés par Kerberos.";
+
+        return $"Le port {server.WinRmPort} n'est pas un port WinRM habituel (5985 en HTTP, 5986 en HTTPS). "
+             + "Vérifiez ce qui écoute réellement sur le serveur cible : "
+             + "« winrm enumerate winrm/config/listener ».";
     }
 
     private async Task<List<CheckResult>> TestComponentAsync(N4Component component, CancellationToken ct)
