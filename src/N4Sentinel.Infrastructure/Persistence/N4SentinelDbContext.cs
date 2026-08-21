@@ -165,6 +165,13 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.HasIndex(x => new { x.EnvironmentId, x.LogicalName }).IsUnique();
             e.Property(x => x.LogicalName).HasMaxLength(150).IsRequired();
             e.Property(x => x.WindowsServiceName).HasMaxLength(255);
+
+            // Services associes (Day 1 modules 1.6/1.7 ; table « List of Known
+            // Services » du guide 3.8.25). Stockes en JSON comme les autres
+            // listes : ils se lisent et s'editent comme un tout.
+            e.Property(x => x.CompanionServiceNames)
+             .HasConversion(jsonListConverter).Metadata.SetValueComparer(jsonListComparer);
+
             e.Property(x => x.ProcessName).HasMaxLength(255);
             e.Property(x => x.Endpoint).HasMaxLength(500);
             e.Property(x => x.Description).HasMaxLength(1000);

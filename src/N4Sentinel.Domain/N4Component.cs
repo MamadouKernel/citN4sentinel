@@ -22,8 +22,43 @@ public class N4Component : AuditableEntity
 
     public ComponentRole Role { get; set; } = ComponentRole.Autre;
 
-    /// <summary>Nom EXACT du service Windows. Sa justesse conditionne tout le pilotage.</summary>
+    /// <summary>
+    /// Nom EXACT du service Windows PILOTÉ — celui sur lequel la commande de
+    /// démarrage ou d'arrêt est émise. Sa justesse conditionne tout le pilotage.
+    /// </summary>
     public string? WindowsServiceName { get; set; }
+
+    /// <summary>
+    /// Services que N4 démarre EN PLUS du service piloté, et qui doivent tous
+    /// être actifs pour que le composant soit opérationnel.
+    ///
+    /// LES GUIDES ÉDITEUR SONT EXPLICITES LÀ-DESSUS. On lance UNE commande —
+    /// « Start the Navis XPS Service » — puis on vérifie que TOUS les services
+    /// du groupe sont actifs :
+    ///
+    ///   XPS Bridge Daemon : BridgeDaemon, BridgeService, BridgeControl
+    ///   XPS               : XPSDaemon, XPSControl, XPSGateService, XPSMessageService
+    ///   ECN4 Daemon       : ECN4Daemon, XMLRDTService, Ecn4BentoServerService
+    ///
+    /// (« N4 IT Administrator — Day 1 », modules 1.6 et 1.7 ; table « List of
+    /// Known Services », guide Setup/Maintenance 3.8.25, p. 543-546.)
+    ///
+    /// Le guide 3.8.25 précise ce que chacun coûte : sans BridgeService,
+    /// « XPS cannot complete startup » ; sans XMLRDTService, « ECN4 does not
+    /// accept XMLRDT messages ». Le service piloté peut donc être parfaitement
+    /// Running pendant qu'une fonction entière est morte.
+    ///
+    /// L'éditeur résume : « A service that is in states other than ACTIVE
+    /// [...] is as useless as if it was not present. »
+    ///
+    /// LA LISTE EST DÉCLARÉE PAR SITE, jamais codée en dur : les noms changent
+    /// d'une version à l'autre — le Day 1 (4.x) nomme XPSGateService là où le
+    /// guide 3.8.25 nomme N4GateService.
+    ///
+    /// Vide par défaut : un composant sans services associés se comporte
+    /// exactement comme avant.
+    /// </summary>
+    public List<string> CompanionServiceNames { get; set; } = [];
 
     /// <summary>Nom du processus attendu, pour confirmer l'etat autrement que par le service.</summary>
     public string? ProcessName { get; set; }

@@ -176,6 +176,23 @@ public sealed class StepExecutor(
                 $"Le service n'a pas atteint Running en {readiness.ServiceRunningTimeoutSeconds} s "
                 + $"(dernier état observé : {running.LastStatus}).", StepErrorType.TimeoutAttente, commande.ExecutedCommand);
 
+        // Phase 1 bis : les SERVICES ASSOCIÉS. N4 en démarre plusieurs à partir
+        // d'une seule commande, et les guides éditeur demandent de vérifier
+        // qu'ils sont TOUS actifs — « wait until the four XPS services are
+        // ACTIVE ». Sans BridgeService, « XPS cannot complete startup » ; sans
+        // XMLRDTService, « ECN4 does not accept XMLRDT messages ». Le service
+        // piloté peut donc être Running pendant qu'une fonction entière est
+        // morte.
+        var associes = await AttendreServicesAssociesAsync(
+            cible, composant, readiness, progress, ct);
+
+        if (associes is { } manquants)
+            return StepOutcome.Failed(
+                $"Le service « {composant.WindowsServiceName} » est Running, mais {manquants} "
+                + "L'éditeur est explicite : un service qui n'est pas actif est aussi inutile que "
+                + "s'il était absent. Le démarrage n'est pas complet.",
+                StepErrorType.TimeoutAttente, commande.ExecutedCommand);
+
         if (!readiness.IsProvable)
             return StepOutcome.Warned(
                 $"Service « {composant.WindowsServiceName} » à l'état Running sur {cible.HostName}. "
@@ -189,6 +206,56 @@ public sealed class StepExecutor(
 
         var finalOutcome = await AttendreMarqueurAsync(cible, readiness, repere, progress, ct);
         return finalOutcome with { ExecutedCommand = commande.ExecutedCommand };
+    }
+
+    /// <summary>
+    /// Attend que tous les services associés atteignent l'état voulu.
+    ///
+    /// Retourne <c>null</c> quand tout va bien, ou la phrase décrivant ce qui
+    /// manque. Une liste vide ne coûte aucun appel : un composant sans services
+    /// associés se comporte exactement comme avant.
+    /// </summary>
+    private async Task<string?> AttendreServicesAssociesAsync(
+        ConnectorTarget cible, N4Component composant, ReadinessProfile readiness,
+        IProgress<string> progress, CancellationToken ct, bool arret = false)
+    {
+        var attendus = composant.CompanionServiceNames
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (attendus.Count == 0) return null;
+
+        var statutVoulu = arret ? "Stopped" : "Running";
+        var delai = arret ? readiness.StopTimeoutSeconds : readiness.ServiceRunningTimeoutSeconds;
+
+        progress.Report(
+            $"Vérification des {attendus.Count} service(s) associé(s) : "
+            + string.Join(", ", attendus) + ".");
+
+        var defaillants = new List<string>();
+
+        foreach (var nom in attendus)
+        {
+            var etat = await AttendreStatutAsync(
+                cible, nom, statutVoulu, TimeSpan.FromSeconds(delai),
+                readiness.PollIntervalSeconds, progress,
+                $"Attente de « {nom} » à l'état {statutVoulu}", ct);
+
+            if (!etat.Reached)
+                defaillants.Add($"« {nom} » ({etat.LastStatus ?? "état inconnu"})");
+        }
+
+        if (defaillants.Count == 0)
+        {
+            progress.Report($"Les {attendus.Count} service(s) associé(s) sont à l'état {statutVoulu}.");
+            return null;
+        }
+
+        return defaillants.Count == 1
+            ? $"le service associé {defaillants[0]} n'a pas atteint {statutVoulu} en {delai} s."
+            : $"{defaillants.Count} services associés n'ont pas atteint {statutVoulu} en {delai} s : "
+              + string.Join(", ", defaillants) + ".";
     }
 
     private async Task<StepOutcome> ArreterAsync(
@@ -227,8 +294,27 @@ public sealed class StepExecutor(
             "Attente de l'arrêt complet", ct);
 
         if (arrete.Reached)
+        {
+            // Les services associés doivent s'être arrêtés eux aussi. Déclarer
+            // le composant arrêté alors qu'un écouteur tourne encore laisserait
+            // croire l'écosystème au repos, et la maintenance commencerait sur
+            // une machine qui traite toujours des messages.
+            var restants = await AttendreServicesAssociesAsync(
+                cible, composant, readiness, progress, ct, arret: true);
+
+            if (restants is not null)
+                return StepOutcome.Failed(
+                    $"Le service « {composant.WindowsServiceName} » est arrêté, mais {restants} "
+                    + "Le composant n'est PAS complètement arrêté.",
+                    StepErrorType.TimeoutAttente, commande.ExecutedCommand);
+
             return StepOutcome.Succeeded(
-                $"Service « {composant.WindowsServiceName} » arrêté sur {cible.HostName}.", commande.ExecutedCommand);
+                $"Service « {composant.WindowsServiceName} » arrêté sur {cible.HostName}"
+                + (composant.CompanionServiceNames.Count > 0
+                    ? $", ainsi que ses {composant.CompanionServiceNames.Count} service(s) associé(s)."
+                    : "."),
+                commande.ExecutedCommand);
+        }
 
         // Cas connu et documente : le Standby Center Node reste bloque en
         // StopPending. Le dire explicitement evite a l'operateur de chercher

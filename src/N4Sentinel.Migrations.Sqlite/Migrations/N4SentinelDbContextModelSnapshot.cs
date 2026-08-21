@@ -1809,6 +1809,10 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CompanionServiceNames")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("ControlMode")
                         .HasColumnType("INTEGER");
 

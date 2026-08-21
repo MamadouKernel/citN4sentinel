@@ -53,8 +53,27 @@ else
                     </div>
 
                     <div>
-                        <label class="block font-semibold text-slate-300 mb-1">Nom du service Windows</label>
+                        <label class="block font-semibold text-slate-300 mb-1">Nom du service Windows <span class="text-slate-500 font-normal">(celui qu'on pilote)</span></label>
                         <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.WindowsServiceName" placeholder="Navis N4 Cluster Node" />
+                    </div>
+
+                    @* Services associés — Day 1 modules 1.6/1.7, et table
+                       « List of Known Services » du guide 3.8.25. *@
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Services associés</label>
+                        <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none"
+                               value="@string.Join(", ", _c.CompanionServiceNames)"
+                               @onchange="ChangerServicesAssocies"
+                               placeholder="XPSDaemon, XPSControl, XPSGateService, XPSMessageService" />
+                        <div class="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
+                            Séparés par des virgules. N4 démarre plusieurs services à partir d'une seule commande :
+                            le Bridge en a trois, XPS quatre, l'ECN4 Daemon trois. Ils devront <strong>tous</strong>
+                            être actifs pour qu'un démarrage soit déclaré complet, et tous arrêtés pour un arrêt.
+                            Sans <code>BridgeService</code>, l'éditeur note que « XPS cannot complete startup » —
+                            le service piloté serait pourtant Running.
+                            <span class="text-slate-500">Les noms varient selon la version : relevez-les dans
+                            Cluster Services plutôt que de les recopier d'un guide.</span>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">
@@ -397,6 +416,22 @@ else
 
 @code {
     [Parameter] public Guid Id { get; set; }
+
+    /// <summary>
+    /// Saisie des services associés : une ligne séparée par des virgules,
+    /// convertie en liste. Les entrées vides sont écartées — une virgule en
+    /// trop ne doit pas produire un service au nom vide, que l'exécuteur
+    /// chercherait ensuite en vain.
+    /// </summary>
+    private void ChangerServicesAssocies(ChangeEventArgs e)
+    {
+        if (_c is null) return;
+
+        _c.CompanionServiceNames = (e.Value?.ToString() ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     private N4Component? _c;
     private string _marqueurs = "";

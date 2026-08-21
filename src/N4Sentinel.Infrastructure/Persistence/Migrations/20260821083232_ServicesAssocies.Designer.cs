@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using N4Sentinel.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using N4Sentinel.Infrastructure.Persistence;
 namespace N4Sentinel.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(N4SentinelDbContext))]
-    partial class N4SentinelDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260821083232_ServicesAssocies")]
+    partial class ServicesAssocies
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
