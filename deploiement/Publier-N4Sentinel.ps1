@@ -25,7 +25,18 @@ param(
     [Parameter(Mandatory)]
     [string]$Destination,
 
-    [string]$Version = (Get-Date -Format 'yyyy.MM.dd')
+    [string]$Version = (Get-Date -Format 'yyyy.MM.dd'),
+
+    # Embarque le runtime .NET dans le paquet : la VM n'a alors rien a
+    # installer. A choisir ICI, sur le poste de developpement, et non une fois
+    # devant la machine cible.
+    [switch]$Autonome,
+
+    [string]$Runtime = 'win-x64',
+
+    # Sert uniquement au message affiche en mode dependant du runtime, pour
+    # que l'operateur sache quoi installer sur la VM.
+    [string]$VersionRuntimeAttendue = '10.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,8 +74,20 @@ $web = Join-Path $racine 'src\N4Sentinel.Web'
 Push-Location $web
 try {
     if (Get-Command npm -ErrorAction SilentlyContinue) {
-        & npm.cmd run build:css 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "La compilation de la feuille de style a echoue." }
+        # PAS de redirection 2>&1 ici. Sous Windows PowerShell 5.1, rediriger
+        # la sortie d'erreur d'un executable natif transforme CHAQUE ligne en
+        # erreur terminante, y compris un simple avertissement. npm en produit
+        # regulierement — « caniuse-lite is outdated », par exemple — et la
+        # fabrication du paquet echouait alors alors que la compilation avait
+        # parfaitement abouti.
+        #
+        # Le code de sortie est le seul verdict fiable.
+        $preferenceInitiale = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try   { & npm.cmd run build:css | Out-Null }
+        finally { $ErrorActionPreference = $preferenceInitiale }
+
+        if ($LASTEXITCODE -ne 0) { throw "La compilation de la feuille de style a echoue (code $LASTEXITCODE)." }
         Write-Host "        Feuille de style compilee." -ForegroundColor Green
     }
     else {
@@ -80,11 +103,34 @@ finally { Pop-Location }
 # --- 2. Publication ----------------------------------------------------------
 Write-Host "  [2/4] Publication de l'application..." -ForegroundColor Cyan
 
-& dotnet publish $projet `
-    --configuration Release `
-    --output $application `
-    -p:Version=$Version `
-    --nologo | Out-Null
+$argumentsPublication = @(
+    $projet,
+    '--configuration', 'Release',
+    '--output', $application,
+    "-p:Version=$Version",
+    '--nologo'
+)
+
+if ($Autonome) {
+    # Publication AUTONOME : le runtime .NET voyage avec l'application. La VM
+    # n'a alors rien a installer du tout.
+    #
+    # Le paquet passe d'environ 20 Mo a environ 150 Mo. Sur un reseau
+    # d'exploitation isole, c'est presque toujours le bon compromis : faire
+    # approuver l'installation d'un runtime sur un serveur de production prend
+    # plus de temps que de copier 150 Mo.
+    #
+    # Contrepartie a connaitre : les correctifs de securite du runtime ne
+    # viennent plus par Windows Update. Une mise a jour du runtime impose de
+    # republier et de redeployer.
+    Write-Host "        Mode AUTONOME : le runtime est embarque." -ForegroundColor Yellow
+    $argumentsPublication += @('--runtime', $Runtime, '--self-contained', 'true')
+}
+else {
+    Write-Host "        Mode DEPENDANT DU RUNTIME : ASP.NET Core $VersionRuntimeAttendue doit etre installe sur la VM." -ForegroundColor Yellow
+}
+
+& dotnet publish @argumentsPublication | Out-Null
 
 if ($LASTEXITCODE -ne 0) { throw "La publication a echoue." }
 

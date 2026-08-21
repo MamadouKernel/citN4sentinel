@@ -65,33 +65,52 @@ avec `-Version 2026.08.20` ; par défaut c'est la date du jour.
 Le script compile la feuille de style, publie l'application, puis assemble :
 
 ```
-C:\Paquets\N4Sentinel-2026.08.20\
+C:\Paquets\N4Sentinel-2026.08.21\
 ├── application\              l'application publiée
 ├── base-de-donnees\          scripts SQL (inutiles en mode SQLite)
 ├── documentation\            guide de déploiement
+├── empreintes.txt            SHA-256 de chaque fichier livré
 ├── Installer-N4Sentinel.ps1
 └── Verifier-N4Sentinel.ps1
 ```
+
+`empreintes.txt` sert au contrôle après transfert (chapitre B) : une copie
+interrompue ou altérée s'y voit, alors qu'un simple décompte de fichiers ne
+la montrerait pas.
 
 **Le paquet ne contient aucun secret.** Les gabarits de configuration sont
 livrés avec des valeurs vides, à renseigner sur la machine cible.
 
 ## A.4 Si la VM n'a pas le runtime ASP.NET Core
 
-Deux options. Choisissez maintenant, pas sur la VM.
+Deux options. Choisissez **ici**, sur le poste de développement, et non une
+fois devant la machine cible.
 
-**Option 1 — installer le runtime sur la VM** (chapitre C.2). Paquet plus
-léger, mais une dépendance à maintenir.
+**Option 1 — installer le runtime sur la VM** (chapitre C.2). Paquet léger,
+mais une dépendance de plus à faire approuver et à maintenir.
 
-**Option 2 — publier en autonome.** Le runtime voyage avec l'application :
+**Option 2 — publier en autonome.** Le runtime voyage dans le paquet :
 
 ```powershell
-dotnet publish src\N4Sentinel.Web -c Release -r win-x64 --self-contained -o C:\Paquets\autonome
+.\deploiement\Publier-N4Sentinel.ps1 -Destination C:\Paquets -Autonome
 ```
 
-Plus volumineux (~150 Mo), mais la VM n'a alors **rien** à installer. C'est
-souvent le bon choix sur un réseau d'exploitation isolé, où faire approuver
-l'installation d'un runtime prend plus de temps que de copier 150 Mo.
+La VM n'a alors **rien** à installer. Sur un réseau d'exploitation isolé,
+c'est presque toujours le bon compromis : faire approuver l'installation d'un
+runtime sur un serveur de production prend plus de temps que de copier le
+paquet.
+
+Le commutateur `-Autonome` passe par le même script que le mode normal — donc
+avec la feuille de style compilée, les gabarits de configuration, les deux
+scripts et le fichier d'empreintes. Une publication `dotnet publish` lancée à
+la main sauterait tout cela.
+
+**Poids mesuré le 21/08/2026 : 217 Mo**, dont 12 Mo de ressources web.
+
+**Contrepartie à connaître.** Les correctifs de sécurité du runtime ne
+viennent plus par Windows Update : ils sont figés dans le paquet. Une mise à
+jour du runtime impose de republier et de redéployer. En échange, vous savez
+exactement quelle version tourne — ce qu'un runtime partagé ne garantit pas.
 
 ---
 
@@ -105,11 +124,20 @@ lecteur, support amovible.
 la documentation en font partie.
 
 Contrôlez l'arrivée avant d'aller plus loin — une copie interrompue produit une
-application qui démarre puis échoue de façon incompréhensible :
+application qui démarre puis échoue de façon incompréhensible, et le lien avec
+le transfert ne saute pas aux yeux.
+
+Le paquet embarque l'empreinte SHA-256 de chaque fichier. Sur la VM :
 
 ```powershell
-(Get-ChildItem C:\Depot\N4Sentinel-2026.08.20 -Recurse -File | Measure-Object).Count
+cd C:\Depot\N4Sentinel-2026.08.21\application
 ```
+
+```powershell
+Get-Content ..\empreintes.txt | ForEach-Object { $h,$f = $_ -split '\s+',2; if (Test-Path $f) { if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h) { "ALTERE : $f" } } else { "MANQUANT : $f" } }
+```
+
+Aucune sortie signifie que tout est arrivé intact.
 
 ---
 
