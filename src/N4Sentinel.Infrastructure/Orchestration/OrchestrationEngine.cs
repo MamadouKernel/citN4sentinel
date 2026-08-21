@@ -365,9 +365,51 @@ public sealed class OrchestrationEngine(
             correlationId, suivante.Order, suivante.Name, suivante.Action,
             suivante.ComponentName ?? "—");
 
-        var issue = await executor.ExecuteAsync(suivante, isSimulation, progress, ct);
+        // PLAFOND DE L'ETAPE.
+        //
+        // WorkflowStep.TimeoutSeconds est saisissable a l'ecran et enregistre
+        // depuis toujours — et n'etait applique NULLE PART. Un exploitant qui
+        // ramenait un delai a cinq minutes croyait borner l'etape ; en realite
+        // seuls les delais du profil de demarrage jouaient, et l'attente
+        // pouvait durer trente minutes. Une valeur affichee qui ne produit
+        // aucun effet est pire que pas de valeur du tout.
+        //
+        // Le plafond ne remplace pas les delais du profil, il les borne : le
+        // premier des deux qui expire arrete l'attente. Sur les valeurs par
+        // defaut (1800 s des deux cotes) le comportement est inchange.
+        var issue = await ExecuterAvecPlafondAsync(executor, suivante, isSimulation, progress, ct);
 
         await AppliquerAsync(dbFactory, executionId, etapeId, issue, ct);
+    }
+
+    private static async Task<StepOutcome> ExecuterAvecPlafondAsync(
+        StepExecutor executor, ExecutionStep etape, bool isSimulation,
+        IProgress<string> progress, CancellationToken ct)
+    {
+        if (etape.TimeoutSeconds <= 0)
+            return await executor.ExecuteAsync(etape, isSimulation, progress, ct);
+
+        using var plafond = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        plafond.CancelAfter(TimeSpan.FromSeconds(etape.TimeoutSeconds));
+
+        try
+        {
+            return await executor.ExecuteAsync(etape, isSimulation, progress, plafond.Token);
+        }
+        catch (OperationCanceledException) when (plafond.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // Le plafond a expire, pas l'annulation de l'operateur. On ne
+            // conclut NI au succes NI a la panne : on dit ce qui est constate.
+            // Le composant peut tres bien avoir termine son demarrage juste
+            // apres — c'est a l'operateur de le constater, pas au moteur de le
+            // supposer.
+            return StepOutcome.Failed(
+                $"Délai de l'étape dépassé ({etape.TimeoutSeconds} s). L'attente a été interrompue "
+                + "AVANT que le résultat soit prouvé : ce n'est pas la preuve d'un échec du composant, "
+                + "seulement la fin du temps accordé. Vérifiez son état réel avant de relancer, et "
+                + "relevez le délai de l'étape s'il est plus court que le profil de démarrage du composant.",
+                StepErrorType.TimeoutAttente);
+        }
     }
 
     /// <summary>
