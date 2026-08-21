@@ -199,9 +199,32 @@ serait écrasée.
 New-Item -ItemType Directory -Force C:\ProgramData\N4Sentinel
 ```
 
+Puis donnez-en le contrôle au compte de service. **`DOMAINE\compte` ci-dessous
+est un exemple à remplacer** — recopié tel quel, Windows répond « No mapping
+between account names and security IDs was done », ce qui veut simplement dire
+que le compte n'existe pas.
+
+Le domaine attendu est le nom **NetBIOS** (`CIT`), pas le FQDN (`cit.local`) :
+
 ```powershell
-icacls C:\ProgramData\N4Sentinel /grant "CIT\svc_n4sentinel:(OI)(CI)M"
+icacls C:\ProgramData\N4Sentinel /grant "DOMAINE\compte:(OI)(CI)M"
 ```
+
+Pour retrouver le nom exact d'un compte existant :
+
+```powershell
+Get-ADUser -Filter "SamAccountName -like '*n4*'" | Select-Object SamAccountName, Name
+```
+
+> **Si le compte de service n'existe pas encore, passez cette étape.**
+> L'installeur laisse le service sous `LocalSystem`, qui a déjà tous les droits
+> sur `C:\ProgramData` : l'application s'installe, démarre et fonctionne.
+>
+> Ce que `LocalSystem` ne permettra PAS : se connecter aux serveurs N4 par
+> WinRM. La supervision et l'orchestration des composants Navis échoueront sur
+> des refus d'accès — tout le reste fonctionnera. C'est un compromis
+> acceptable pour éprouver le déploiement, à condition de le savoir et de
+> revenir désigner le compte de domaine avant la mise en service réelle.
 
 Ce dossier accueillera deux choses, la base et le trousseau de clés. Les deux
 sont à sauvegarder ensemble (chapitre G.1).
