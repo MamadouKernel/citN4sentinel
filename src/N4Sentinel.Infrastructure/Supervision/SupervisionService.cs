@@ -143,6 +143,32 @@ public sealed class SupervisionService(
                 snapshot.Verdict = $"Échec d'interrogation du service : {svcRes.Error}";
                 return snapshot;
             }
+
+            // SERVICES ASSOCIÉS. N4 en démarre plusieurs par composant, et
+            // l'éditeur note ce que coûte chacun : sans BridgeService, « XPS
+            // cannot complete startup » ; sans XMLRDTService, « ECN4 does not
+            // accept XMLRDT messages ». Le service piloté peut donc être
+            // Running pendant qu'une fonction entière est morte — et c'est
+            // exactement ce que la supervision doit refuser d'afficher comme
+            // « disponible ».
+            //
+            // Ils ne sont interrogés que si le service piloté tourne : quand il
+            // est arrêté, ses compagnons le sont aussi et le dire n'apporterait
+            // qu'un bruit qui masquerait la cause.
+            foreach (var associe in component.CompanionServiceNames
+                         .Where(n => !string.IsNullOrWhiteSpace(n))
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var res = await connector.GetServiceAsync(target, associe, ct);
+
+                var etat = res.Succeeded && res.Value is not null
+                    ? res.Value.Status
+                    : "Inaccessible";
+
+                snapshot.CompanionServices.Add(new CompanionServiceState(associe, etat));
+            }
         }
         else
         {
@@ -285,6 +311,29 @@ public sealed class SupervisionService(
             }
         }
 
+        // SERVICES ASSOCIES DEFAILLANTS. Un composant dont le service pilote
+        // tourne mais dont un ecouteur est arrete n'est PAS disponible : le
+        // guide 3.8.25 le dit sans detour — « a service that is in states other
+        // than ACTIVE is as useless as if it was not present ».
+        //
+        // Degrade et non indisponible : le composant repond encore, mais une
+        // partie de ses fonctions est morte. Nommer le service manquant evite
+        // la chasse au fantome — sans BridgeService, c'est le demarrage de XPS
+        // qui echouera, et personne ne fera le lien.
+        if (snapshot.CompanionServicesDefaillants.Count > 0)
+        {
+            if (snapshot.State == ComponentState.Disponible)
+                snapshot.State = ComponentState.Degrade;
+
+            var detail = string.Join(", ",
+                snapshot.CompanionServicesDefaillants.Select(s => $"{s.Nom} ({s.Statut})"));
+
+            snapshot.Verdict +=
+                $" [ATTENTION : {snapshot.CompanionServicesDefaillants.Count} service(s) associé(s) "
+                + $"non actif(s) : {detail}. Le composant répond, mais une partie de ses fonctions "
+                + "ne rend plus service.]";
+        }
+
         // 3. Métriques système (Contrôle d'écart d'horloge et espace disque)
         var sysRes = await connector.GetSystemAsync(target, ct);
         if (sysRes.Succeeded && sysRes.Value is not null)
@@ -371,6 +420,16 @@ public sealed class SupervisionService(
     }
 }
 
+/// <summary>
+/// État d'un service associé, relevé en même temps que le service piloté.
+/// </summary>
+/// <param name="Nom">Nom du service Windows.</param>
+/// <param name="Statut">Statut relevé, ou « Inaccessible ».</param>
+public sealed record CompanionServiceState(string Nom, string Statut)
+{
+    public bool EstActif => string.Equals(Statut, "Running", StringComparison.OrdinalIgnoreCase);
+}
+
 /// <summary>Instantané de santé d'un composant.</summary>
 public sealed class ComponentHealthSnapshot
 {
@@ -386,6 +445,16 @@ public sealed class ComponentHealthSnapshot
     public string ServiceStatus { get; set; } = "Inconnu";
     public int? ProcessId { get; set; }
     public long? WorkingSetBytes { get; set; }
+
+    /// <summary>
+    /// État des services que N4 démarre en plus du service piloté. Vide quand
+    /// le composant n'en déclare aucun.
+    /// </summary>
+    public List<CompanionServiceState> CompanionServices { get; } = [];
+
+    /// <summary>Services associés qui ne tournent pas — ceux qui comptent.</summary>
+    public IReadOnlyList<CompanionServiceState> CompanionServicesDefaillants =>
+        CompanionServices.Where(s => !s.EstActif).ToList();
 
     public LogProofState LogProofStatus { get; set; } = LogProofState.Unprovable;
     public string? LogPathResolved { get; set; }

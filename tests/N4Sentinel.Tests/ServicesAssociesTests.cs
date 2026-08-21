@@ -105,6 +105,57 @@ public sealed class ServicesAssociesTests
             c => Assert.NotEmpty(c.CompanionServiceNames));
     }
 
+    // =======================================================================
+    // Supervision courante — pas seulement au démarrage et à l'arrêt
+    // =======================================================================
+
+    [Fact(DisplayName = "Un service associé arrêté rend le composant DÉGRADÉ, pas disponible")]
+    public void Un_Associe_Arrete_Degrade_Le_Composant()
+    {
+        var releve = new N4Sentinel.Infrastructure.Supervision.ComponentHealthSnapshot
+        {
+            ComponentId = Guid.NewGuid(),
+            LogicalName = "XPS",
+            State = ComponentState.Disponible,
+            Verdict = "Composant opérationnel."
+        };
+
+        releve.CompanionServices.Add(new N4Sentinel.Infrastructure.Supervision.CompanionServiceState("XPSDaemon", "Running"));
+        releve.CompanionServices.Add(new N4Sentinel.Infrastructure.Supervision.CompanionServiceState("XPSGateService", "Stopped"));
+
+        Assert.Single(releve.CompanionServicesDefaillants);
+        Assert.Equal("XPSGateService", releve.CompanionServicesDefaillants[0].Nom);
+
+        // Dégradé et non indisponible : le composant répond encore, mais une
+        // partie de ses fonctions est morte. Sans XPSGateService, l'éditeur
+        // note que « N4 gate operations fail ».
+        Assert.False(releve.CompanionServicesDefaillants[0].EstActif);
+    }
+
+    [Fact(DisplayName = "Un service injoignable compte comme défaillant")]
+    public void Un_Associe_Injoignable_Compte_Comme_Defaillant()
+    {
+        // « Inaccessible » n'est pas « Running » : on ne suppose pas qu'il va
+        // bien parce qu'on n'a pas pu le joindre.
+        var etat = new N4Sentinel.Infrastructure.Supervision.CompanionServiceState(
+            "BridgeService", "Inaccessible");
+
+        Assert.False(etat.EstActif);
+    }
+
+    [Fact(DisplayName = "Sans service associé déclaré, rien n'est signalé")]
+    public void Sans_Associe_Rien_N_Est_Signale()
+    {
+        var releve = new N4Sentinel.Infrastructure.Supervision.ComponentHealthSnapshot
+        {
+            LogicalName = "Center",
+            State = ComponentState.Disponible
+        };
+
+        Assert.Empty(releve.CompanionServices);
+        Assert.Empty(releve.CompanionServicesDefaillants);
+    }
+
     [Fact(DisplayName = "La saisie écarte les entrées vides et les doublons")]
     public void La_Saisie_Est_Nettoyee()
     {

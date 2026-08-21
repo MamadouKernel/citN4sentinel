@@ -661,6 +661,28 @@
                                     {
                                         <div class="text-[10px] text-slate-400 font-mono">PID: @snap.ProcessId</div>
                                     }
+
+                                    @* Services associés. Relever leur état sans
+                                       l'afficher ne servirait à rien : c'est ici
+                                       que l'opérateur regarde. *@
+                                    @if (snap.CompanionServicesDefaillants.Count > 0)
+                                    {
+                                        <div class="mt-1 text-[10px] font-mono text-amber-400 font-bold"
+                                             title="Le service piloté tourne, mais ces services associés ne sont pas actifs. Une partie des fonctions du composant ne rend plus service.">
+                                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                                            @foreach (var s in snap.CompanionServicesDefaillants)
+                                            {
+                                                <div>@s.Nom : @s.Statut</div>
+                                            }
+                                        </div>
+                                    }
+                                    else if (snap.CompanionServices.Count > 0)
+                                    {
+                                        <div class="mt-1 text-[10px] font-mono text-emerald-500/80"
+                                             title="@string.Join(", ", snap.CompanionServices.Select(s => s.Nom))">
+                                            + @snap.CompanionServices.Count service(s) associé(s)
+                                        </div>
+                                    }
                                     @if (snap.ResponseTimeMs is { } ms)
                                     {
                                         <div class="text-[10px] font-mono @(ms > 5000 ? "text-amber-400 font-bold" : "text-slate-500")">
