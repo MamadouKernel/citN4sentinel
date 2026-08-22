@@ -1,0 +1,367 @@
+@page "/admin/environnements/{EnvironmentId:guid}/comptes"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Security
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject CredentialStore Credentials
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+
+<PageTitle>Comptes techniques — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div>
+        <a href="@($"/admin/environnements/{EnvironmentId}")"
+           class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+            <i class="bi bi-arrow-left"></i> @(_environnement?.Name ?? "Environnement")
+        </a>
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i class="bi bi-key text-amber-400"></i> Comptes techniques
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Identité sous laquelle N4 Sentinel ouvre une session sur les serveurs de cet environnement.
+        </p>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl border text-xs @_messageClass">@_message</div>
+    }
+
+    <!-- Ce que fait l'application par defaut, et quand cela ne suffit pas. -->
+    <div class="glass-card rounded-2xl border border-slate-800 p-5 text-xs text-slate-400 space-y-2">
+        <div class="font-bold text-slate-200 text-sm flex items-center gap-2">
+            <i class="bi bi-info-circle text-sky-400"></i> Avant de créer un compte
+        </div>
+        <p>
+            Sans compte déclaré, l'application se connecte <strong class="text-slate-200">sous l'identité de son
+            propre processus</strong>. C'est le mode recommandé : aucun mot de passe n'est stocké, donc aucun ne
+            peut fuir. Il suppose que le service N4 Sentinel tourne sous un compte du domaine disposant des droits
+            d'administration sur les serveurs N4.
+        </p>
+        <p>
+            Installé sous <span class="font-mono text-slate-300">LocalSystem</span>, le service s'authentifie en
+            revanche comme le <em>compte machine</em> du serveur applicatif, qui n'a normalement aucun droit sur
+            les serveurs N4 : la connexion est alors refusée. Déclarer un compte explicite ici est le contournement
+            immédiat — la solution durable reste un compte de service dédié.
+        </p>
+        <p class="text-slate-500">
+            Le mot de passe est chiffré au repos et n'est déchiffré qu'au moment d'ouvrir une session. Aucun écran,
+            aucun export ne le restitue, y compris à un administrateur de la solution (SEC-003).
+        </p>
+    </div>
+
+    <!-- Liste -->
+    <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+        <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-person-badge text-sky-400"></i>
+                Comptes déclarés (@_comptes.Count)
+            </h3>
+            <button type="button" @onclick="Nouveau"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition shadow-md">
+                <i class="bi bi-plus-lg"></i> Déclarer un compte
+            </button>
+        </div>
+
+        @if (_comptes.Count == 0)
+        {
+            <div class="p-6 text-center text-xs text-slate-500">
+                Aucun compte technique sur cet environnement. Les connexions se font sous l'identité du processus.
+            </div>
+        }
+        else
+        {
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
+                        <tr>
+                            <th class="py-3 px-4 font-bold">Référence</th>
+                            <th class="py-3 px-4 font-bold">Libellé</th>
+                            <th class="py-3 px-4 font-bold">Mode</th>
+                            <th class="py-3 px-4 font-bold">Compte</th>
+                            <th class="py-3 px-4 font-bold">Secret</th>
+                            <th class="py-3 px-4 font-bold">Dernier test</th>
+                            <th class="py-3 px-4 font-bold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        @foreach (var c in _comptes)
+                        {
+                            <tr class="hover:bg-slate-800/40">
+                                <td class="py-3.5 px-4 font-mono font-bold text-white">@c.Reference</td>
+                                <td class="py-3.5 px-4">@c.Label</td>
+                                <td class="py-3.5 px-4 text-slate-400">
+                                    @(c.Mode == CredentialMode.IdentiteDuProcessus ? "Identité du processus" : "Compte explicite")
+                                </td>
+                                <td class="py-3.5 px-4 font-mono text-slate-400">@(c.UserName ?? "-")</td>
+                                <td class="py-3.5 px-4">
+                                    @if (!c.IsUsable)
+                                    {
+                                        <span class="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 text-[11px] font-semibold">
+                                            Inutilisable — @c.SecretState
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-400">@c.SecretState</span>
+                                    }
+                                </td>
+                                <td class="py-3.5 px-4 text-slate-400">
+                                    @if (c.LastVerifiedAt is null)
+                                    {
+                                        <span class="text-slate-600">Jamais testé</span>
+                                    }
+                                    else
+                                    {
+                                        @c.LastVerifiedAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                    }
+                                </td>
+                                <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                                    <button type="button" @onclick="() => Modifier(c)"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 font-semibold text-xs transition">
+                                        <i class="bi bi-pencil"></i> Modifier
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <!-- Formulaire -->
+    @if (_edition is not null)
+    {
+        <div class="glass-card rounded-2xl border border-sky-800/60 p-5 space-y-4">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i class="bi bi-pencil-square text-sky-400"></i>
+                @(_estNouveau ? "Nouveau compte technique" : $"Modifier « {_edition.Reference} »")
+            </h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Référence</label>
+                    <input @bind="_edition.Reference" placeholder="ex. n4-prod-admin"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        Clé citée par les fiches serveur. La changer oblige à rouvrir chaque fiche qui la mentionne.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Libellé</label>
+                    <input @bind="_edition.Label" placeholder="ex. Administration N4 Production"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Mode</label>
+                    <select @bind="_edition.Mode"
+                            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none">
+                        <option value="@CredentialMode.IdentiteDuProcessus">Identité du processus (recommandé)</option>
+                        <option value="@CredentialMode.CompteExplicite">Compte explicite</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Statut</label>
+                    <select @bind="_edition.Status"
+                            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none">
+                        @foreach (var st in Enum.GetValues<LifecycleStatus>())
+                        {
+                            <option value="@st">@st</option>
+                        }
+                    </select>
+                </div>
+
+                @if (_edition.Mode == CredentialMode.CompteExplicite)
+                {
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Compte</label>
+                        <input @bind="_edition.UserName" placeholder="DOMAINE\utilisateur" autocomplete="off"
+                               class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            Le compte doit être administrateur local des serveurs N4, ou membre de leur groupe
+                            « Remote Management Users ».
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Mot de passe</label>
+                        <input type="password" @bind="_motDePasse" autocomplete="new-password"
+                               placeholder="@(_estNouveau ? "Obligatoire" : "Laisser vide pour conserver l'actuel")"
+                               class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            Saisi une seule fois, chiffré immédiatement, jamais réaffiché.
+                        </p>
+                    </div>
+                }
+
+                <div class="md:col-span-2">
+                    <label class="block font-semibold text-slate-300 mb-1">Description</label>
+                    <input @bind="_edition.Description" placeholder="À quoi sert ce compte, qui en est propriétaire"
+                           class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" />
+                </div>
+            </div>
+
+            @if (_edition.Mode == CredentialMode.CompteExplicite)
+            {
+                <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-200">
+                    <strong>Un compte nominatif convient pour débloquer, pas pour durer.</strong>
+                    Les actions menées sur les serveurs N4 seront attribuées à cette personne dans leurs journaux,
+                    et le premier changement de mot de passe interrompra la supervision sans préavis.
+                </div>
+            }
+
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+                <button type="button" @onclick="Enregistrer" disabled="@_enregistrement"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-semibold text-xs transition shadow-md">
+                    <i class="bi bi-check-lg"></i> Enregistrer
+                </button>
+                <button type="button" @onclick="Annuler"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                    Annuler
+                </button>
+
+                @if (!_estNouveau && !string.IsNullOrWhiteSpace(_edition.ProtectedPassword))
+                {
+                    <button type="button" @onclick="EffacerLeSecret"
+                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-semibold text-xs transition ml-auto">
+                        <i class="bi bi-eraser"></i> Effacer le mot de passe
+                    </button>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="text-[11px] text-slate-500">
+        Pour vérifier qu'un compte fonctionne : ouvrez la fiche du serveur, sélectionnez-y ce compte, enregistrez,
+        puis lancez « Tester la connexion ».
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid EnvironmentId { get; set; }
+
+    private N4Environment? _environnement;
+    private List<TechnicalCredential> _comptes = [];
+
+    private TechnicalCredential? _edition;
+    private bool _estNouveau;
+    private bool _enregistrement;
+
+    // Ne vit que le temps de la saisie : jamais relu depuis la base, jamais
+    // reaffiche. Efface des que le magasin l'a chiffre.
+    private string _motDePasse = string.Empty;
+
+    private string? _message;
+    private bool _enErreur;
+
+    private string _messageClass => _enErreur
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _environnement = await Referential.GetEnvironmentAsync(EnvironmentId);
+        await Recharger();
+    }
+
+    private async Task Recharger()
+        => _comptes = await Credentials.GetForEnvironmentAsync(EnvironmentId);
+
+    private void Nouveau()
+    {
+        _edition = new TechnicalCredential
+        {
+            EnvironmentId = EnvironmentId,
+            Mode = CredentialMode.CompteExplicite,
+            Status = LifecycleStatus.Actif
+        };
+        _estNouveau = true;
+        _motDePasse = string.Empty;
+        _message = null;
+    }
+
+    private void Modifier(TechnicalCredential c)
+    {
+        // Copie de travail : annuler ne doit rien laisser dans la liste affichee.
+        _edition = new TechnicalCredential
+        {
+            Id = c.Id,
+            EnvironmentId = c.EnvironmentId,
+            Reference = c.Reference,
+            Label = c.Label,
+            Mode = c.Mode,
+            UserName = c.UserName,
+            Description = c.Description,
+            Status = c.Status,
+            ProtectedPassword = c.ProtectedPassword,
+            PasswordSetAt = c.PasswordSetAt
+        };
+        _estNouveau = false;
+        _motDePasse = string.Empty;
+        _message = null;
+    }
+
+    private void Annuler()
+    {
+        _edition = null;
+        _motDePasse = string.Empty;
+    }
+
+    private async Task Enregistrer()
+    {
+        if (_edition is null) return;
+
+        _enregistrement = true;
+        _message = null;
+        _enErreur = false;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_edition.Label))
+                _edition.Label = _edition.Reference;
+
+            var erreur = await Credentials.SaveAsync(_edition, _motDePasse);
+
+            if (erreur is not null)
+            {
+                _enErreur = true;
+                _message = erreur;
+                return;
+            }
+
+            _motDePasse = string.Empty;
+            var reference = _edition.Reference;
+            _edition = null;
+            await Recharger();
+            _message = $"Compte « {reference} » enregistré. Sélectionnez-le sur les fiches serveur concernées.";
+        }
+        catch (Exception ex)
+        {
+            _enErreur = true;
+            _message = $"Enregistrement impossible : {ex.Message}";
+        }
+        finally
+        {
+            _enregistrement = false;
+        }
+    }
+
+    private async Task EffacerLeSecret()
+    {
+        if (_edition is null || _estNouveau) return;
+
+        await Credentials.ClearPasswordAsync(_edition.Id);
+        _edition = null;
+        _motDePasse = string.Empty;
+        await Recharger();
+        _message = "Mot de passe effacé. Le compte reste déclaré mais n'est plus utilisable tant qu'il n'est pas ressaisi.";
+    }
+}

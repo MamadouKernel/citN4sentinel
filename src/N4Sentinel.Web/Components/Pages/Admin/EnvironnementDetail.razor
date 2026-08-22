@@ -270,10 +270,16 @@ else
                     Serveurs Nœuds (@_serveurs.Count)
                 </h3>
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
-                    <a href="@($"/admin/environnements/{Id}/serveurs/nouveau")"
-                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition shadow-md">
-                        <i class="bi bi-plus-lg"></i> Ajouter un serveur
-                    </a>
+                    <div class="flex items-center gap-2">
+                        <a href="@($"/admin/environnements/{Id}/comptes")"
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs transition">
+                            <i class="bi bi-key"></i> Comptes techniques
+                        </a>
+                        <a href="@($"/admin/environnements/{Id}/serveurs/nouveau")"
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition shadow-md">
+                            <i class="bi bi-plus-lg"></i> Ajouter un serveur
+                        </a>
+                    </div>
                 </AuthorizeView>
             </div>
             <div class="overflow-x-auto">

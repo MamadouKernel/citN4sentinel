@@ -103,10 +103,55 @@ public sealed class ConnectivityTester(
         // ecouteur HTTP sur 5985 et RIEN sur 5986 : donner ce conseil a
         // quelqu'un dont la fiche est en HTTPS l'envoie chercher pendant une
         // heure pourquoi la commande n'a rien change.
-        results.Add(await TestPortAsync(server.HostName, server.WinRmPort,
+        var winrm = await TestPortAsync(server.HostName, server.WinRmPort,
             $"Port WinRM {server.WinRmPort}",
             "Sans ce port, aucun pilotage ni collecte a distance n'est possible. "
-            + ConseilWinRm(server)));
+            + ConseilWinRm(server));
+
+        // LE PORT DECLARE NE REPOND PAS : ESSAYER L'AUTRE.
+        //
+        // Le cas est frequent au point d'etre la regle : la fiche est en
+        // 5986/HTTPS — le defaut du produit — et le serveur n'ecoute qu'en
+        // 5985/HTTP, car Enable-PSRemoting ne cree que celui-la. Sans ce
+        // second essai, l'operateur n'a qu'un « ne repond pas » et doit
+        // deviner. Avec, il a la reponse.
+        if (winrm.Outcome != CheckOutcome.Satisfait)
+        {
+            var alternatif = server.WinRmPort == 5986 ? 5985
+                           : server.WinRmPort == 5985 ? 5986
+                           : 0;
+
+            if (alternatif != 0)
+            {
+                var essai = await TestPortAsync(server.HostName, alternatif, $"Port WinRM {alternatif}", string.Empty);
+
+                if (essai.Outcome == CheckOutcome.Satisfait)
+                {
+                    var transport = alternatif == 5985 ? "HTTP" : "HTTPS";
+                    var ssl = alternatif == 5986;
+
+                    winrm = new CheckResult
+                    {
+                        At = winrm.At,
+                        Target = winrm.Target,
+                        CheckName = winrm.CheckName,
+                        Outcome = winrm.Outcome,
+                        Message = winrm.Message,
+                        Recommendation =
+                            $"Le port {alternatif} REPOND, lui : ce serveur ecoute en {transport}. "
+                            + $"Corrigez la fiche — port {alternatif}, "
+                            + (ssl ? "SSL coche." : "SSL decoche. ")
+                            + (ssl
+                                ? string.Empty
+                                : "Passer en HTTP ne laisse pas les identifiants en clair : sur un domaine "
+                                  + "Active Directory, WinRM authentifie par Kerberos et chiffre la charge "
+                                  + "utile. C'est le canal lui-meme qui n'est pas chiffre.")
+                    };
+                }
+            }
+        }
+
+        results.Add(winrm);
 
         return results;
     }

@@ -358,6 +358,51 @@ Quatre aides existent pour éviter la saisie à la main : le scanner de
 composants non déclarés, l'import `Navis-Config.json`, l'import CSV, et la
 duplication d'un environnement existant.
 
+## E.5 Sous quelle identité l'application atteint les serveurs N4
+
+C'est ici que se joue la différence entre une application qui affiche des
+serveurs et une application qui les supervise.
+
+Par défaut, N4 Sentinel ouvre ses sessions WinRM **sous l'identité de son
+propre processus**. C'est le mode à viser : aucun mot de passe n'est stocké,
+donc aucun ne peut fuir, et le renouvellement du secret ne casse rien.
+
+| Le service tourne sous… | Il s'authentifie comme… | Sur les serveurs N4 |
+|---|---|---|
+| Compte de service du domaine | ce compte | fonctionne si le compte y a les droits |
+| `LocalSystem` | le **compte machine** du serveur applicatif | refusé — ce compte n'y a aucun droit |
+
+Le second cas est celui de l'installation de repli décrite en **D.3** : le
+service démarre, l'application répond, `/health` est vert — et chaque test de
+connexion renvoie *« Accès refusé »*. Rien n'est cassé ; simplement, personne
+n'a donné de droits au compte machine, et personne ne devrait le faire.
+
+**Deux issues, dans cet ordre de préférence :**
+
+1. **Un compte de service dédié du domaine** (`D.3`), ajouté aux
+   administrateurs locaux des serveurs N4 ou à leur groupe
+   *Remote Management Users*. Rien à saisir dans l'application.
+
+2. **Un compte explicite déclaré dans l'application**, quand le compte de
+   service n'existe pas encore ou que le serveur est hors domaine :
+
+   - `/admin/environnements/{id}/comptes` — **« Déclarer un compte »** ;
+   - mode **Compte explicite**, compte au format `DOMAINE\utilisateur`,
+     mot de passe saisi une seule fois ;
+   - ouvrez ensuite la fiche du serveur, sélectionnez ce compte dans
+     **Compte technique**, enregistrez, puis **« Tester la connexion »**.
+
+Le mot de passe est chiffré au repos par le trousseau de clés — celui-là même
+que **G.1** impose de sauvegarder avec la base. Il n'est déchiffré qu'au moment
+d'ouvrir une session, et aucun écran ni export ne le restitue, y compris à un
+administrateur de la solution (SEC-003).
+
+> Un compte nominatif d'administrateur débloque la situation en cinq minutes,
+> et c'est une raison suffisante de l'employer le jour de la mise en service.
+> Ce n'en est pas une de l'y laisser : les journaux des serveurs N4
+> attribueront à cette personne des actions menées par la machine, et le
+> premier changement de mot de passe interrompra la supervision sans préavis.
+
 ---
 
 # F. Ce qui diffère de SQL Server
