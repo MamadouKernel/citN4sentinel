@@ -2886,6 +2886,9 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("OperatingIdentityLabel")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("OperatingIdentityLogin")
                         .HasColumnType("TEXT");
 

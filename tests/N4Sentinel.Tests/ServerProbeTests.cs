@@ -114,7 +114,7 @@ public sealed class ServerProbeTests : IAsyncLifetime
 
         Assert.True(r.Reachable, r.Error);
         Assert.True(r.IsLocal, "La machine courante doit etre traitee en local, sans WinRM.");
-        Assert.Equal("identite du processus", r.IdentityDescription);
+        Assert.Equal(ActingIdentity.Format(null), r.IdentityDescription);
         Assert.Contains(Environment.MachineName, r.RemoteIdentity!, StringComparison.OrdinalIgnoreCase);
     }
 

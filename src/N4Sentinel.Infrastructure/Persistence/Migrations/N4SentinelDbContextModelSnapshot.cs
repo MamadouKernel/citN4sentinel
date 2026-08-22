@@ -2925,6 +2925,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("OperatingIdentityLabel")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("OperatingIdentityLogin")
                         .HasColumnType("nvarchar(max)");
 

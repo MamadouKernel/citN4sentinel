@@ -126,6 +126,17 @@ public class WorkflowExecution : AuditableEntity
     /// </summary>
     public string? OperatingIdentityLogin { get; set; }
 
+    /// <summary>
+    /// Etiquette de tracabilite figee au lancement, redigee par
+    /// <see cref="ActingIdentity"/> : « N4Sentinel · DOMAINE\utilisateur ».
+    ///
+    /// Conservee telle quelle plutot que recalculee a l'affichage : le compte
+    /// de l'operateur peut changer, etre efface, ou son proprietaire quitter
+    /// l'entreprise. Un rapport d'execution doit continuer de dire sous quelle
+    /// identite les commandes SONT PARTIES, des mois plus tard.
+    /// </summary>
+    public string? OperatingIdentityLabel { get; set; }
+
     public string? Reason { get; set; }
     public string? TicketReference { get; set; }
     public string? ExpectedImpact { get; set; }

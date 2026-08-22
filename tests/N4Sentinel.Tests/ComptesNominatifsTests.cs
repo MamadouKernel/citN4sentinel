@@ -285,6 +285,50 @@ public sealed class ComptesNominatifsTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
+    // Etiquette de tracabilite : qui a agi, et par quel vecteur
+    // -----------------------------------------------------------------------
+    [Fact(DisplayName = "L'étiquette porte le vecteur ET le compte Windows")]
+    public void L_Etiquette_Porte_Les_Deux_Bouts()
+    {
+        var etiquette = ActingIdentity.Format("AGLPORTS\\adm-mkonate", "Konaté Mamadou");
+
+        // Le journal du serveur N4 dit le compte ; notre trace disait
+        // l'application. Aucun des deux seul ne suffit a repondre « qui a fait
+        // quoi, et comment ».
+        Assert.Contains("N4Sentinel", etiquette);
+        Assert.Contains("AGLPORTS\\adm-mkonate", etiquette);
+        Assert.Contains("Konaté Mamadou", etiquette);
+    }
+
+    [Fact(DisplayName = "Sans compte Windows, l'étiquette le dit au lieu de laisser croire à une attribution")]
+    public void Sans_Compte_L_Etiquette_Ne_Ment_Pas()
+    {
+        var etiquette = ActingIdentity.Format(null);
+
+        Assert.Contains("N4Sentinel", etiquette);
+        Assert.Contains("identité du processus", etiquette);
+    }
+
+    [Fact(DisplayName = "L'identité résolue pour un opérateur se lit sous la forme attendue")]
+    public async Task L_Identite_Resolue_Est_Redigee_Uniformement()
+    {
+        var env = await CreerEnvironnementAsync();
+        var serveur = await CreerServeurAsync(env, "svc-partage");
+
+        await _magasin.SaveOwnAsync(
+            "user-1", "mkonate", "Konaté Mamadou", "AGLPORTS\\adm-mkonate", "M0tDeP@sse-2026");
+
+        var resolution = await Fabriquer().CreateForActorAsync(serveur, "mkonate");
+
+        // Meme redaction que partout ailleurs : rapport, preuve d'etape, ecran.
+        // Un lecteur ne doit pas avoir a se demander si deux formulations
+        // designent la meme chose.
+        Assert.Equal(
+            ActingIdentity.Format("AGLPORTS\\adm-mkonate", "Konaté Mamadou"),
+            resolution.IdentityDescription);
+    }
+
+    // -----------------------------------------------------------------------
     // Cycle de vie
     // -----------------------------------------------------------------------
     [Fact(DisplayName = "Effacer le compte d'un opérateur ne laisse aucun secret derrière lui")]

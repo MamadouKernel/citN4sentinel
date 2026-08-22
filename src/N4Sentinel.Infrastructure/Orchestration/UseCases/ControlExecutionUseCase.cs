@@ -106,6 +106,14 @@ public sealed class ControlExecutionUseCase(
             // reprise ulterieure par quelqu'un d'autre ne doit pas changer
             // l'identite sous laquelle les serveurs N4 ont vu agir.
             execution.OperatingIdentityLogin = actor;
+
+            // L'etiquette est recopiee, pas recalculee a l'affichage : le
+            // compte peut changer ou son proprietaire quitter l'entreprise, et
+            // un rapport doit continuer de dire sous quelle identite les
+            // commandes SONT PARTIES.
+            var compteEmploye = credentials is null ? null : await credentials.GetForLoginAsync(actor, ct);
+            execution.OperatingIdentityLabel = ActingIdentity.Format(
+                compteEmploye?.UserName, compteEmploye?.OwnerDisplayName);
         }
 
         execution.Status = ExecutionStatus.EnCours;

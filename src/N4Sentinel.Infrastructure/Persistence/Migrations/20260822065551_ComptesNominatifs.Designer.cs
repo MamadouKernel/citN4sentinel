@@ -2,46 +2,52 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using N4Sentinel.Infrastructure.Persistence;
 
 #nullable disable
 
-namespace N4Sentinel.Migrations.Sqlite.Migrations
+namespace N4Sentinel.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(N4SentinelDbContext))]
-    [Migration("20260822062517_ComptesNominatifs")]
+    [Migration("20260822065551_ComptesNominatifs")]
     partial class ComptesNominatifs
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("Relational:MaxIdentifierLength", 128);
+
+            SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("NormalizedName")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("NormalizedName")
                         .IsUnique()
-                        .HasDatabaseName("RoleNameIndex");
+                        .HasDatabaseName("RoleNameIndex")
+                        .HasFilter("[NormalizedName] IS NOT NULL");
 
                     b.ToTable("AspNetRoles", (string)null);
                 });
@@ -50,17 +56,19 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("ClaimType")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ClaimValue")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("RoleId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
 
@@ -73,17 +81,19 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("ClaimType")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ClaimValue")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
 
@@ -96,18 +106,18 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<string>("LoginProvider")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("ProviderKey")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("ProviderDisplayName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("LoginProvider", "ProviderKey");
 
@@ -120,11 +130,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<byte[]>("CredentialId")
                         .HasMaxLength(1024)
-                        .HasColumnType("BLOB");
+                        .HasColumnType("varbinary(1024)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("CredentialId");
 
@@ -136,10 +146,10 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
                 {
                     b.Property<string>("UserId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("RoleId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("UserId", "RoleId");
 
@@ -151,18 +161,18 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
                 {
                     b.Property<string>("UserId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("LoginProvider")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("Name")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("Value")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("UserId", "LoginProvider", "Name");
 
@@ -173,69 +183,69 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("AcknowledgedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("AcknowledgedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("AcknowledgedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("AcknowledgementNote")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ComponentName")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("Detail")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("FirstOccurredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("FirstOccurredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long>("LastOccurredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("LastOccurredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("OccurrenceCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Recommendation")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<long?>("ResolvedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Severity")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Signature")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
                     b.HasKey("Id");
 
@@ -250,46 +260,47 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("Enabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int?>("EnvironmentKind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("MinCriticality")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<bool>("RequiresApproval")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("RequiresDoubleApproval")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int?>("WorkflowKind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -300,59 +311,61 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
                     b.Property<int>("Action")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Actor")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("ActorIpAddress")
                         .HasMaxLength(45)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(45)");
 
                     b.Property<string>("AfterJson")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("BeforeJson")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("CorrelationId")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Detail")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<string>("EntityId")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("EntityLabel")
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<string>("EntityType")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<Guid?>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("OccurredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Outcome")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.HasKey("Id");
 
@@ -371,43 +384,44 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Authority")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("ClientId")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("Enabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PostLogoutRedirectUri")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("TenantId")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
 
@@ -418,37 +432,38 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("DependsOnComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.HasKey("Id");
 
@@ -464,66 +479,67 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CapturedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CapturedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<Guid>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ComponentName")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("CorrelationId")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Quality")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("SignalType")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<string>("Target")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("Threshold")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Value")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
 
@@ -536,40 +552,39 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<bool>("IsNegation")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .HasColumnType("varbinary(max)");
 
                     b.Property<Guid>("RuleId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("SignalSourceId")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.HasKey("Id");
 
@@ -582,52 +597,51 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<int>("Confidence")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Domain")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("HypothesisStatement")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<string>("Recommendation")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .HasColumnType("varbinary(max)");
 
                     b.Property<int>("TimeWindowSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -641,59 +655,60 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Confidence")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("CounterEvidence")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Domain")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Evidence")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<long?>("EvidenceObservedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EvidenceObservedAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Rank")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Recommendation")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("RuleVersion")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("SessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Statement")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.HasKey("Id");
 
@@ -706,40 +721,39 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("EnteredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("EnteredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("EnteredBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Note")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Phase")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .HasColumnType("varbinary(max)");
 
                     b.Property<Guid>("SessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
@@ -752,98 +766,99 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("AnalysedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("AnalysedAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EnvironmentCode")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("EscalatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EscalatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("EscalatedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("EscalatedTo")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<bool>("IsReferenceBaseline")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Phase")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<Guid?>("ReferenceComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("ReferenceExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("ReferenceKind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<Guid?>("ReferenceSessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("RequestedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid?>("SourceAlertId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("TicketReference")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int>("Verdict")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("VerdictExplanation")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
-                    b.Property<long?>("WindowEnd")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("WindowEnd")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("WindowStart")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("WindowStart")
+                        .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
 
@@ -858,33 +873,34 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("ConclusiveSignatureConfidenceWeight")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("HypothesisEstablishedThreshold")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("SeriousLeadConfidenceThreshold")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -895,78 +911,79 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int?>("AppliesToRole")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<int>("ConfidenceWeight")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("CounterEvidence")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DocumentReference")
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<int>("Domain")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("Meaning")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int>("Origin")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Pattern")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("Remediation")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Severity")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("ValidationStatus")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("Version")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -980,47 +997,48 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(8000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("DocumentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Heading")
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Ordinal")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("PageNumber")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("SearchText")
                         .IsRequired()
                         .HasMaxLength(8000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -1033,55 +1051,56 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("ConsecutiveRejections")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(260)");
 
-                    b.Property<long>("FirstSeenAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("FirstSeenAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("IntegratedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("IntegratedAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long>("LastSeenAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("MessageType")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Partner")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -1097,47 +1116,48 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("ExpiresAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Level")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("UserId")
                         .IsRequired()
                         .HasMaxLength(450)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("UserName")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
@@ -1153,29 +1173,29 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("AcquiredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("AcquiredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("ExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("ExpiresAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("HeldBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.HasKey("Id");
 
@@ -1189,162 +1209,163 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Action")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("AttemptCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool>("AutomaticRetry")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("CanRunInParallel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ComponentName")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
-                    b.Property<long?>("ConfirmedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ConfirmedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("DiagnosticSessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("EndedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("Error")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<int?>("ErrorType")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Evidence")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("EvidenceFileContent")
-                        .HasColumnType("BLOB");
+                        .HasColumnType("varbinary(max)");
 
                     b.Property<string>("EvidenceFileContentType")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EvidenceFileName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ExecutedCommand")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("ExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("ExpectedSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("FailurePolicy")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("ForcedStopBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ForcedStopReason")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("HostName")
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<string>("Instruction")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<bool>("IsSkippable")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("MaxRetries")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("OperatorNote")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<int>("Order")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("ProgressMessage")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<bool>("RequiresConfirmation")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("RequiresEvidenceFile")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("RetryDelaySeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("RetryNotBeforeAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("RetryNotBeforeAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
-                    b.Property<long?>("SkipCoApprovedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("SkipCoApprovedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("SkipCoApprovedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("SkipReason")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("SkippedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
-                    b.Property<long?>("StartedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("State")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("TimeoutSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("WarningThresholdSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -1357,53 +1378,54 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ComponentName")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DeclaredBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<Guid?>("DiagnosticSessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("OccurredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid?>("WorkflowExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
@@ -1418,75 +1440,76 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("AntivirusChecked")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("AntivirusNote")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("AppliesToVersion")
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DocumentVersion")
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<int>("PageCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Reference")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("SectionCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("SourceFileName")
                         .HasMaxLength(400)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(400)");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
-                    b.Property<long?>("ValidatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ValidatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ValidatedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
@@ -1500,69 +1523,70 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Comment")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("DocumentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ProposedCorrection")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Question")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("ReportedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<bool>("Resolved")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ResolvedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ResolvedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("ReviewNote")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ReviewStatus")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ReviewedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ReviewedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid>("SectionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
@@ -1575,96 +1599,97 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Context")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DocumentReference")
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<int>("Domain")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("ErrorCode")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("FirstLineNumber")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("FirstSeenAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("FirstSeenAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("LastSeenAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("LastSeenAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("Level")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("LoggerClass")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Meaning")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("OccurrenceCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Remediation")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("SampleLine")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<Guid>("SessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Severity")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("SignatureCode")
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<Guid?>("SignatureId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("SourceId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ThreadName")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<string>("TransactionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -1681,123 +1706,124 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<double?>("ClockSkewSecondsAtCollection")
-                        .HasColumnType("REAL");
+                        .HasColumnType("float");
 
                     b.Property<bool>("ComponentAutoDetected")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ComponentName")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<int?>("ComponentRole")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("ContentHash")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("CorrelationId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DetectedLogType")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DetectedTimeZone")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DetectedVersion")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
-                    b.Property<long?>("EarliestEntryAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EarliestEntryAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("Error")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<int>("ErrorCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int?>("FailureReason")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(400)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(400)");
 
                     b.Property<string>("HostName")
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<int>("InfoCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("LatestEntryAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("LatestEntryAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("LineCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("MaskedSecretCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Origin")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool>("OriginAmbiguous")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("ResolvedPath")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid>("SessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<Guid?>("SuggestedComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("SuggestedComponentName")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("SuggestionEvidence")
                         .HasMaxLength(600)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(600)");
 
                     b.Property<bool>("Truncated")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("WarningCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -1810,92 +1836,93 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("CompanionServiceNames")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ControlMode")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Criticality")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("Endpoint")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("LogicalName")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("MaintenanceBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("MaintenanceMode")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("MaintenanceNote")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("MaintenanceReason")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("MaintenanceUntil")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("MaintenanceUntil")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("Port")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("ProcessName")
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<int>("Role")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid?>("ServerId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("StartOrder")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("TechnicalOwner")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("WindowsServiceName")
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(255)");
 
                     b.HasKey("Id");
 
@@ -1911,80 +1938,81 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("AutomationLevel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("ClockToleranceSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(20)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Criticality")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("DefaultCredentialReference")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("ExpectedTimeSource")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("FunctionalOwner")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<DateTime?>("Palier2ApprovedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Palier2ApprovedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("TechnicalOwner")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("TimeZoneId")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
 
@@ -1998,68 +2026,69 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("CredentialReference")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int>("Criticality")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("DnsName")
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("HostName")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<string>("IpAddress")
                         .HasMaxLength(45)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(45)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("OperatingSystem")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("TechnicalOwner")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<bool>("UseSsl")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("WinRmPort")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -2073,36 +2102,37 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("AuditRetentionDays")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("LogsRetentionDays")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ReportsRetentionDays")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("SignalsRetentionDays")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -2113,98 +2143,99 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int?>("BlockedCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool?>("CanWrite")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long>("CapturedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CapturedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<Guid>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int?>("ConsumedCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("CorruptionConclusion")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<bool?>("CorruptionConfirmed")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("CorruptionIndicators")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("ErrorCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<double?>("GrowthBytesPerHour")
-                        .HasColumnType("REAL");
+                        .HasColumnType("float");
 
                     b.Property<string>("HealthWarnings")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool?>("MandatoryFilesPresent")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("MissingMandatoryFiles")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("NewestFileAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("NewestFileAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("OldestFileAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("OldestFileAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<double?>("OldestPendingAgeHours")
-                        .HasColumnType("REAL");
+                        .HasColumnType("float");
 
                     b.Property<int?>("PendingCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool?>("Reachable")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid?>("SopExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("TotalFileCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<long>("TotalSizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("UnreachableReason")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<double?>("WriteLatencyMs")
-                        .HasColumnType("REAL");
+                        .HasColumnType("float");
 
                     b.HasKey("Id");
 
@@ -2219,94 +2250,95 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("AppliesToVersion")
                         .HasMaxLength(50)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<string>("Controls")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("EscalationPath")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("ExpectedOutcome")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<bool>("HasBeenExecuted")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Objective")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("Prerequisites")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<bool>("RequiresElevatedRole")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("Risks")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("RollbackPlan")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("Scope")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<Guid?>("SourceDiagnosticSessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("SourceDocumentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("SourceExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int>("Version")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -2320,46 +2352,47 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("DiagnosticSessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("Role")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("SignatureCode")
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<Guid?>("SignatureId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("SopId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
@@ -2376,97 +2409,98 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("AbandonReason")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("CorrelationId")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(40)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("EndedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("EnvironmentCode")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int?>("Outcome")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("OutcomeDeclaredAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("OutcomeDeclaredAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("OutcomeDeclaredBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("OutcomeNote")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("SopCode")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<Guid>("SopId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("SopTitle")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int>("SopVersion")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<Guid?>("SourceAlertId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("SourceDiagnosticSessionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("StartedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("StartedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("TicketReference")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
 
@@ -2485,90 +2519,91 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ComponentName")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
-                    b.Property<long?>("ConfirmedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ConfirmedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DeviationNote")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<long?>("EndedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("Evidence")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("ExpectedResult")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("History")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<string>("Instruction")
                         .IsRequired()
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<bool>("IsSkippable")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Order")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<string>("SkipReason")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("SkippedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<Guid>("SopExecutionId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("StartedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("State")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
 
@@ -2581,54 +2616,55 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ExpectedResult")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("Instruction")
                         .IsRequired()
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<bool>("IsSkippable")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<int>("Order")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<Guid>("SopId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
 
@@ -2643,87 +2679,88 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<Guid?>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("InvalidatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("InvalidatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("InvalidationReason")
                         .HasMaxLength(400)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(400)");
 
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("LastVerificationResult")
                         .HasMaxLength(400)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(400)");
 
-                    b.Property<long?>("LastVerifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("LastVerifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Mode")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("OwnerDisplayName")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("OwnerLogin")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("OwnerUserId")
                         .HasMaxLength(450)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
-                    b.Property<long?>("PasswordSetAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("PasswordSetAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ProtectedPassword")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<string>("Reference")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<bool>("RequiresReentry")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("UserName")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
@@ -2732,7 +2769,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.HasIndex("OwnerUserId");
 
                     b.HasIndex("EnvironmentId", "Reference")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[EnvironmentId] IS NOT NULL");
 
                     b.ToTable("Credentials", (string)null);
                 });
@@ -2741,62 +2779,63 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("AutomationLevel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(60)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("HasBeenExecuted")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<bool>("RequiresApproval")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("RequiresDoubleApproval")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("Version")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -2810,156 +2849,160 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long?>("ApprovedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ApprovedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<int>("AutomationLevel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("CancelRequestedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<int?>("ContinuityChoice")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ContinuityChoiceAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ContinuityChoiceAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ContinuityChoiceBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("ContinuityChoiceRequired")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("CorrelationId")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(40)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("EndWindow")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EndWindow")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("EndedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("EnvironmentCode")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<Guid>("EnvironmentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<TimeSpan?>("EstimatedTotalDuration")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("time");
 
                     b.Property<string>("ExpectedImpact")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<bool>("IsFallbackSemiAutoForced")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsSimulation")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("LastHeartbeatAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OperatingIdentityLabel")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("OperatingIdentityLogin")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Outcome")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("PauseRequestedBy")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("PostCancellationReport")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("PreflightAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("PreflightAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<bool>("PreflightBlocked")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("PreflightJson")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("RequestedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<bool>("RequiresDoubleApproval")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("RequiresManualInterventionAfterCancel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
-                    b.Property<long?>("SecondApprovedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("SecondApprovedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("SecondApprovedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long?>("StartWindow")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("StartWindow")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("StartedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("TicketReference")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<Guid>("WorkflowId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("WorkflowName")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int>("WorkflowVersion")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -2978,82 +3021,83 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Action")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool>("AutomaticRetry")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("CanRunInParallel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<Guid?>("ComponentId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ExpectedSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("FailurePolicy")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("Instruction")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<bool>("IsSkippable")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("MaxRetries")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
-                    b.Property<long?>("ModifiedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<int>("Order")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<bool>("RequiresConfirmation")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("RequiresEvidenceFile")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<int>("RetryDelaySeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .HasColumnType("BLOB");
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("TimeoutSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<int>("WarningThresholdSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<Guid>("WorkflowId")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
@@ -3067,82 +3111,82 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
             modelBuilder.Entity("N4Sentinel.Infrastructure.Identity.ApplicationUser", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<int>("AccessFailedCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("int");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("Department")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("DisplayName")
                         .HasMaxLength(150)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("Email")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<bool>("EmailConfirmed")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsDisabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("LastLoginAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("LastLoginAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<bool>("LockoutEnabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
-                    b.Property<long?>("LockoutEnd")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("NormalizedUserName")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
-                    b.Property<long?>("PasswordChangedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("PasswordChangedAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<long?>("PasswordExpiresAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset?>("PasswordExpiresAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("PasswordHash")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.PrimitiveCollection<string>("PasswordHistory")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PhoneNumber")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<bool>("PhoneNumberConfirmed")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("SecurityStamp")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("TwoFactorEnabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bit");
 
                     b.Property<string>("UserName")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
@@ -3151,7 +3195,8 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
-                        .HasDatabaseName("UserNameIndex");
+                        .HasDatabaseName("UserNameIndex")
+                        .HasFilter("[NormalizedUserName] IS NOT NULL");
 
                     b.ToTable("AspNetUsers", (string)null);
                 });
@@ -3160,19 +3205,19 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
 
@@ -3226,7 +3271,7 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                             b1.Property<byte[]>("ClientDataJson")
                                 .IsRequired();
 
-                            b1.Property<long>("CreatedAt");
+                            b1.Property<DateTimeOffset>("CreatedAt");
 
                             b1.Property<bool>("IsBackedUp");
 
@@ -3239,7 +3284,7 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                             b1.Property<byte[]>("PublicKey")
                                 .IsRequired();
 
-                            b1.Property<uint>("SignCount");
+                            b1.Property<long>("SignCount");
 
                             b1.PrimitiveCollection<string>("Transports");
 
@@ -3249,7 +3294,7 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                             b1
                                 .ToJson("Data")
-                                .HasColumnType("TEXT");
+                                .HasColumnType("nvarchar(max)");
 
                             b1.WithOwner()
                                 .HasForeignKey("IdentityUserPasskeyCredentialId");
@@ -3500,64 +3545,64 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.OwnsOne("N4Sentinel.Domain.ReadinessProfile", "Readiness", b1 =>
                         {
                             b1.Property<Guid>("N4ComponentId")
-                                .HasColumnType("TEXT");
+                                .HasColumnType("uniqueidentifier");
 
                             b1.Property<string>("ActiveRolePatterns")
                                 .IsRequired()
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(max)")
                                 .HasColumnName("Readiness_ActiveRolePatterns");
 
                             b1.Property<string>("ErrorPatterns")
                                 .IsRequired()
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(max)")
                                 .HasColumnName("Readiness_ErrorPatterns");
 
                             b1.Property<string>("IgnorePatterns")
                                 .IsRequired()
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(max)")
                                 .HasColumnName("Readiness_IgnorePatterns");
 
                             b1.Property<string>("LogPath")
                                 .HasMaxLength(500)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(500)")
                                 .HasColumnName("Readiness_LogPath");
 
                             b1.Property<int>("LogReadyTimeoutSeconds")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_LogReadyTimeoutSeconds");
 
                             b1.Property<int>("PollIntervalSeconds")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_PollIntervalSeconds");
 
                             b1.Property<int>("PostReadySettleSeconds")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_PostReadySettleSeconds");
 
                             b1.Property<int>("ProgressEverySeconds")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_ProgressEverySeconds");
 
                             b1.Property<string>("ReadyPatterns")
                                 .IsRequired()
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(max)")
                                 .HasColumnName("Readiness_ReadyPatterns");
 
                             b1.Property<int>("ServiceRunningTimeoutSeconds")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_ServiceRunningTimeoutSeconds");
 
                             b1.Property<int>("StopTimeoutSeconds")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_StopTimeoutSeconds");
 
                             b1.Property<int>("SyncDelayThresholdMinutes")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("Readiness_SyncDelayThresholdMinutes");
 
                             b1.Property<string>("SyncPatterns")
                                 .IsRequired()
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(max)")
                                 .HasColumnName("Readiness_SyncPatterns");
 
                             b1.HasKey("N4ComponentId");
@@ -3571,70 +3616,70 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.OwnsOne("N4Sentinel.Domain.SharedFolderProfile", "SharedFolder", b1 =>
                         {
                             b1.Property<Guid>("N4ComponentId")
-                                .HasColumnType("TEXT");
+                                .HasColumnType("uniqueidentifier");
 
                             b1.Property<string>("BlockedSubfolder")
                                 .HasMaxLength(200)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(200)")
                                 .HasColumnName("SharedFolder_BlockedSubfolder");
 
                             b1.Property<int>("Category")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("SharedFolder_Category");
 
                             b1.Property<string>("ConsumedSubfolder")
                                 .HasMaxLength(200)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(200)")
                                 .HasColumnName("SharedFolder_ConsumedSubfolder");
 
                             b1.Property<string>("EdiFileNamingPattern")
                                 .HasMaxLength(500)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(500)")
                                 .HasColumnName("SharedFolder_EdiFileNamingPattern");
 
                             b1.Property<string>("ErrorSubfolder")
                                 .HasMaxLength(200)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(200)")
                                 .HasColumnName("SharedFolder_ErrorSubfolder");
 
-                            b1.Property<long?>("LastBackupAt")
-                                .HasColumnType("INTEGER")
+                            b1.Property<DateTimeOffset?>("LastBackupAt")
+                                .HasColumnType("datetimeoffset")
                                 .HasColumnName("SharedFolder_LastBackupAt");
 
                             b1.Property<string>("LastBackupBy")
                                 .HasMaxLength(256)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(256)")
                                 .HasColumnName("SharedFolder_LastBackupBy");
 
                             b1.Property<string>("LastBackupNote")
                                 .HasMaxLength(500)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(500)")
                                 .HasColumnName("SharedFolder_LastBackupNote");
 
                             b1.Property<long?>("MaxGrowthBytesPerHour")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("bigint")
                                 .HasColumnName("SharedFolder_MaxGrowthBytesPerHour");
 
                             b1.Property<int?>("MaxHoursSinceLastIntegration")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("SharedFolder_MaxHoursSinceLastIntegration");
 
                             b1.Property<int?>("MaxPendingAgeHours")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("SharedFolder_MaxPendingAgeHours");
 
                             b1.Property<int?>("MaxWriteLatencyMs")
-                                .HasColumnType("INTEGER")
+                                .HasColumnType("int")
                                 .HasColumnName("SharedFolder_MaxWriteLatencyMs");
 
                             b1.Property<string>("PendingSubfolder")
                                 .HasMaxLength(200)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(200)")
                                 .HasColumnName("SharedFolder_PendingSubfolder");
 
                             b1.Property<string>("RootPath")
                                 .HasMaxLength(500)
-                                .HasColumnType("TEXT")
+                                .HasColumnType("nvarchar(500)")
                                 .HasColumnName("SharedFolder_RootPath");
 
                             b1.HasKey("N4ComponentId");

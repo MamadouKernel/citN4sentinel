@@ -51,6 +51,12 @@ public sealed class ExecutionReportService(IDbContextFactory<N4SentinelDbContext
         sb.AppendLine($"| Workflow | {x.WorkflowName}, version {x.WorkflowVersion} |");
         sb.AppendLine($"| Corrélation | `{x.CorrelationId}` |");
         sb.AppendLine($"| Demandeur | {x.RequestedBy} |");
+
+        // Sous quelle identité les commandes SONT PARTIES, et par quel vecteur.
+        // Distinct du demandeur : c'est cette ligne, et elle seule, qui se
+        // recoupe avec l'événement 4624 du journal de sécurité du serveur N4.
+        if (x.OperatingIdentityLabel is { Length: > 0 })
+            sb.AppendLine($"| Identité agissante | `{x.OperatingIdentityLabel}` |");
         sb.AppendLine($"| Motif | {x.Reason} |");
         sb.AppendLine($"| Ticket | {x.TicketReference ?? "—"} |");
         sb.AppendLine($"| Approbation | {(x.ApprovedBy is null ? "non requise" : $"{x.ApprovedBy}, le {Date(x.ApprovedAt)}")} |");

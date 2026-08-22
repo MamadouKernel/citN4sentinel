@@ -35,7 +35,7 @@ public sealed class StepExecutor(
     {
         try
         {
-            return step.Action switch
+            var resultat = step.Action switch
             {
                 StepAction.Attendre => await AttendreAsync(step, isSimulation, progress, ct),
                 StepAction.InterventionManuelle => StepOutcome.AttenteOperateur(
@@ -46,6 +46,29 @@ public sealed class StepExecutor(
                 StepAction.Redemarrer => await RedemarrerAsync(step, isSimulation, progress, ct),
                 _ => StepOutcome.Failed($"Action « {step.Action} » non prise en charge.")
             };
+
+            // L'identite agissante rejoint la PREUVE de l'etape, pas seulement
+            // l'en-tete du rapport. Une etape se relit souvent seule, des mois
+            // plus tard, sortie de son contexte : elle doit porter elle-meme
+            // sous quel compte la commande est partie, et par quel vecteur.
+            //
+            // Relue depuis l'execution a chaque fois, et non memorisee dans le
+            // service : le moteur execute plusieurs sequences en parallele, et
+            // un champ partage attribuerait tot ou tard l'etape de l'un a
+            // l'identite de l'autre - une erreur d'attribution silencieuse,
+            // c'est-a-dire la pire espece.
+            if (!EstUnPilotage(step.Action) || isSimulation) return resultat;
+
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var etiquette = await db.Executions
+                .AsNoTracking()
+                .Where(e => e.Id == step.ExecutionId)
+                .Select(e => e.OperatingIdentityLabel)
+                .FirstOrDefaultAsync(ct);
+
+            return string.IsNullOrWhiteSpace(etiquette)
+                ? resultat
+                : resultat with { Message = $"{resultat.Message} [{etiquette}]" };
         }
         catch (OperationCanceledException)
         {
@@ -697,6 +720,14 @@ public sealed class StepExecutor(
             IdentityDescription = resolution.IdentityDescription
         };
     }
+
+    /// <summary>
+    /// Actions qui emettent reellement une commande sur un serveur N4. Les
+    /// autres - temporisation, controle en lecture, intervention manuelle -
+    /// n'ouvrent aucune session sous l'identite de quiconque.
+    /// </summary>
+    private static bool EstUnPilotage(StepAction action)
+        => action is StepAction.Demarrer or StepAction.Arreter or StepAction.Redemarrer;
 
     /// <summary>
     /// Ecarte le compte employe si l'authentification a ete refusee.

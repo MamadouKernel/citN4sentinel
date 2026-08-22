@@ -70,7 +70,7 @@ public sealed class ConnectorTargetFactory(
         if (string.IsNullOrWhiteSpace(server.HostName))
             return TargetResolution.Failed("Le serveur n'a pas de nom d'hote.");
 
-        return Construire(server, credential, $"compte {credential.UserName}");
+        return Construire(server, credential, ActingIdentity.Format(credential.UserName));
     }
 
     private async Task<TargetResolution> CreateAsync(
@@ -86,7 +86,7 @@ public sealed class ConnectorTargetFactory(
 
             if (propre is not null && propre.IsUsable)
                 return Construire(server, propre,
-                    $"compte {propre.UserName} ({propre.OwnerDisplayName})");
+                    ActingIdentity.Format(propre.UserName, propre.OwnerDisplayName));
 
             if (propre is { RequiresReentry: true })
                 return TargetResolution.Failed(
@@ -106,7 +106,7 @@ public sealed class ConnectorTargetFactory(
             : server.Environment?.DefaultCredentialReference;
 
         TechnicalCredential? credential = null;
-        var origine = "identite du processus";
+        var origine = ActingIdentity.Format(null);
 
         if (!string.IsNullOrWhiteSpace(reference))
         {
@@ -129,8 +129,8 @@ public sealed class ConnectorTargetFactory(
                     "Renseignez son mot de passe avant de l'utiliser.");
 
             origine = credential.Mode == CredentialMode.IdentiteDuProcessus
-                ? $"identite du processus (via '{credential.Label}')"
-                : $"compte {credential.UserName} (via '{credential.Label}')";
+                ? $"{ActingIdentity.Format(null)} — compte partagé « {credential.Label} »"
+                : $"{ActingIdentity.Format(credential.UserName)} — compte partagé « {credential.Label} »";
         }
 
         return Construire(server, credential, origine);

@@ -413,17 +413,43 @@ Le blocage tombe là où il a un sens — au lancement d'une opération réelle.
 > pleine escale. Un *accès* refusé, lui, n'écarte rien : le mot de passe est
 > bon, ce sont les droits qui manquent.
 
-### Ce que cela donne côté serveurs N4
+### L'étiquette de traçabilité : qui, et par quel vecteur
 
-Une session WinRM est une ouverture de session réseau : l'événement 4624 du
-serveur N4 porte le compte **et l'adresse source**. Une action passée par
+Partout où l'application dit sous quelle identité elle a agi — rapport
+d'exécution, preuve de chaque étape de pilotage, écran de suivi — elle emploie
+la même rédaction :
+
+```
+N4Sentinel · AGLPORTS\adm-mkonate (Konaté Mamadou)
+```
+
+Les deux bouts y sont : **qui** a agi, et **par quel vecteur**. Le journal de
+sécurité du serveur N4 dit le compte mais pas le vecteur ; notre traçabilité
+disait le vecteur mais nommait un identifiant applicatif. Aucun des deux seul
+ne répondait à « qui a fait quoi, et comment ».
+
+> Ce n'est **pas** un nom de compte. Windows enregistre le principal qui s'est
+> réellement authentifié, et aucune API ne permet de maquiller ce champ — c'est
+> précisément ce qui rend l'événement 4624 opposable. La chaîne ci-dessus est
+> une étiquette de traçabilité, jamais une identité présentée à une
+> authentification.
+
+L'étiquette est **figée au lancement** et recopiée, jamais recalculée à
+l'affichage : le compte peut changer, ou son titulaire quitter l'entreprise, et
+un rapport doit continuer de dire des mois plus tard sous quelle identité les
+commandes *sont parties*. Une reprise trois heures après, par quelqu'un
+d'autre, reste attribuée à celui qui a lancé.
+
+### Comment recouper avec le serveur N4
+
+Une session WinRM est une ouverture de session réseau : l'événement **4624**
+du serveur N4 porte le compte **et l'adresse source**. Une action passée par
 l'application arrive depuis l'IP du serveur N4 Sentinel — `adm-mkonate` depuis
 `CI018NATAPP06` se distingue donc de la même personne assise à la console,
 sans qu'aucun artifice soit nécessaire.
 
-L'identité employée est **figée au lancement** de l'opération : une reprise
-trois heures plus tard, par quelqu'un d'autre, reste attribuée à celui qui a
-lancé. La piste applicative et le journal du serveur ne peuvent pas diverger.
+Le rapprochement se fait sur trois éléments : le compte, l'horodatage, et
+l'adresse source. Le rapport d'exécution porte les trois.
 
 ### Le compte partagé, réduit à son vrai rôle
 

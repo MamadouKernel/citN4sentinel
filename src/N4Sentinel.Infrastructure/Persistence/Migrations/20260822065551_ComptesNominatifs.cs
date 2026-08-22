@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace N4Sentinel.Migrations.Sqlite.Migrations
+namespace N4Sentinel.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
     public partial class ComptesNominatifs : Migration
@@ -11,60 +11,77 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropIndex(
+                name: "IX_Credentials_EnvironmentId_Reference",
+                table: "Credentials");
+
+            migrationBuilder.AddColumn<string>(
+                name: "OperatingIdentityLabel",
+                table: "Executions",
+                type: "nvarchar(max)",
+                nullable: true);
+
             migrationBuilder.AddColumn<string>(
                 name: "OperatingIdentityLogin",
                 table: "Executions",
-                type: "TEXT",
+                type: "nvarchar(max)",
                 nullable: true);
 
             migrationBuilder.AlterColumn<Guid>(
                 name: "EnvironmentId",
                 table: "Credentials",
-                type: "TEXT",
+                type: "uniqueidentifier",
                 nullable: true,
                 oldClrType: typeof(Guid),
-                oldType: "TEXT");
+                oldType: "uniqueidentifier");
 
-            migrationBuilder.AddColumn<long>(
+            migrationBuilder.AddColumn<DateTimeOffset>(
                 name: "InvalidatedAt",
                 table: "Credentials",
-                type: "INTEGER",
+                type: "datetimeoffset",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "InvalidationReason",
                 table: "Credentials",
-                type: "TEXT",
+                type: "nvarchar(400)",
                 maxLength: 400,
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "OwnerDisplayName",
                 table: "Credentials",
-                type: "TEXT",
+                type: "nvarchar(200)",
                 maxLength: 200,
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "OwnerLogin",
                 table: "Credentials",
-                type: "TEXT",
+                type: "nvarchar(256)",
                 maxLength: 256,
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "OwnerUserId",
                 table: "Credentials",
-                type: "TEXT",
+                type: "nvarchar(450)",
                 maxLength: 450,
                 nullable: true);
 
             migrationBuilder.AddColumn<bool>(
                 name: "RequiresReentry",
                 table: "Credentials",
-                type: "INTEGER",
+                type: "bit",
                 nullable: false,
                 defaultValue: false);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Credentials_EnvironmentId_Reference",
+                table: "Credentials",
+                columns: new[] { "EnvironmentId", "Reference" },
+                unique: true,
+                filter: "[EnvironmentId] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Credentials_OwnerLogin",
@@ -81,12 +98,20 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(
+                name: "IX_Credentials_EnvironmentId_Reference",
+                table: "Credentials");
+
+            migrationBuilder.DropIndex(
                 name: "IX_Credentials_OwnerLogin",
                 table: "Credentials");
 
             migrationBuilder.DropIndex(
                 name: "IX_Credentials_OwnerUserId",
                 table: "Credentials");
+
+            migrationBuilder.DropColumn(
+                name: "OperatingIdentityLabel",
+                table: "Executions");
 
             migrationBuilder.DropColumn(
                 name: "OperatingIdentityLogin",
@@ -119,12 +144,18 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
             migrationBuilder.AlterColumn<Guid>(
                 name: "EnvironmentId",
                 table: "Credentials",
-                type: "TEXT",
+                type: "uniqueidentifier",
                 nullable: false,
                 defaultValue: new Guid("00000000-0000-0000-0000-000000000000"),
                 oldClrType: typeof(Guid),
-                oldType: "TEXT",
+                oldType: "uniqueidentifier",
                 oldNullable: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Credentials_EnvironmentId_Reference",
+                table: "Credentials",
+                columns: new[] { "EnvironmentId", "Reference" },
+                unique: true);
         }
     }
 }

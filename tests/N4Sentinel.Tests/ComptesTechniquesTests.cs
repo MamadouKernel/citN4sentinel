@@ -244,7 +244,10 @@ public sealed class ComptesTechniquesTests : IAsyncLifetime
 
         Assert.True(resolution.Succeeded, resolution.Error);
         Assert.Null(resolution.Target!.Credential);
-        Assert.Equal("identite du processus", resolution.IdentityDescription);
+
+        // Meme redaction que partout ailleurs (voir ActingIdentity) : le
+        // vecteur, puis le compte - ou son absence, dite plutot que tue.
+        Assert.Equal(ActingIdentity.Format(null), resolution.IdentityDescription);
     }
 
     [Fact(DisplayName = "La fiche serveur l'emporte sur le compte par defaut de l'environnement")]
