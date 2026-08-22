@@ -410,7 +410,39 @@ else
             <a class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition" href="@($"/admin/environnements/{_c.EnvironmentId}")">
                 Retour
             </a>
+
+            @if (!_confirmeSuppression)
+            {
+                <button class="ml-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 font-semibold text-xs transition inline-flex items-center gap-2"
+                        @onclick="() => _confirmeSuppression = true">
+                    <i class="bi bi-trash3"></i> Supprimer
+                </button>
+            }
         </div>
+
+        @if (_confirmeSuppression)
+        {
+            @* Une suppression est irréversible : on la fait confirmer, et on dit
+               d'abord ce qu'elle emporte. *@
+            <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3">
+                <div class="text-xs text-rose-200">
+                    <strong>Supprimer « @_c.LogicalName » ?</strong>
+                    Ses relevés de supervision et ses alertes partent avec lui. La suppression est refusée
+                    s'il est cité par un workflow, une SOP, une exécution ou une source de journal —
+                    dans ce cas, passez-le en <strong>Désactivé</strong> plutôt.
+                </div>
+                <div class="flex items-center gap-2">
+                    <button class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition"
+                            @onclick="Supprimer" disabled="@_suppressionEnCours">
+                        Confirmer la suppression
+                    </button>
+                    <button class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+                            @onclick="() => _confirmeSuppression = false">
+                        Annuler
+                    </button>
+                </div>
+            </div>
+        }
     </div>
 }
 
@@ -441,6 +473,9 @@ else
     private string _syncNormal = "";
     private string? _message;
     private bool _enErreur;
+
+    private bool _confirmeSuppression;
+    private bool _suppressionEnCours;
 
     private string _messageClass => _enErreur
         ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
@@ -515,6 +550,41 @@ else
         DependencyKind.Informative => "Informative (non bloquante)",
         _ => k.ToString()
     };
+
+    private async Task Supprimer()
+    {
+        if (_c is null) return;
+
+        _suppressionEnCours = true;
+        _message = null;
+        _enErreur = false;
+
+        try
+        {
+            var environnement = _c.EnvironmentId;
+            var erreur = await Referential.DeleteComponentAsync(_c.Id);
+
+            if (erreur is not null)
+            {
+                _enErreur = true;
+                _message = erreur;
+                _confirmeSuppression = false;
+                return;
+            }
+
+            Nav.NavigateTo($"/admin/environnements/{environnement}");
+        }
+        catch (Exception ex)
+        {
+            _enErreur = true;
+            _message = $"Suppression impossible : {ex.InnerException?.Message ?? ex.Message}";
+            _confirmeSuppression = false;
+        }
+        finally
+        {
+            _suppressionEnCours = false;
+        }
+    }
 
     private async Task Enregistrer()
     {

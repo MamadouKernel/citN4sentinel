@@ -122,6 +122,58 @@ else
             <div class="p-3.5 rounded-xl text-xs font-semibold border @_statutEnErreurClass">@_messageStatut</div>
         }
 
+        @* Suppression définitive — l'action la plus destructrice de l'application.
+           Réservée aux environnements qui n'ont jamais servi : un environnement
+           validé ou actif se désactive, il ne se supprime pas. *@
+        <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+            @if (_env.Status is not (LifecycleStatus.Valide or LifecycleStatus.Actif))
+            {
+                <div class="glass-card rounded-2xl border border-rose-900/40 p-5 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <h3 class="text-sm font-bold text-rose-300 flex items-center gap-2">
+                                <i class="bi bi-exclamation-octagon"></i> Supprimer définitivement
+                            </h3>
+                            <p class="text-[11px] text-slate-400 mt-1">
+                                Emporte les serveurs, composants, comptes techniques, workflows et SOP de cet
+                                environnement. Refusé si une opération y a déjà été exécutée : cet historique
+                                doit rester lisible. La piste d'audit, elle, survit dans tous les cas.
+                            </p>
+                        </div>
+                        @if (!_confirmeSuppression)
+                        {
+                            <button class="shrink-0 px-4 py-2 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-rose-400 font-semibold text-xs transition inline-flex items-center gap-2"
+                                    @onclick="() => _confirmeSuppression = true">
+                                <i class="bi bi-trash3"></i> Supprimer
+                            </button>
+                        }
+                    </div>
+
+                    @if (_confirmeSuppression)
+                    {
+                        <div class="pt-3 border-t border-rose-900/40 space-y-3">
+                            <label class="block text-xs text-rose-200">
+                                Retapez le code <strong class="font-mono">@_env.Code</strong> pour confirmer.
+                                Un clic ne suffit pas pour un geste irréversible.
+                            </label>
+                            <input @bind="_confirmationCode" placeholder="@_env.Code" autocomplete="off"
+                                   class="w-full max-w-xs bg-slate-900 border border-rose-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:ring-2 focus:ring-rose-500/50 focus:outline-none" />
+                            <div class="flex items-center gap-2">
+                                <button class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs transition"
+                                        @onclick="Supprimer" disabled="@_suppressionEnCours">
+                                    Confirmer la suppression
+                                </button>
+                                <button class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+                                        @onclick="AnnulerSuppression">
+                                    Annuler
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </AuthorizeView>
+
         <!-- Import Card with Template Download & JSON Preview -->
         @if (_importOuvert)
         {
@@ -406,6 +458,53 @@ else
 
     private string? _messageStatut;
     private bool _statutEnErreur;
+
+    private bool _confirmeSuppression;
+    private bool _suppressionEnCours;
+    private string _confirmationCode = string.Empty;
+
+    private void AnnulerSuppression()
+    {
+        _confirmeSuppression = false;
+        _confirmationCode = string.Empty;
+    }
+
+    private async Task Supprimer()
+    {
+        if (_env is null) return;
+
+        _suppressionEnCours = true;
+        _messageStatut = null;
+        _statutEnErreur = false;
+
+        try
+        {
+            var erreur = await Referential.DeleteEnvironmentAsync(_env.Id, _confirmationCode);
+
+            if (erreur is not null)
+            {
+                _statutEnErreur = true;
+                _messageStatut = erreur;
+                return;
+            }
+
+            // L'environnement courant vient de disparaître : la barre latérale
+            // le désignerait encore si on ne la prévenait pas.
+            EnvState.Clear();
+            Nav.NavigateTo("/admin/environnements");
+        }
+        catch (Exception ex)
+        {
+            _statutEnErreur = true;
+            _messageStatut = $"Suppression impossible : {ex.InnerException?.Message ?? ex.Message}";
+        }
+        finally
+        {
+            _suppressionEnCours = false;
+            _confirmeSuppression = false;
+            _confirmationCode = string.Empty;
+        }
+    }
 
     private static readonly string _sampleJsonText = @"{
   ""_comment"": ""Fichier de configuration Navis N4 - modifiez librement sans toucher au code PowerShell. Ajoutez ou retirez autant d'entrees que necessaire dans ClusterNodes."",

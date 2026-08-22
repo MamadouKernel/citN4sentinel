@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Persistence;
 
@@ -11,7 +12,9 @@ namespace N4Sentinel.Infrastructure.Referential;
 /// l'autre n'est pas libre, et une regression volontaire vers Brouillon reste
 /// possible tant que rien n'a ete execute sur l'objet.
 /// </summary>
-public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> dbFactory)
+public sealed class ReferentialService(
+    IDbContextFactory<N4SentinelDbContext> dbFactory,
+    ILogger<ReferentialService> logger)
 {
     // -----------------------------------------------------------------------
     // Lecture
@@ -270,13 +273,25 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
     }
 
     /// <summary>
-    /// Suppression d'un composant. Refusee si un autre composant en depend :
-    /// casser le graphe de dependances en silence produirait des sequences
-    /// incoherentes plus tard.
+    /// Suppression d'un composant.
+    ///
+    /// PRINCIPE, LE MEME PARTOUT ICI : ce qui n'a jamais servi se supprime, ce
+    /// qui porte une histoire se DESACTIVE. Un composant cite par un workflow,
+    /// une SOP, une execution ou un diagnostic a laisse une trace que la
+    /// suppression rendrait incomprehensible - on refuse, en disant quoi.
+    ///
+    /// Les releves de supervision et les alertes, eux, partent avec le
+    /// composant : ce sont des mesures, deja soumises a la purge de retention,
+    /// et sans objet une fois l'objet mesure disparu. Ce qui subsiste dans tous
+    /// les cas, c'est la piste d'audit - elle ne porte aucune cle etrangere et
+    /// survit donc a tout ce qu'elle relate.
     /// </summary>
     public async Task<string?> DeleteComponentAsync(Guid id, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var component = await db.Components.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (component is null) return "Composant introuvable.";
 
         var dependents = await db.ComponentDependencies
             .Where(d => d.DependsOnComponentId == id)
@@ -284,13 +299,110 @@ public sealed class ReferentialService(IDbContextFactory<N4SentinelDbContext> db
             .ToListAsync(ct);
 
         if (dependents.Count > 0)
-            return $"Suppression refusee : {string.Join(", ", dependents)} depend(ent) de ce composant.";
+            return $"Suppression refusée : {string.Join(", ", dependents)} dépend(ent) de ce composant. "
+                 + "Retirez ces dépendances d'abord.";
 
-        var component = await db.Components.FirstOrDefaultAsync(c => c.Id == id, ct);
-        if (component is null) return "Composant introuvable.";
+        var obstacles = new List<string>();
+
+        var etapes = await db.WorkflowSteps.CountAsync(s => s.ComponentId == id, ct);
+        if (etapes > 0) obstacles.Add($"{etapes} étape(s) de workflow le pilotent");
+
+        var etapesSop = await db.SopSteps.CountAsync(s => s.ComponentId == id, ct);
+        if (etapesSop > 0) obstacles.Add($"{etapesSop} étape(s) de SOP le citent");
+
+        var executions = await db.ExecutionSteps.CountAsync(x => x.ComponentId == id, ct);
+        if (executions > 0) obstacles.Add($"{executions} étape(s) d'exécution l'ont piloté");
+
+        var journaux = await db.Sources.CountAsync(s => s.ComponentId == id, ct);
+        if (journaux > 0) obstacles.Add($"{journaux} source(s) de journal lui sont rattachée(s)");
+
+        if (obstacles.Count > 0)
+            return $"Suppression refusée : {string.Join(", ", obstacles)}. "
+                 + "Supprimer « " + component.LogicalName + " » rendrait cet historique incompréhensible. "
+                 + "Passez-le en Désactivé : il cesse d'être supervisé et piloté, sans effacer ce qui a eu lieu.";
+
+        // Mesures et alertes suivent leur objet : elles n'ont plus de sens sans
+        // lui, et la purge de retention les aurait effacees de toute facon.
+        await db.ComponentSignals.Where(s => s.ComponentId == id).ExecuteDeleteAsync(ct);
+        await db.Alerts.Where(a => a.ComponentId == id).ExecuteDeleteAsync(ct);
 
         db.Components.Remove(component);
         await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    /// <summary>
+    /// Suppression d'un environnement, avec tout ce qu'il configure.
+    ///
+    /// L'ACTION LA PLUS DESTRUCTRICE DE L'APPLICATION : elle emporte en cascade
+    /// les serveurs, les composants, les comptes techniques, les workflows et
+    /// les SOP de cet environnement. D'ou trois verrous, et non un seul.
+    ///
+    /// 1. Un environnement Valide ou Actif ne se supprime jamais. Il se
+    ///    desactive. Supprimer la Production parce qu'une liste deroulante
+    ///    etait mal positionnee n'est pas un scenario acceptable.
+    /// 2. Un environnement qui porte une histoire d'exploitation - executions,
+    ///    SOP deroulees - est refuse : cette histoire doit rester lisible, et
+    ///    le modele de donnees la protege deja (ces liens sont en NoAction).
+    /// 3. Le code de l'environnement doit etre retape. Un clic ne suffit pas
+    ///    pour un geste irreversible.
+    ///
+    /// La piste d'audit, elle, ne porte aucune cle etrangere vers
+    /// l'environnement : elle survit a sa suppression, et garde trace de qui
+    /// l'a supprime.
+    /// </summary>
+    public async Task<string?> DeleteEnvironmentAsync(
+        Guid id, string confirmation, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var environnement = await db.Environments.FirstOrDefaultAsync(e => e.Id == id, ct);
+        if (environnement is null) return "Environnement introuvable.";
+
+        if (environnement.Status is LifecycleStatus.Valide or LifecycleStatus.Actif)
+            return $"Suppression refusée : « {environnement.Code} » est en statut {environnement.Status}. "
+                 + "Un environnement validé ou actif ne se supprime pas — il se désactive. "
+                 + "Changez son statut en Désactivé si vous voulez le retirer du service.";
+
+        if (!string.Equals(confirmation?.Trim(), environnement.Code, StringComparison.Ordinal))
+            return $"Confirmation incorrecte : retapez exactement le code « {environnement.Code} » "
+                 + "pour confirmer une suppression irréversible.";
+
+        var obstacles = new List<string>();
+
+        var executions = await db.Executions.CountAsync(x => x.EnvironmentId == id, ct);
+        if (executions > 0) obstacles.Add($"{executions} exécution(s) d'opération");
+
+        var sops = await db.SopExecutions.CountAsync(x => x.EnvironmentId == id, ct);
+        if (sops > 0) obstacles.Add($"{sops} SOP déroulée(s)");
+
+        if (obstacles.Count > 0)
+            return $"Suppression refusée : {string.Join(" et ", obstacles)} s'y rattache(nt). "
+                 + "Cet historique doit rester lisible. Passez l'environnement en Désactivé : "
+                 + "il disparaît de l'exploitation courante sans effacer ce qui a eu lieu.";
+
+        var serveurs = await db.Servers.CountAsync(s => s.EnvironmentId == id, ct);
+        var composants = await db.Components.CountAsync(c => c.EnvironmentId == id, ct);
+
+        // Les liens en NoAction du modele peuvent encore refuser la suppression
+        // pour un cas non anticipe ici. Mieux vaut le dire lisiblement qu'exposer
+        // une violation de cle etrangere a l'operateur.
+        try
+        {
+            db.Environments.Remove(environnement);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            return "Suppression refusée par la base : des enregistrements y font encore référence. "
+                 + "Passez l'environnement en Désactivé plutôt que de le supprimer. "
+                 + $"Détail technique : {ex.InnerException?.Message ?? ex.Message}";
+        }
+
+        logger.LogWarning(
+            "Environnement {Code} supprime, avec {Serveurs} serveur(s) et {Composants} composant(s).",
+            environnement.Code, serveurs, composants);
+
         return null;
     }
 

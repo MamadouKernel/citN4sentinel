@@ -57,7 +57,7 @@ public sealed class ReferentielTests : IAsyncLifetime
     [Fact(DisplayName = "Creer un environnement produit une entree d'audit rattachee a son auteur")]
     public async Task Creation_Ecrit_Une_Entree_Audit()
     {
-        var service = new ReferentialService(_factory);
+        var service = new ReferentialService(_factory, NullLogger<ReferentialService>.Instance);
 
         var environnement = new N4Environment
         {
@@ -87,7 +87,7 @@ public sealed class ReferentielTests : IAsyncLifetime
     [Fact(DisplayName = "Une modification n'enregistre que les proprietes reellement changees")]
     public async Task Modification_Ne_Conserve_Que_Le_Delta()
     {
-        var service = new ReferentialService(_factory);
+        var service = new ReferentialService(_factory, NullLogger<ReferentialService>.Instance);
         var env = new N4Environment { Code = "PROD", Name = "Production", Kind = EnvironmentKind.Production };
         await service.SaveEnvironmentAsync(env);
 
@@ -111,7 +111,7 @@ public sealed class ReferentielTests : IAsyncLifetime
     [Fact(DisplayName = "Un environnement sans composant ne peut pas etre active")]
     public async Task Activation_Refusee_Sans_Composant()
     {
-        var service = new ReferentialService(_factory);
+        var service = new ReferentialService(_factory, NullLogger<ReferentialService>.Instance);
         var env = new N4Environment { Code = "UAT", Name = "Recette", Status = LifecycleStatus.Valide };
         await service.SaveEnvironmentAsync(env);
 
@@ -124,7 +124,7 @@ public sealed class ReferentielTests : IAsyncLifetime
     [Fact(DisplayName = "Un composant pilotable sans service Windows bloque l'activation")]
     public async Task Activation_Refusee_Si_Composant_Pilotable_Sans_Service()
     {
-        var service = new ReferentialService(_factory);
+        var service = new ReferentialService(_factory, NullLogger<ReferentialService>.Instance);
         var env = new N4Environment { Code = "UAT", Name = "Recette", Status = LifecycleStatus.Valide };
         await service.SaveEnvironmentAsync(env);
 
@@ -165,7 +165,7 @@ public sealed class ReferentielTests : IAsyncLifetime
     [Fact(DisplayName = "L'import Navis-Config cree serveurs et composants, en dedupliquant les hotes")]
     public async Task Import_Navis_Config()
     {
-        var service = new ReferentialService(_factory);
+        var service = new ReferentialService(_factory, NullLogger<ReferentialService>.Instance);
         var env = new N4Environment { Code = "UAT", Name = "Recette" };
         await service.SaveEnvironmentAsync(env);
 
