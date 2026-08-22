@@ -1,6 +1,8 @@
 using Xunit;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectors;
@@ -326,6 +328,156 @@ public sealed class ComptesNominatifsTests : IDisposable
         Assert.Equal(
             ActingIdentity.Format("AGLPORTS\\adm-mkonate", "Konaté Mamadou"),
             resolution.IdentityDescription);
+    }
+
+    [Fact(DisplayName = "La machine hébergeant l'application ne peut pas servir à éprouver un compte")]
+    public async Task La_Machine_Locale_Ne_Prouve_Rien()
+    {
+        var env = await CreerEnvironnementAsync();
+
+        // Le seul serveur validé est celui qui héberge N4 Sentinel.
+        await using (var db = Contexte())
+        {
+            db.Servers.Add(new N4Server
+            {
+                EnvironmentId = env,
+                HostName = Environment.MachineName,
+                Status = LifecycleStatus.Valide
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await _magasin.SaveOwnAsync(
+            "user-1", "mkonate", "Konaté Mamadou", "AGLPORTS\\adm-mkonate", "MotDePasseEntierementFaux");
+
+        var service = new OperatorCredentialService(
+            new Fabrique(_options), _magasin, Fabriquer(),
+            new ConnecteurQuiAcquiesce(), NullLogger<OperatorCredentialService>.Instance);
+
+        var resultat = await service.VerifyAsync("user-1");
+
+        // Le connecteur exécute EN LOCAL sans WinRM, donc sans employer le
+        // compte. Répondre « vérifié » ici reviendrait à délivrer un certificat
+        // de bon fonctionnement à un mot de passe entièrement faux — la preuve
+        // creuse que ce projet existe pour éliminer.
+        Assert.Equal(VerificationSituation.NonVerifiable, resultat.Situation);
+        Assert.Contains("DISTANT", resultat.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Connecteur qui accepte tout : il ne doit jamais être atteint ici.</summary>
+    private sealed class ConnecteurQuiAcquiesce : IN4Connector
+    {
+        public Task<ConnectorResult<string>> PingAsync(ConnectorTarget target, CancellationToken ct = default)
+            => Task.FromResult(ConnectorResult<string>.Ok("N'IMPORTE QUI", TimeSpan.Zero));
+
+        private static Task<ConnectorResult<T>> Rien<T>() =>
+            Task.FromResult(ConnectorResult<T>.Fail(
+                ConnectorFailure.Injoignable, "Hors périmètre de ce test.", TimeSpan.Zero));
+
+        public Task<ConnectorResult<ServiceSnapshot>> GetServiceAsync(ConnectorTarget t, string s, CancellationToken ct = default) => Rien<ServiceSnapshot>();
+        public Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> GetServicesAsync(ConnectorTarget t, IReadOnlyCollection<string> s, CancellationToken ct = default) => Rien<IReadOnlyList<ServiceSnapshot>>();
+        public Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> ListServicesAsync(ConnectorTarget t, IReadOnlyCollection<string> p, CancellationToken ct = default) => Rien<IReadOnlyList<ServiceSnapshot>>();
+        public Task<ConnectorResult<SystemSnapshot>> GetSystemAsync(ConnectorTarget t, CancellationToken ct = default) => Rien<SystemSnapshot>();
+        public Task<ConnectorResult<LogDelta>> ReadLogDeltaAsync(ConnectorTarget t, string p, long o, int m = 262_144, CancellationToken ct = default) => Rien<LogDelta>();
+        public Task<ConnectorResult<LogFileInfo>> ResolveLogAsync(ConnectorTarget t, string p, CancellationToken ct = default) => Rien<LogFileInfo>();
+        public Task<ConnectorResult<LiveMetrics>> GetLiveMetricsAsync(ConnectorTarget t, CancellationToken ct = default) => Rien<LiveMetrics>();
+        public Task<ConnectorResult<TimeSyncSnapshot>> GetTimeSyncAsync(ConnectorTarget t, CancellationToken ct = default) => Rien<TimeSyncSnapshot>();
+        public Task<ConnectorResult<UpdateSnapshot>> GetPendingUpdatesAsync(ConnectorTarget t, CancellationToken ct = default) => Rien<UpdateSnapshot>();
+        public Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(ConnectorTarget t, string s, ServiceControlAction a, CancellationToken ct = default) => Rien<ServiceSnapshot>();
+        public Task<ConnectorResult<FolderSnapshot>> ListFilesAsync(ConnectorTarget t, string p, CancellationToken ct = default) => Rien<FolderSnapshot>();
+        public Task<ConnectorResult<WriteProbeResult>> ProbeWriteAsync(ConnectorTarget t, string p, CancellationToken ct = default) => Rien<WriteProbeResult>();
+    }
+
+    // -----------------------------------------------------------------------
+    // Migration sur une base DEJA PEUPLEE
+    // -----------------------------------------------------------------------
+    [Fact(DisplayName = "La migration s'applique sur une base existante sans perdre de données")]
+    public async Task La_Migration_Preserve_Les_Donnees_Existantes()
+    {
+        // Une base neuve ne prouve rien : sur la VM, la migration s'appliquera
+        // a une base qui contient deja des environnements, des serveurs et des
+        // comptes. Or elle rend EnvironmentId nullable, ce que SQLite ne sait
+        // faire qu'en RECONSTRUISANT la table - copie, bascule, recreation des
+        // index. C'est exactement la ou des donnees se perdent en silence.
+        var fichier = Path.Combine(Path.GetTempPath(), $"n4-migr-{Guid.NewGuid():N}.db");
+
+        var options = new DbContextOptionsBuilder<N4SentinelDbContext>()
+            .UseSqlite($"Data Source={fichier}",
+                s => s.MigrationsAssembly("N4Sentinel.Migrations.Sqlite"))
+            .ConfigureWarnings(w => w.Ignore(
+                Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
+            .Options;
+
+        try
+        {
+            var environnementId = Guid.NewGuid();
+
+            // --- Etat AVANT : schema precedent, avec des donnees ------------
+            // Insertions en SQL BRUT, et non via le modele EF : celui-ci est
+            // deja celui d'apres et ecrirait des colonnes qui n'existent pas
+            // encore. Le SQL brut reproduit fidelement ce que contient la base
+            // de la VM aujourd'hui.
+            await using (var db = new N4SentinelDbContext(options))
+            {
+                var migrator = db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+                await migrator.MigrateAsync("20260821112906_SchemaInitialSqlite");
+
+                var serveurId = Guid.NewGuid();
+                var compteId = Guid.NewGuid();
+                var maintenant = DateTimeOffset.UtcNow.UtcTicks;
+
+                await db.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO Environments (Id, Code, Name, Kind, Criticality, Status, TimeZoneId, "
+                    + "AutomationLevel, ClockToleranceSeconds, CreatedAt, CreatedBy) "
+                    + "VALUES ({0}, 'PROD', 'Production N4', 0, 3, 3, 'UTC', 0, 1, {1}, 'test');",
+                    environnementId, maintenant);
+
+                await db.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO Credentials (Id, Reference, Label, EnvironmentId, Mode, UserName, "
+                    + "ProtectedPassword, Status, CreatedAt, CreatedBy) "
+                    + "VALUES ({0}, 'svc-existant', 'Compte de service historique', {1}, 1, "
+                    + "'AGLPORTS\\svc_n4', 'chiffre-existant', 3, {2}, 'test');",
+                    compteId, environnementId, maintenant);
+
+                await db.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO Servers (Id, EnvironmentId, HostName, CredentialReference, Status, "
+                    + "WinRmPort, UseSsl, Criticality, CreatedAt, CreatedBy) "
+                    + "VALUES ({0}, {1}, 'SRV-N4-CENTER', 'svc-existant', 2, 5985, 0, 3, {2}, 'test');",
+                    serveurId, environnementId, maintenant);
+            }
+
+            // --- Migration vers le schema courant ---------------------------
+            await using (var db = new N4SentinelDbContext(options))
+                await db.Database.MigrateAsync();
+
+            // --- Etat APRES : rien n'a disparu, rien n'a change de sens -----
+            await using (var db = new N4SentinelDbContext(options))
+            {
+                var compte = await db.Credentials.SingleAsync(c => c.Reference == "svc-existant");
+
+                Assert.Equal(environnementId, compte.EnvironmentId);
+                Assert.Equal("AGLPORTS\\svc_n4", compte.UserName);
+                Assert.Equal("chiffre-existant", compte.ProtectedPassword);
+                Assert.Equal(LifecycleStatus.Actif, compte.Status);
+
+                // Le compte historique reste PARTAGE : la migration ne doit
+                // l'attribuer a personne.
+                Assert.Null(compte.OwnerUserId);
+                Assert.False(compte.IsNominative);
+                Assert.False(compte.RequiresReentry);
+                Assert.True(compte.IsUsable);
+
+                // La cle etrangere et l'index unique survivent a la
+                // reconstruction de table.
+                Assert.Single(await db.Servers.Where(s => s.EnvironmentId == environnementId).ToListAsync());
+                Assert.Single(await db.Environments.ToListAsync());
+            }
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            try { if (File.Exists(fichier)) File.Delete(fichier); } catch { /* verrou residuel */ }
+        }
     }
 
     // -----------------------------------------------------------------------

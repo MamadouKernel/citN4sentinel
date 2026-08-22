@@ -139,16 +139,14 @@ public sealed class OperatorCredentialService(
         if (compte is null)
             return VerificationOutcome.NonVerifiable("aucun compte d'exploitation enregistré.");
 
-        var serveur = await ChoisirServeurTemoinAsync(ct);
-        if (serveur is null)
+        var (serveur, resolution) = await ChoisirServeurTemoinAsync(compte, ct);
+
+        if (serveur is null || resolution?.Target is null)
             return VerificationOutcome.NonVerifiable(
-                "aucun serveur validé et joignable ne permet d'éprouver un compte pour l'instant.");
+                "aucun serveur DISTANT validé ne permet d'éprouver un compte pour l'instant. "
+                + "Déclarez et validez au moins un serveur N4 autre que celui qui héberge l'application.");
 
-        var resolution = targetFactory.CreateWithCredential(serveur, compte);
-        if (!resolution.Succeeded)
-            return VerificationOutcome.NonVerifiable(resolution.Error ?? "cible non constructible.");
-
-        var ping = await connector.PingAsync(resolution.Target!, ct);
+        var ping = await connector.PingAsync(resolution.Target, ct);
 
         if (ping.Succeeded)
         {
@@ -188,21 +186,45 @@ public sealed class OperatorCredentialService(
     }
 
     /// <summary>
-    /// Serveur sur lequel eprouver un compte : le premier serveur valide d'un
-    /// environnement actif. On ne cherche pas le « bon » serveur - n'importe
-    /// lequel prouve que le couple compte/mot de passe est accepte par le
-    /// domaine, ce qui est tout ce qu'on veut savoir ici.
+    /// Serveur sur lequel eprouver un compte. N'importe quel serveur valide
+    /// fait l'affaire - on ne cherche pas le « bon », seulement a savoir si le
+    /// couple compte/mot de passe est accepte par le domaine.
+    ///
+    /// UNE SEULE EXCLUSION, ET ELLE EST CAPITALE : la machine qui heberge
+    /// l'application. Le connecteur y execute en local, SANS WinRM et donc SANS
+    /// employer le compte fourni. Une verification menee la aurait repondu
+    /// « compte verifie » sur un mot de passe entierement faux - exactement le
+    /// genre de preuve creuse que ce projet existe pour eliminer.
     /// </summary>
-    private async Task<N4Server?> ChoisirServeurTemoinAsync(CancellationToken ct)
+    private async Task<(N4Server?, TargetResolution?)> ChoisirServeurTemoinAsync(
+        TechnicalCredential compte, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Servers
+        var candidats = await db.Servers
             .AsNoTracking()
             .Include(s => s.Environment)
             .Where(s => s.Status == LifecycleStatus.Valide || s.Status == LifecycleStatus.Actif)
             .OrderBy(s => s.HostName)
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+
+        foreach (var serveur in candidats)
+        {
+            var resolution = targetFactory.CreateWithCredential(serveur, compte);
+            if (!resolution.Succeeded || resolution.Target is null) continue;
+
+            if (resolution.Target.IsLocal)
+            {
+                logger.LogDebug(
+                    "{Hote} heberge l'application : ecarte de la verification, une session locale "
+                    + "n'emploierait pas le compte a eprouver.", serveur.HostName);
+                continue;
+            }
+
+            return (serveur, resolution);
+        }
+
+        return (null, null);
     }
 
     // -----------------------------------------------------------------------
