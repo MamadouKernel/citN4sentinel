@@ -108,6 +108,24 @@ public class WorkflowExecution : AuditableEntity
 
     // --- Motif et rattachement (FR-011) ---------------------------------
     public string RequestedBy { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Identifiant applicatif de l'operateur SOUS LEQUEL les commandes sont
+    /// emises, fige au lancement.
+    ///
+    /// Distinct du demandeur : une operation peut etre preparee par l'un et
+    /// lancee par l'autre, et c'est celui qui lance qui engage sa
+    /// responsabilite en emettant reellement les commandes. Figer l'identite
+    /// ici garantit qu'une reprise trois heures plus tard, par une autre
+    /// personne, restera attribuee a celle qui a lance - et que la piste
+    /// applicative et le journal de securite du serveur N4 ne pourront pas
+    /// diverger.
+    ///
+    /// Vide sur les executions anterieures a ce mecanisme, et sur les sites qui
+    /// n'emploient que des comptes partages.
+    /// </summary>
+    public string? OperatingIdentityLogin { get; set; }
+
     public string? Reason { get; set; }
     public string? TicketReference { get; set; }
     public string? ExpectedImpact { get; set; }

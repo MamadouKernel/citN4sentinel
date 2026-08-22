@@ -2689,8 +2689,15 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
-                    b.Property<Guid>("EnvironmentId")
+                    b.Property<Guid?>("EnvironmentId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("InvalidatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("InvalidationReason")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
 
                     b.Property<string>("Label")
                         .IsRequired()
@@ -2713,6 +2720,18 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<string>("ModifiedBy")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("OwnerDisplayName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("OwnerLogin")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<DateTimeOffset?>("PasswordSetAt")
                         .HasColumnType("datetimeoffset");
 
@@ -2724,6 +2743,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("RequiresReentry")
+                        .HasColumnType("bit");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
@@ -2739,8 +2761,13 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OwnerLogin");
+
+                    b.HasIndex("OwnerUserId");
+
                     b.HasIndex("EnvironmentId", "Reference")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[EnvironmentId] IS NOT NULL");
 
                     b.ToTable("Credentials", (string)null);
                 });
@@ -2896,6 +2923,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OperatingIdentityLogin")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Outcome")
@@ -3762,8 +3792,7 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
                         .WithMany()
                         .HasForeignKey("EnvironmentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Environment");
                 });

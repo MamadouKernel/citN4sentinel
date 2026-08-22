@@ -14,7 +14,8 @@ public sealed class ControlExecutionUseCase(
     OrchestrationEngine? engine = null,
     Notifications.OperationNotificationService? notifications = null,
     ApprovalMatrixService? approvalMatrix = null,
-    Supervision.SupervisionService? supervision = null)
+    Supervision.SupervisionService? supervision = null,
+    CredentialStore? credentials = null)
 {
     private async Task ReveillerMoteurAsync(CancellationToken ct)
     {
@@ -88,11 +89,23 @@ public sealed class ControlExecutionUseCase(
 
         if (!execution.IsSimulation)
         {
+            // PORTILLON D'IDENTITE. Une simulation n'emet aucune commande et ne
+            // demande donc aucun compte : c'est en execution reelle, et la
+            // seulement, que l'absence de compte empeche vraiment de travailler.
+            var barrage = await VerifierCompteExploitationAsync(execution, actor, ct);
+            if (barrage is not null) return barrage;
+
             var verrou = await locks.AcquireAsync(
                 execution.EnvironmentId, execution.Id, actor,
                 $"{execution.WorkflowName} v{execution.WorkflowVersion}", ct);
 
             if (!verrou.Succeeded) return verrou.Error;
+
+            // L'identite est FIGEE ICI, au lancement : celui qui lance engage
+            // sa responsabilite en emettant reellement les commandes, et une
+            // reprise ulterieure par quelqu'un d'autre ne doit pas changer
+            // l'identite sous laquelle les serveurs N4 ont vu agir.
+            execution.OperatingIdentityLogin = actor;
         }
 
         execution.Status = ExecutionStatus.EnCours;
@@ -114,6 +127,55 @@ public sealed class ControlExecutionUseCase(
 
         await ReveillerMoteurAsync(ct);
         return null;
+    }
+
+    /// <summary>
+    /// Verifie que celui qui lance dispose d'un compte d'exploitation
+    /// utilisable.
+    ///
+    /// C'est le point de blocage choisi : l'operateur peut consulter et
+    /// diagnostiquer sans rien saisir, mais pas emettre de commande sous une
+    /// identite qui ne serait pas la sienne. Un compte ecarte apres expiration
+    /// donne un message qui dit quoi faire, plutot qu'un echec WinRM a la
+    /// troisieme etape.
+    /// </summary>
+    private async Task<string?> VerifierCompteExploitationAsync(
+        WorkflowExecution execution, string actor, CancellationToken ct)
+    {
+        if (credentials is null) return null;
+
+        var compte = await credentials.GetForLoginAsync(actor, ct);
+
+        var refus = compte switch
+        {
+            null =>
+                "Votre compte d'exploitation n'est pas enregistré. L'application agit sur les "
+                + "serveurs N4 sous le compte de la personne qui lance l'opération : sans le vôtre, "
+                + "aucune commande ne peut vous être attribuée. Renseignez-le depuis "
+                + "« Mon compte d'exploitation », puis relancez.",
+
+            { RequiresReentry: true } =>
+                $"Votre compte d'exploitation {compte.UserName} a été écarté : {compte.InvalidationReason} "
+                + "Ressaisissez-le depuis « Mon compte d'exploitation » avant de relancer.",
+
+            { IsUsable: false } =>
+                $"Votre compte d'exploitation est incomplet ({compte.SecretState}). "
+                + "Complétez-le depuis « Mon compte d'exploitation » avant de relancer.",
+
+            _ => null
+        };
+
+        if (refus is null) return null;
+
+        await auditWriter.WriteAsync(
+            AuditAction.TentativeNonAutorisee, AuditOutcome.Echec, actor,
+            entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
+            entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
+            environmentId: execution.EnvironmentId,
+            reason: "Lancement refusé : aucun compte d'exploitation utilisable pour cet opérateur.",
+            correlationId: execution.CorrelationId, ct: ct);
+
+        return refus;
     }
 
     public async Task<string?> RequestPauseAsync(Guid executionId, string actor, CancellationToken ct = default)

@@ -193,6 +193,13 @@
                                     <span>Mon Profil</span>
                                 </a>
 
+                                <AuthorizeView Policy="@N4Policies.PeutExecuter" Context="exploitation">
+                                    <a href="mon-compte-exploitation" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-300 hover:text-white hover:bg-white/5 transition-colors">
+                                        <i class="bi bi-key text-amber-400 text-sm"></i>
+                                        <span>Mon compte d'exploitation</span>
+                                    </a>
+                                </AuthorizeView>
+
                                 <form action="Account/Logout" method="post" class="w-full">
                                     <AntiforgeryToken />
                                     <input type="hidden" name="ReturnUrl" value="@currentUrl" />

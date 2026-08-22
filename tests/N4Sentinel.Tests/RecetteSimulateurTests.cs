@@ -98,7 +98,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
         _workflows = new WorkflowService(_factory, NullLogger<WorkflowService>.Instance, new AuditWriter(_factory));
         _rapports = new ExecutionReportService(_factory);
 
-        _executeur = new StepExecutor(_factory, cibles, _connecteur, supervision,
+        _executeur = new StepExecutor(_factory, cibles, _connecteur, supervision, store,
             NullLogger<StepExecutor>.Instance);
 
         _precheck = new PreflightService(_factory, cibles, _connecteur, _verrous,

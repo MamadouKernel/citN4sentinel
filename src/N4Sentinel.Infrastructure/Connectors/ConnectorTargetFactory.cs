@@ -35,13 +35,70 @@ public sealed class ConnectorTargetFactory(
             : await CreateAsync(server, ct);
     }
 
+    /// <summary>
+    /// Construit la cible d'un serveur POUR UN OPERATEUR NOMME.
+    ///
+    /// C'est ce qui donne son sens a la tracabilite : la session WinRM s'ouvre
+    /// sous le compte de la personne qui a demande l'action, de sorte que le
+    /// journal de securite du serveur N4 la nomme elle, et pas un compte de
+    /// service derriere lequel tout le monde se confond.
+    ///
+    /// A N'UTILISER QUE POUR DU TRAVAIL DEMANDE PAR UN HUMAIN. La supervision
+    /// de fond, elle, n'emprunte l'identite de personne : lui preter le compte
+    /// du dernier connecte ferait porter a cet operateur des releves faits par
+    /// la machine a trois heures du matin - ce qui detruirait l'attribution au
+    /// lieu de la servir.
+    /// </summary>
+    public async Task<TargetResolution> CreateForActorAsync(
+        N4Server server, string? actorLogin, CancellationToken ct = default)
+        => await CreateAsync(server, ct, actorLogin);
+
     /// <summary>Construit la cible d'un serveur deja charge.</summary>
     public async Task<TargetResolution> CreateAsync(N4Server server, CancellationToken ct = default)
+        => await CreateAsync(server, ct, null);
+
+    /// <summary>
+    /// Construit une cible avec un compte IMPOSE, sans consulter le referentiel
+    /// des comptes.
+    ///
+    /// Sert a eprouver un compte qu'on vient de saisir : le tester avant de
+    /// s'en servir est la seule facon de ne pas decouvrir la faute de frappe
+    /// pendant l'incident.
+    /// </summary>
+    public TargetResolution CreateWithCredential(N4Server server, TechnicalCredential credential)
     {
         if (string.IsNullOrWhiteSpace(server.HostName))
             return TargetResolution.Failed("Le serveur n'a pas de nom d'hote.");
 
-        // Resolution du compte : la fiche serveur l'emporte sur le defaut de
+        return Construire(server, credential, $"compte {credential.UserName}");
+    }
+
+    private async Task<TargetResolution> CreateAsync(
+        N4Server server, CancellationToken ct, string? actorLogin)
+    {
+        if (string.IsNullOrWhiteSpace(server.HostName))
+            return TargetResolution.Failed("Le serveur n'a pas de nom d'hote.");
+
+        // --- 1. Compte nominatif de l'operateur, s'il en a un d'utilisable ---
+        if (!string.IsNullOrWhiteSpace(actorLogin))
+        {
+            var propre = await credentials.GetForLoginAsync(actorLogin, ct);
+
+            if (propre is not null && propre.IsUsable)
+                return Construire(server, propre,
+                    $"compte {propre.UserName} ({propre.OwnerDisplayName})");
+
+            if (propre is { RequiresReentry: true })
+                return TargetResolution.Failed(
+                    $"Votre compte d'exploitation {propre.UserName} a ete ecarte : {propre.InvalidationReason} "
+                    + "Ressaisissez-le depuis « Mon compte d'exploitation » avant de relancer.");
+
+            // Aucun compte nominatif : on retombe sur le compte partage. Ce
+            // n'est pas une erreur - c'est le cas d'un operateur qui n'a pas
+            // encore fait sa saisie, ou d'un site qui n'en veut pas.
+        }
+
+        // --- 2. Compte partage : la fiche serveur l'emporte sur le defaut de
         // l'environnement. Un seul serveur hors domaine peut ainsi porter son
         // propre compte sans imposer d'exception a tous les autres.
         var reference = !string.IsNullOrWhiteSpace(server.CredentialReference)
@@ -76,6 +133,12 @@ public sealed class ConnectorTargetFactory(
                 : $"compte {credential.UserName} (via '{credential.Label}')";
         }
 
+        return Construire(server, credential, origine);
+    }
+
+    private TargetResolution Construire(
+        N4Server server, TechnicalCredential? credential, string origine)
+    {
         var target = new ConnectorTarget
         {
             HostName = server.HostName,

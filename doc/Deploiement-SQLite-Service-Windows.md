@@ -377,31 +377,69 @@ service démarre, l'application répond, `/health` est vert — et chaque test d
 connexion renvoie *« Accès refusé »*. Rien n'est cassé ; simplement, personne
 n'a donné de droits au compte machine, et personne ne devrait le faire.
 
-**Deux issues, dans cet ordre de préférence :**
+## E.6 Deux identités, pour deux natures de travail
 
-1. **Un compte de service dédié du domaine** (`D.3`), ajouté aux
-   administrateurs locaux des serveurs N4 ou à leur groupe
-   *Remote Management Users*. Rien à saisir dans l'application.
+L'application distingue ce qu'un humain déclenche de ce qu'elle fait seule.
+Cette ligne de partage commande tout le reste.
 
-2. **Un compte explicite déclaré dans l'application**, quand le compte de
-   service n'existe pas encore ou que le serveur est hors domaine :
+| Nature du travail | Identité employée | Où elle se déclare |
+|---|---|---|
+| Un opérateur lance une séquence, une action, un test | **son** compte nominatif | « Mon compte d'exploitation » |
+| La supervision balaie les composants, la nuit, sans demande | compte partagé, ou identité du processus | `/admin/environnements/{id}/comptes` |
 
-   - `/admin/environnements/{id}/comptes` — **« Déclarer un compte »** ;
-   - mode **Compte explicite**, compte au format `DOMAINE\utilisateur`,
-     mot de passe saisi une seule fois ;
-   - ouvrez ensuite la fiche du serveur, sélectionnez ce compte dans
-     **Compte technique**, enregistrez, puis **« Tester la connexion »**.
+### Le compte nominatif de chaque opérateur
 
-Le mot de passe est chiffré au repos par le trousseau de clés — celui-là même
-que **G.1** impose de sauvegarder avec la base. Il n'est déchiffré qu'au moment
-d'ouvrir une session, et aucun écran ni export ne le restitue, y compris à un
-administrateur de la solution (SEC-003).
+À sa première connexion, un opérateur habilité à agir sur les services est
+sollicité pour **son compte d'administration**, avec l'explication de la
+raison. Il peut reporter : la consultation et le diagnostic restent ouverts.
+Le blocage tombe là où il a un sens — au lancement d'une opération réelle.
 
-> Un compte nominatif d'administrateur débloque la situation en cinq minutes,
-> et c'est une raison suffisante de l'employer le jour de la mise en service.
-> Ce n'en est pas une de l'y laisser : les journaux des serveurs N4
-> attribueront à cette personne des actions menées par la machine, et le
-> premier changement de mot de passe interrompra la supervision sans préavis.
+- L'application **éprouve le compte avant de le conserver** : elle ouvre une
+  session de test sur un serveur validé. Un compte refusé n'est pas enregistré.
+- À chaque connexion, si le dernier contrôle date de plus de douze heures, le
+  compte est revérifié. C'est ainsi qu'une **expiration ou un changement de
+  mot de passe dans le domaine** se détecte : personne ne nous prévient.
+- Le mot de passe est saisi par son propriétaire, chiffré au repos, et **aucun
+  écran ne le restitue — pas même à un administrateur de la solution**, qui ne
+  peut ni le voir ni le modifier (SEC-003).
+- La désactivation d'un compte applicatif **supprime** son compte
+  d'exploitation.
+
+> **Une règle contre-intuitive, et délibérée.** Au premier refus
+> d'authentification, le compte est écarté et **n'est plus jamais réessayé**
+> tant qu'il n'a pas été ressaisi. Réessayer un mot de passe périmé sur chaque
+> serveur, à chaque reprise de séquence, finirait par **verrouiller le compte
+> de domaine de l'opérateur** — l'outil censé l'aider le mettrait dehors en
+> pleine escale. Un *accès* refusé, lui, n'écarte rien : le mot de passe est
+> bon, ce sont les droits qui manquent.
+
+### Ce que cela donne côté serveurs N4
+
+Une session WinRM est une ouverture de session réseau : l'événement 4624 du
+serveur N4 porte le compte **et l'adresse source**. Une action passée par
+l'application arrive depuis l'IP du serveur N4 Sentinel — `adm-mkonate` depuis
+`CI018NATAPP06` se distingue donc de la même personne assise à la console,
+sans qu'aucun artifice soit nécessaire.
+
+L'identité employée est **figée au lancement** de l'opération : une reprise
+trois heures plus tard, par quelqu'un d'autre, reste attribuée à celui qui a
+lancé. La piste applicative et le journal du serveur ne peuvent pas diverger.
+
+### Le compte partagé, réduit à son vrai rôle
+
+Il ne disparaît pas : il porte le travail non surveillé. Lui prêter le compte
+du dernier connecté ferait porter à cet opérateur des relevés faits par la
+machine à trois heures du matin, ce qui **détruirait** l'attribution au lieu
+de la servir.
+
+Sa déclaration reste `/admin/environnements/{id}/comptes` — **« Déclarer un
+compte »**, mode *Compte explicite*, puis sélection sur la fiche du serveur
+dans **Compte technique**. Un compte de service dédié du domaine (`D.3`) reste
+préférable : il n'y a alors aucun mot de passe à protéger.
+
+Le trousseau de clés qui chiffre tous ces secrets est celui que **G.1** impose
+de sauvegarder avec la base. Le perdre oblige désormais **chaque opérateur** à
+ressaisir son compte, pas seulement l'administrateur.
 
 ---
 

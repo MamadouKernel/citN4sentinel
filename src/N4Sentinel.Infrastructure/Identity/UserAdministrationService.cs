@@ -32,7 +32,8 @@ public sealed class UserAdministrationService(
     UserManager<ApplicationUser> userManager,
     IEmailSender<ApplicationUser> emailSender,
     IAuditWriter auditWriter,
-    ILogger<UserAdministrationService> logger)
+    ILogger<UserAdministrationService> logger,
+    Security.CredentialStore? credentials = null)
 {
     private async Task<bool> RefuserSiNonHabiliteAsync(string actor, bool callerHasElevatedRole, string action, CancellationToken ct)
     {
@@ -148,10 +149,22 @@ public sealed class UserAdministrationService(
         // pas seulement empêcher une future connexion.
         if (disabled) await userManager.UpdateSecurityStampAsync(user);
 
+        // Le compte d'exploitation part avec son propriétaire. Un mot de passe
+        // d'administration qui survit à la désactivation de son titulaire est
+        // un secret qui finira par servir à quelqu'un d'autre — et l'attribution
+        // qu'il portait n'aurait plus personne derrière elle.
+        var compteEfface = false;
+        if (disabled && credentials is not null)
+            compteEfface = await credentials.EraseForOwnerAsync(user.Id, ct);
+
         await auditWriter.WriteAsync(
             AuditAction.ChangementDeStatut, AuditOutcome.Succes, actor,
             entityType: nameof(ApplicationUser), entityId: user.Id, entityLabel: user.Email,
-            detail: disabled ? "Compte désactivé." : "Compte réactivé.", ct: ct);
+            detail: disabled
+                ? compteEfface
+                    ? "Compte désactivé. Son compte d'exploitation a été supprimé."
+                    : "Compte désactivé."
+                : "Compte réactivé.", ct: ct);
 
         return UserAdminResult.Ok();
     }

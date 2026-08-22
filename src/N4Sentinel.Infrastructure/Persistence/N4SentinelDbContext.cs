@@ -133,6 +133,20 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.Ignore(x => x.IsUsable);
             e.Ignore(x => x.SecretState);
+            e.Ignore(x => x.IsNominative);
+
+            e.Property(x => x.OwnerUserId).HasMaxLength(450);
+            e.Property(x => x.OwnerLogin).HasMaxLength(256);
+            e.Property(x => x.OwnerDisplayName).HasMaxLength(200);
+            e.Property(x => x.InvalidationReason).HasMaxLength(400);
+
+            // Index de recherche, volontairement NON uniques. Un index unique
+            // sur une colonne majoritairement nulle est un piege : SQL Server
+            // considere deux NULL comme egaux et refuserait le deuxieme compte
+            // PARTAGE, qui n'a pas de proprietaire. L'unicite d'un compte par
+            // personne est tenue par SaveOwnAsync, qui met a jour l'existant.
+            e.HasIndex(x => x.OwnerUserId);
+            e.HasIndex(x => x.OwnerLogin);
 
             e.HasOne(x => x.Environment)
              .WithMany()

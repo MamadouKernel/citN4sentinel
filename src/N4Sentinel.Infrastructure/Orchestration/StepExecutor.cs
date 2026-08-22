@@ -27,6 +27,7 @@ public sealed class StepExecutor(
     ConnectorTargetFactory targetFactory,
     IN4Connector connector,
     SupervisionService supervision,
+    N4Sentinel.Infrastructure.Security.CredentialStore credentials,
     ILogger<StepExecutor> logger)
 {
     public async Task<StepOutcome> ExecuteAsync(
@@ -160,8 +161,11 @@ public sealed class StepExecutor(
             cible, composant.WindowsServiceName, ServiceControlAction.Demarrer, ct);
 
         if (!commande.Succeeded)
+        {
+            await EcarterLeCompteSiRefusAsync(contexte, commande.Failure, ct);
             return StepOutcome.Failed(
                 $"La commande de démarrage a été refusée : {commande.Error}", StepErrorType.CommandeRefusee, commande.ExecutedCommand);
+        }
 
         // Phase 1 : le service atteint Running. Preuve faible, mais un service
         // qui n'y arrive pas rend la phase 2 sans objet.
@@ -284,8 +288,11 @@ public sealed class StepExecutor(
             cible, composant.WindowsServiceName, ServiceControlAction.Arreter, ct);
 
         if (!commande.Succeeded)
+        {
+            await EcarterLeCompteSiRefusAsync(contexte, commande.Failure, ct);
             return StepOutcome.Failed(
                 $"La commande d'arrêt a été refusée : {commande.Error}", StepErrorType.CommandeRefusee, commande.ExecutedCommand);
+        }
 
         var arrete = await AttendreStatutAsync(
             cible, composant.WindowsServiceName, "Stopped",
@@ -364,8 +371,11 @@ public sealed class StepExecutor(
             cible, composant.WindowsServiceName, ServiceControlAction.Arreter, ct);
 
         if (!commande.Succeeded)
+        {
+            await EcarterLeCompteSiRefusAsync(contexte, commande.Failure, ct);
             return StepOutcome.Failed(
                 $"La commande d'arrêt forcé a été refusée : {commande.Error}", StepErrorType.CommandeRefusee, commande.ExecutedCommand);
+        }
 
         var etat = commande.Value?.Status ?? "Inconnu";
 
@@ -664,11 +674,53 @@ public sealed class StepExecutor(
         if (composant.Server is null)
             return new StepContext { Error = $"Aucun serveur n'est rattaché à « {composant.LogicalName} »." };
 
-        var resolution = await targetFactory.CreateAsync(composant.Server, ct);
+        // L'identite employee est celle INSCRITE SUR L'EXECUTION, jamais celle
+        // de la session en cours : une reprise trois heures plus tard, par une
+        // autre personne, doit rester attribuee a celui qui a lance l'operation.
+        // C'est aussi ce qui garantit que la piste applicative et le journal de
+        // securite du serveur N4 ne pourront pas diverger.
+        var identite = await db.Executions
+            .AsNoTracking()
+            .Where(e => e.Id == step.ExecutionId)
+            .Select(e => e.OperatingIdentityLogin)
+            .FirstOrDefaultAsync(ct);
+
+        var resolution = await targetFactory.CreateForActorAsync(composant.Server, identite, ct);
         if (!resolution.Succeeded)
             return new StepContext { Error = $"Serveur inaccessible : {resolution.Error}" };
 
-        return new StepContext { Component = composant, Target = resolution.Target };
+        return new StepContext
+        {
+            Component = composant,
+            Target = resolution.Target,
+            Credential = resolution.Credential,
+            IdentityDescription = resolution.IdentityDescription
+        };
+    }
+
+    /// <summary>
+    /// Ecarte le compte employe si l'authentification a ete refusee.
+    ///
+    /// REGLE NON NEGOCIABLE. Un mot de passe perime qu'on reessaie sur chaque
+    /// serveur, a chaque reprise de sequence, finit par verrouiller le compte
+    /// de domaine de l'operateur. Le premier refus suffit : le compte sort du
+    /// jeu jusqu'a ressaisie.
+    ///
+    /// Un ACCES refuse est un cas different et n'invalide rien : le mot de
+    /// passe est bon, ce sont les droits qui manquent sur ce serveur. Le faire
+    /// ressaisir n'y changerait rien et masquerait la vraie cause.
+    /// </summary>
+    private async Task EcarterLeCompteSiRefusAsync(
+        StepContext contexte, ConnectorFailure echec, CancellationToken ct)
+    {
+        if (echec != ConnectorFailure.AuthentificationRefusee) return;
+        if (contexte.Credential is not { IsNominative: true } compte) return;
+
+        await credentials.InvalidateAsync(
+            compte.Id,
+            $"Authentification refusee le {DateTimeOffset.Now:dd/MM/yyyy a HH:mm}. "
+            + "Mot de passe expire ou modifie dans le domaine.",
+            ct);
     }
 
     // -----------------------------------------------------------------------
@@ -721,6 +773,17 @@ public sealed class StepExecutor(
         public N4Component? Component { get; init; }
         public ConnectorTarget? Target { get; init; }
         public string? Error { get; init; }
+
+        /// <summary>
+        /// Compte employe pour cette etape. Conserve pour pouvoir l'ecarter
+        /// immediatement si l'authentification est refusee - sans quoi le
+        /// moteur reessaierait un mot de passe perime jusqu'a verrouiller le
+        /// compte de domaine de l'operateur.
+        /// </summary>
+        public TechnicalCredential? Credential { get; init; }
+
+        /// <summary>Identite employee, en clair, pour la preuve d'etape.</summary>
+        public string? IdentityDescription { get; init; }
     }
 
     private sealed record LogWatchpoint

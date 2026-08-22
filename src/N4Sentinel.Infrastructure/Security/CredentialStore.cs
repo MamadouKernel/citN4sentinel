@@ -50,13 +50,22 @@ public sealed class CredentialStore
     // -----------------------------------------------------------------------
     // Lecture - jamais le secret
     // -----------------------------------------------------------------------
+    /// <summary>
+    /// Comptes PARTAGES d'un environnement, ceux qu'une fiche serveur peut
+    /// designer.
+    ///
+    /// Les comptes nominatifs en sont volontairement exclus : le compte
+    /// personnel d'un operateur n'est pas un choix de configuration, et le
+    /// proposer dans une liste deroulante reviendrait a le montrer a tous les
+    /// autres.
+    /// </summary>
     public async Task<List<TechnicalCredential>> GetForEnvironmentAsync(
         Guid environmentId, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.Credentials
             .AsNoTracking()
-            .Where(c => c.EnvironmentId == environmentId)
+            .Where(c => c.EnvironmentId == environmentId && c.OwnerUserId == null)
             .OrderBy(c => c.Label)
             .ToListAsync(ct);
     }
@@ -69,7 +78,159 @@ public sealed class CredentialStore
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.Credentials
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.EnvironmentId == environmentId && c.Reference == reference, ct);
+            .FirstOrDefaultAsync(
+                c => c.EnvironmentId == environmentId
+                     && c.Reference == reference
+                     && c.OwnerUserId == null, ct);
+    }
+
+    // -----------------------------------------------------------------------
+    // Comptes nominatifs
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Compte d'exploitation d'un operateur. Un seul par personne, valable sur
+    /// tous les environnements : chez CIT le meme compte d'administration sert
+    /// partout, et en demander un par environnement multiplierait les saisies
+    /// sans rien apporter.
+    /// </summary>
+    public async Task<TechnicalCredential?> GetForOwnerAsync(
+        string userId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId)) return null;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        return await db.Credentials
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.OwnerUserId == userId, ct);
+    }
+
+    /// <summary>
+    /// Compte d'exploitation retrouve par l'identifiant de connexion applicatif.
+    ///
+    /// C'est la voie qu'emprunte le moteur d'orchestration : une execution
+    /// enregistre le nom de son demandeur, jamais son identifiant technique.
+    /// </summary>
+    public async Task<TechnicalCredential?> GetForLoginAsync(
+        string login, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(login)) return null;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        return await db.Credentials
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.OwnerLogin == login, ct);
+    }
+
+    /// <summary>
+    /// Enregistre ou met a jour le compte d'exploitation d'un operateur.
+    ///
+    /// Un mot de passe fourni leve l'obligation de ressaisie : c'est le geste
+    /// meme par lequel l'operateur reprend la main apres une expiration.
+    /// </summary>
+    public async Task<string?> SaveOwnAsync(
+        string userId, string login, string displayName, string userName, string password,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return "Aucun utilisateur identifie.";
+
+        if (string.IsNullOrWhiteSpace(userName))
+            return "Le compte est obligatoire, au format DOMAINE\\utilisateur.";
+
+        if (!userName.Contains('\\') && !userName.Contains('@'))
+            return "Le compte doit porter son domaine : DOMAINE\\utilisateur, ou utilisateur@domaine.";
+
+        if (string.IsNullOrWhiteSpace(password))
+            return "Le mot de passe est obligatoire.";
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var existing = await db.Credentials.FirstOrDefaultAsync(c => c.OwnerUserId == userId, ct);
+
+        if (existing is null)
+        {
+            var credential = new TechnicalCredential
+            {
+                OwnerUserId = userId,
+                OwnerLogin = login,
+                OwnerDisplayName = displayName,
+                // La reference porte l'identifiant : deux operateurs peuvent
+                // partager le meme compte AD sans collision de reference.
+                Reference = $"operateur:{userId}",
+                Label = $"Compte d'exploitation de {displayName}",
+                Mode = CredentialMode.CompteExplicite,
+                UserName = userName.Trim(),
+                Status = LifecycleStatus.Actif,
+                Description = "Compte nominatif saisi par son proprietaire."
+            };
+            ApplyPassword(credential, password);
+            credential.RequiresReentry = false;
+            db.Credentials.Add(credential);
+        }
+        else
+        {
+            existing.OwnerLogin = login;
+            existing.OwnerDisplayName = displayName;
+            existing.UserName = userName.Trim();
+            existing.Mode = CredentialMode.CompteExplicite;
+            existing.Status = LifecycleStatus.Actif;
+            ApplyPassword(existing, password);
+            existing.RequiresReentry = false;
+            existing.InvalidatedAt = null;
+            existing.InvalidationReason = null;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Compte d'exploitation enregistre pour {Utilisateur}. Aucun secret n'est journalise.",
+            displayName);
+
+        return null;
+    }
+
+    /// <summary>
+    /// Marque un compte comme devant etre ressaisi, et l'ecarte immediatement.
+    ///
+    /// Appele des qu'une authentification est refusee. C'est ce qui empeche
+    /// l'application de verrouiller le compte de domaine de l'operateur a force
+    /// de reessayer un mot de passe perime.
+    /// </summary>
+    public async Task InvalidateAsync(
+        Guid credentialId, string reason, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var credential = await db.Credentials.FirstOrDefaultAsync(c => c.Id == credentialId, ct);
+        if (credential is null || credential.RequiresReentry) return;
+
+        credential.RequiresReentry = true;
+        credential.InvalidatedAt = DateTimeOffset.UtcNow;
+        credential.InvalidationReason = reason.Length > 400 ? reason[..400] : reason;
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogWarning(
+            "Compte {Reference} ecarte apres un refus d'authentification : {Motif}. "
+            + "Il ne sera plus employe tant qu'il n'aura pas ete ressaisi.",
+            credential.Reference, reason);
+    }
+
+    /// <summary>
+    /// Supprime le compte nominatif d'un utilisateur - a sa desactivation, ou
+    /// a sa demande. Un secret qui survit a son proprietaire est un secret qui
+    /// finira par servir a quelqu'un d'autre.
+    /// </summary>
+    public async Task<bool> EraseForOwnerAsync(string userId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var credential = await db.Credentials.FirstOrDefaultAsync(c => c.OwnerUserId == userId, ct);
+        if (credential is null) return false;
+
+        db.Credentials.Remove(credential);
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Compte d'exploitation de {Proprietaire} supprime.", credential.OwnerDisplayName);
+        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -98,9 +259,16 @@ public sealed class CredentialStore
         var existing = await db.Credentials
             .FirstOrDefaultAsync(c => c.Id == credential.Id, ct);
 
+        // Un compte nominatif ne se modifie que par son proprietaire, via
+        // SaveOwnAsync. L'ecran des comptes partages ne doit pas pouvoir le
+        // reecrire - pas meme pour un administrateur de la solution.
+        if (existing is not null && existing.IsNominative)
+            return "Ce compte appartient a un operateur : lui seul peut le modifier.";
+
         var duplicate = await db.Credentials.AnyAsync(
             c => c.EnvironmentId == credential.EnvironmentId
                  && c.Reference == credential.Reference
+                 && c.OwnerUserId == null
                  && c.Id != credential.Id, ct);
 
         if (duplicate)
