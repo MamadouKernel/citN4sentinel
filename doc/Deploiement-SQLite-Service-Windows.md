@@ -49,9 +49,15 @@ dotnet build N4Sentinel.slnx -c Release
 dotnet test tests\N4Sentinel.Tests\N4Sentinel.Tests.csproj
 ```
 
-La suite compte 567 tests. Certains sont ignorés si SQL Server n'est pas
-disponible localement — c'est normal et sans incidence sur un déploiement
-SQLite.
+La suite compte 633 tests (relevé du 23/08/2026). Deux sont ignorés si SQL
+Server n'est pas disponible localement — c'est normal et sans incidence sur un
+déploiement SQLite.
+
+> Si la suite devient anormalement lente, cherchez d'abord des bases de test
+> abandonnées par une exécution interrompue :
+> `SELECT name FROM sys.databases WHERE name LIKE 'n4sentinel[_]test[_]%'`.
+> Vingt d'entre elles ont fait passer la suite de 7 minutes à 2 heures, et
+> provoqué des échecs qui se déplaçaient d'une passe à l'autre.
 
 ## A.3 Produire le paquet
 
@@ -348,15 +354,24 @@ n'est écrit en dur — tout se saisit ici.
 
 1. `/admin/environnements` — déclarez l'environnement, puis validez-le ;
 2. déclarez les serveurs et les composants, ou importez-les ;
-3. `/admin/workflows` — **« Générer les séquences N4 »** déduit les séquences
+3. `/mon-compte-exploitation` — **enregistrez votre compte d'administration**.
+   Sans lui, l'application n'a aucune identité sur les serveurs N4 et toute
+   action sur un service sera refusée (voir E.6) ;
+4. ouvrez une fiche serveur et lancez **« Tester la connexion »** : c'est le
+   premier contrôle qui prouve que la chaîne complète fonctionne ;
+5. `/admin/workflows` — **« Générer les séquences N4 »** déduit les séquences
    de référence du référentiel, en brouillon ;
-4. lancez la séquence **en simulation** : elle n'émet aucune commande ;
-5. validez le workflow — la simulation réussie en est la condition ;
-6. `/operations` — la séquence est lançable en réel.
+6. lancez la séquence **en simulation** : elle n'émet aucune commande ;
+7. validez le workflow — la simulation réussie en est la condition ;
+8. `/operations` — la séquence est lançable en réel.
 
 Quatre aides existent pour éviter la saisie à la main : le scanner de
 composants non déclarés, l'import `Navis-Config.json`, l'import CSV, et la
 duplication d'un environnement existant.
+
+> Une erreur de saisie n'est pas définitive : tout objet du référentiel se
+> retire du service et se rétablit depuis la corbeille (E.5). Inutile de
+> repartir de zéro pour un serveur créé en double.
 
 ## E.5 Retirer du référentiel sans perdre l'historique
 

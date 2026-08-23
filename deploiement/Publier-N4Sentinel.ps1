@@ -192,11 +192,35 @@ Copy-Item (Join-Path $PSScriptRoot 'Installer-N4Sentinel.ps1') $dossier -Force
 # outillage optionnel qu'on garde sur son poste.
 Copy-Item (Join-Path $PSScriptRoot 'Verifier-N4Sentinel.ps1') $dossier -Force
 
+# Les guides d'INSTALLATION voyagent avec le paquet. Celui qui installe est
+# devant la machine cible, souvent sans acces au depot : lui demander d'aller
+# chercher la procedure ailleurs, c'est garantir qu'il improvisera.
+#
+# Le guide SQLite manquait ici, et c'est precisement celui dont on a besoin
+# pour une installation sans SQL Server ni IIS.
 $docs = Join-Path $racine 'doc'
-$guide = Join-Path $docs 'Guide-deploiement.md'
-if (Test-Path $guide) {
-    New-Item -ItemType Directory -Force -Path (Join-Path $dossier 'documentation') | Out-Null
-    Copy-Item $guide (Join-Path $dossier 'documentation') -Force
+$aEmporter = @(
+    'Deploiement-SQLite-Service-Windows.md',
+    'Guide-deploiement.md'
+)
+
+$cible = Join-Path $dossier 'documentation'
+New-Item -ItemType Directory -Force -Path $cible | Out-Null
+
+foreach ($nom in $aEmporter) {
+    $chemin = Join-Path $docs $nom
+    if (Test-Path $chemin) {
+        Copy-Item $chemin $cible -Force
+    }
+    else {
+        Write-Host "        Guide introuvable, non embarque : $nom" -ForegroundColor Yellow
+    }
+}
+
+# Procedures d'exploitation, utiles apres la mise en service.
+$docsOps = Join-Path $racine 'docs'
+if (Test-Path $docsOps) {
+    Get-ChildItem $docsOps -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName $cible -Force }
 }
 
 $sql = Join-Path $racine 'db'
