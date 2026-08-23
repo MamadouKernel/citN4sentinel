@@ -1,0 +1,199 @@
+@page "/admin/corbeille"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject ReferentialService Referential
+
+<PageTitle>Corbeille — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="border-b border-slate-800 pb-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i class="bi bi-archive text-amber-400"></i> Corbeille
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+            Ce qui a été retiré du service. Rien n'y est effacé : les opérations passées restent lisibles,
+            et chaque retrait se rétablit tel qu'il a été fait.
+        </p>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl border text-xs @_messageClass">@_message</div>
+    }
+
+    @if (_lots is null)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+            <div>Chargement…</div>
+        </div>
+    }
+    else if (_lots.Count == 0)
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 p-8 text-center text-xs text-slate-400">
+            <i class="bi bi-check-circle text-emerald-400 text-2xl block mb-2"></i>
+            La corbeille est vide. Rien n'a été retiré du référentiel.
+        </div>
+    }
+    else
+    {
+        @foreach (var lot in _lots)
+        {
+            <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div class="min-w-0 space-y-1">
+                        <div class="text-xs text-slate-300">
+                            Retiré le
+                            <strong class="text-white">@lot.DeletedAt.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")</strong>
+                            par <strong class="text-white">@lot.DeletedBy</strong>
+                            &middot; @lot.Total élément(s)
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(lot.Reason))
+                        {
+                            <div class="text-[11px] text-slate-400 italic">« @lot.Reason »</div>
+                        }
+                    </div>
+
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition inline-flex items-center gap-1.5"
+                                @onclick="() => Retablir(lot.BatchId)" disabled="@_occupe">
+                            <i class="bi bi-arrow-counterclockwise"></i> Rétablir
+                        </button>
+                        <button class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-rose-400 font-semibold text-xs transition inline-flex items-center gap-1.5"
+                                @onclick="() => DemanderPurge(lot)" disabled="@_occupe">
+                            <i class="bi bi-trash3"></i> Purger
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-1.5 pt-2 border-t border-slate-800">
+                    @foreach (var e in lot.Environments)
+                    {
+                        <span class="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 text-[11px] font-mono">
+                            <i class="bi bi-diagram-3"></i> @e
+                        </span>
+                    }
+                    @foreach (var s in lot.Servers)
+                    {
+                        <span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[11px] font-mono">
+                            <i class="bi bi-server"></i> @s
+                        </span>
+                    }
+                    @foreach (var c in lot.Components)
+                    {
+                        <span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[11px]">
+                            <i class="bi bi-box"></i> @c
+                        </span>
+                    }
+                </div>
+
+                @if (_lotAPurger == lot.BatchId)
+                {
+                    <div class="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3">
+                        <div class="text-xs text-rose-200">
+                            <strong>Purge définitive — sans retour.</strong>
+                            Elle est refusée si le moindre élément porte un historique d'exploitation :
+                            cet historique doit rester interprétable. Dans ce cas, laissez-le en corbeille —
+                            il n'apparaît déjà plus nulle part.
+                        </div>
+                        @if (lot.Environments.Count > 0)
+                        {
+                            <div>
+                                <label class="block text-[11px] text-rose-200 mb-1">
+                                    Retapez le code de l'environnement pour confirmer.
+                                </label>
+                                <input @bind="_confirmation" autocomplete="off"
+                                       class="w-full max-w-xs bg-slate-900 border border-rose-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:ring-2 focus:ring-rose-500/50 focus:outline-none" />
+                            </div>
+                        }
+                        <div class="flex items-center gap-2">
+                            <button class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs transition"
+                                    @onclick="() => Purger(lot.BatchId)" disabled="@_occupe">
+                                Confirmer la purge
+                            </button>
+                            <button class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+                                    @onclick="AnnulerPurge">
+                                Annuler
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ReferentialService.DeletionBatch>? _lots;
+
+    private Guid? _lotAPurger;
+    private string _confirmation = string.Empty;
+    private bool _occupe;
+
+    private string? _message;
+    private bool _enErreur;
+
+    private string _messageClass => _enErreur
+        ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+
+    protected override async Task OnInitializedAsync() => await RechargerAsync();
+
+    private async Task RechargerAsync() => _lots = await Referential.GetDeletionBatchesAsync();
+
+    private void DemanderPurge(ReferentialService.DeletionBatch lot)
+    {
+        _lotAPurger = lot.BatchId;
+        _confirmation = string.Empty;
+        _message = null;
+    }
+
+    private void AnnulerPurge()
+    {
+        _lotAPurger = null;
+        _confirmation = string.Empty;
+    }
+
+    private async Task Retablir(Guid lot)
+    {
+        _occupe = true;
+        _message = null;
+        _enErreur = false;
+
+        try
+        {
+            var erreur = await Referential.RestoreAsync(lot);
+            _enErreur = erreur is not null;
+            _message = erreur ?? "Rétabli. Les éléments réapparaissent là où ils étaient.";
+            await RechargerAsync();
+        }
+        finally
+        {
+            _occupe = false;
+        }
+    }
+
+    private async Task Purger(Guid lot)
+    {
+        _occupe = true;
+        _message = null;
+        _enErreur = false;
+
+        try
+        {
+            var erreur = await Referential.PurgeBatchAsync(lot, _confirmation);
+            _enErreur = erreur is not null;
+            _message = erreur ?? "Purgé définitivement. La piste d'audit, elle, conserve la trace du geste.";
+            _lotAPurger = null;
+            _confirmation = string.Empty;
+            await RechargerAsync();
+        }
+        finally
+        {
+            _occupe = false;
+        }
+    }
+}

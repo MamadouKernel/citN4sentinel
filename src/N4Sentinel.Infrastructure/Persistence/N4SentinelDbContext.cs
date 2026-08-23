@@ -870,8 +870,62 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.Department).HasMaxLength(150);
         });
 
+        AppliquerLeRetraitDuService(builder);
         AdapterLesJetonsDeConcurrencePourSqlite(builder);
         AdapterLesHorodatagesPourSqlite(builder);
+    }
+
+    /// <summary>
+    /// Rend invisible tout objet retire du service, partout, une fois pour
+    /// toutes.
+    ///
+    /// LE FILTRE GLOBAL EST LE POINT CENTRAL. L'application compte des
+    /// centaines de requetes sur les environnements, serveurs et composants -
+    /// ecrans, moteur d'orchestration, supervision de fond, diagnostics,
+    /// rapports. Confier l'exclusion a chacune d'elles reviendrait a parier
+    /// qu'aucune ne l'oubliera jamais, y compris celles ecrites l'an prochain.
+    /// Un oubli ferait reapparaitre un composant retire dans une liste, ou -
+    /// bien pire - le ferait piloter par le moteur.
+    ///
+    /// LES INDEX UNIQUES DEVIENNENT PARTIELS. Sans cela, un environnement
+    /// retire garderait son code « UAT » et interdirait d'en recreer un du meme
+    /// nom : l'operateur qui vient de nettoyer se verrait refuser la saisie
+    /// suivante, sans comprendre pourquoi puisque rien n'est visible.
+    /// </summary>
+    private void AppliquerLeRetraitDuService(ModelBuilder builder)
+    {
+        // La syntaxe du filtre d'index differe entre fournisseurs : crochets
+        // sous SQL Server, guillemets doubles sous SQLite.
+        var filtreIndex = Database.IsSqlite()
+            ? "\"DeletedAt\" IS NULL"
+            : "[DeletedAt] IS NULL";
+
+        builder.Entity<N4Environment>(e =>
+        {
+            e.HasQueryFilter(x => x.DeletedAt == null);
+            e.Property(x => x.DeletedBy).HasMaxLength(256);
+            e.Property(x => x.DeletionReason).HasMaxLength(500);
+            e.HasIndex(x => x.Code).IsUnique().HasFilter(filtreIndex);
+            e.HasIndex(x => x.DeletedAt);
+        });
+
+        builder.Entity<N4Server>(e =>
+        {
+            e.HasQueryFilter(x => x.DeletedAt == null && x.Environment!.DeletedAt == null);
+            e.Property(x => x.DeletedBy).HasMaxLength(256);
+            e.Property(x => x.DeletionReason).HasMaxLength(500);
+            e.HasIndex(x => new { x.EnvironmentId, x.HostName }).IsUnique().HasFilter(filtreIndex);
+            e.HasIndex(x => x.DeletedAt);
+        });
+
+        builder.Entity<N4Component>(e =>
+        {
+            e.HasQueryFilter(x => x.DeletedAt == null && x.Environment!.DeletedAt == null);
+            e.Property(x => x.DeletedBy).HasMaxLength(256);
+            e.Property(x => x.DeletionReason).HasMaxLength(500);
+            e.HasIndex(x => new { x.EnvironmentId, x.LogicalName }).IsUnique().HasFilter(filtreIndex);
+            e.HasIndex(x => x.DeletedAt);
+        });
     }
 
     /// <summary>

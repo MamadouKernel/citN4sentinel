@@ -358,7 +358,41 @@ Quatre aides existent pour éviter la saisie à la main : le scanner de
 composants non déclarés, l'import `Navis-Config.json`, l'import CSV, et la
 duplication d'un environnement existant.
 
-## E.5 Sous quelle identité l'application atteint les serveurs N4
+## E.5 Retirer du référentiel sans perdre l'historique
+
+Un référentiel se salit : un serveur saisi deux fois, un composant créé par
+erreur, un environnement de test qui n'a plus lieu d'être. Mais un objet qui a
+servi est cité par les opérations passées, et l'effacer rendrait leur rapport
+incompréhensible.
+
+L'application ne tranche pas entre les deux — elle sépare deux gestes.
+
+| Geste | Où | Ce qu'il fait |
+|---|---|---|
+| **Retirer du service** | fiche de l'objet | disparaît des écrans, de la supervision et du pilotage. **Rien n'est effacé.** Réversible. |
+| **Purger** | `/admin/corbeille` | efface définitivement. Refusé si le moindre historique s'y rattache. |
+
+Retirer un environnement emporte ses serveurs et ses composants. Le retrait est
+enregistré comme un **lot** : le rétablir rend exactement ce que ce geste-là
+avait pris, et pas ce qui avait été retiré séparément auparavant.
+
+**Deux refus, et ils ne se contournent pas :**
+
+- une **opération en cours** sur l'environnement — on n'arrache pas le
+  référentiel sous les pieds d'une séquence qui pilote des services N4 ;
+- une **opération préparée ou en attente d'approbation**. La raison est moins
+  visible et c'est celle qui compte : le pré-check lit l'environnement pour
+  savoir s'il s'agit de la Production. Retiré, il rendrait le contrôle du
+  ticket ITSM « non applicable » au lieu de l'exiger. Un garde-fou qui s'éteint
+  sans rien dire est pire que pas de garde-fou.
+
+Le code d'un environnement retiré **se libère immédiatement** : on peut en
+recréer un du même nom sans attendre la purge.
+
+> La piste d'audit ne porte aucune clé étrangère vers le référentiel : elle
+> survit au retrait comme à la purge, et garde trace de qui a fait quoi.
+
+## E.6 Sous quelle identité l'application atteint les serveurs N4
 
 C'est ici que se joue la différence entre une application qui affiche des
 serveurs et une application qui les supervise.
@@ -377,7 +411,7 @@ service démarre, l'application répond, `/health` est vert — et chaque test d
 connexion renvoie *« Accès refusé »*. Rien n'est cassé ; simplement, personne
 n'a donné de droits au compte machine, et personne ne devrait le faire.
 
-## E.6 Deux identités, pour deux natures de travail
+## E.7 Deux identités, pour deux natures de travail
 
 L'application distingue ce qu'un humain déclenche de ce qu'elle fait seule.
 Cette ligne de partage commande tout le reste.

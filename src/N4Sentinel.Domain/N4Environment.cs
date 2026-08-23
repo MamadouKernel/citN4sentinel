@@ -11,8 +11,14 @@ namespace N4Sentinel.Domain;
 /// Nomme N4Environment et non Environment pour ne pas entrer en collision
 /// avec System.Environment.
 /// </summary>
-public class N4Environment : AuditableEntity
+public class N4Environment : AuditableEntity, ISoftDeletable
 {
+    // --- Retrait du service (voir ISoftDeletable) ------------------------
+    public DateTimeOffset? DeletedAt { get; set; }
+    public string? DeletedBy { get; set; }
+    public Guid? DeletionBatchId { get; set; }
+    public string? DeletionReason { get; set; }
+
     /// <summary>Code court affiche partout dans l'interface (ex. PROD, UAT).</summary>
     public string Code { get; set; } = string.Empty;
 

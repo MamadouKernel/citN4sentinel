@@ -129,6 +129,7 @@
             <div class="space-y-1">
                 <div class="@(_collapsed ? "lg:hidden" : "") text-[10px] uppercase font-bold text-slate-500 px-3 tracking-widest">Exploitation</div>
                 <SidebarLink Href="admin/environnements" Icon="bi-hdd-stack-fill" IconColor="text-indigo-400" Text="Environnements" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
+                <SidebarLink Href="admin/corbeille" Icon="bi-archive" IconColor="text-amber-400" Text="Corbeille" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 <SidebarLink Href="operations" Icon="bi-play-circle-fill" IconColor="text-purple-400" Text="Opérations & Pilotage" Collapsed="_collapsed" OnClick="CloseMobileMenu" />
                 <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel" Context="authCtx">
                     <SidebarLink Href="admin/workflows" Icon="bi-diagram-3-fill" IconColor="text-cyan-400" Text="Workflows" Collapsed="_collapsed" OnClick="CloseMobileMenu" />

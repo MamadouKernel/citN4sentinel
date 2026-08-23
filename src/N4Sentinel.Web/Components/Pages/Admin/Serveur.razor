@@ -388,6 +388,8 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> EtatAuth { get; set; } = default!;
+
     [Parameter] public Guid Id { get; set; }
     [Parameter] public Guid EnvironmentId { get; set; }
 
@@ -460,7 +462,12 @@ else
     private async Task Supprimer()
     {
         if (_s is null) return;
-        var erreur = await Referential.DeleteServerAsync(_s.Id);
+
+        // RETRAIT, pas effacement : la ligne demeure, les exécutions passées
+        // continuent de la désigner, et le serveur disparaît de tout ce que
+        // l'application montre et supervise. Réversible depuis la corbeille.
+        var acteur = (await EtatAuth).User.Identity?.Name ?? "inconnu";
+        var erreur = await Referential.SoftDeleteServerAsync(_s.Id, acteur);
 
         if (erreur is not null)
         {

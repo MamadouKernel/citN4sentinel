@@ -426,10 +426,10 @@ else
                d'abord ce qu'elle emporte. *@
             <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3">
                 <div class="text-xs text-rose-200">
-                    <strong>Supprimer « @_c.LogicalName » ?</strong>
-                    Ses relevés de supervision et ses alertes partent avec lui. La suppression est refusée
-                    s'il est cité par un workflow, une SOP, une exécution ou une source de journal —
-                    dans ce cas, passez-le en <strong>Désactivé</strong> plutôt.
+                    <strong>Retirer « @_c.LogicalName » du service ?</strong>
+                    Il disparaît des écrans, de la supervision et du pilotage. <strong>Rien n'est effacé</strong> :
+                    l'historique des opérations qui l'ont visé reste lisible, et le retrait se rétablit
+                    depuis la corbeille.
                 </div>
                 <div class="flex items-center gap-2">
                     <button class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition"
@@ -473,6 +473,8 @@ else
     private string _syncNormal = "";
     private string? _message;
     private bool _enErreur;
+
+    [CascadingParameter] private Task<AuthenticationState> EtatAuth { get; set; } = default!;
 
     private bool _confirmeSuppression;
     private bool _suppressionEnCours;
@@ -562,7 +564,11 @@ else
         try
         {
             var environnement = _c.EnvironmentId;
-            var erreur = await Referential.DeleteComponentAsync(_c.Id);
+
+            // RETRAIT, pas effacement : ce qui a servi doit rester lisible dans
+            // l'historique. Réversible depuis la corbeille.
+            var acteur = (await EtatAuth).User.Identity?.Name ?? "inconnu";
+            var erreur = await Referential.SoftDeleteComponentAsync(_c.Id, acteur);
 
             if (erreur is not null)
             {

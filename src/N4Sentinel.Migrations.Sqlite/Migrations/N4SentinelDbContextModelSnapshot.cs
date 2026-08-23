@@ -1826,6 +1826,20 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<int>("Criticality")
                         .HasColumnType("INTEGER");
 
+                    b.Property<long?>("DeletedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DeletionBatchId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
@@ -1896,10 +1910,13 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeletedAt");
+
                     b.HasIndex("ServerId");
 
                     b.HasIndex("EnvironmentId", "LogicalName")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"DeletedAt\" IS NULL");
 
                     b.ToTable("Components", (string)null);
                 });
@@ -1933,6 +1950,20 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.Property<string>("DefaultCredentialReference")
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("DeletedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DeletionBatchId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
@@ -1986,7 +2017,10 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"DeletedAt\" IS NULL");
+
+                    b.HasIndex("DeletedAt");
 
                     b.ToTable("Environments", (string)null);
                 });
@@ -2010,6 +2044,20 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.Property<int>("Criticality")
                         .HasColumnType("INTEGER");
+
+                    b.Property<long?>("DeletedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DeletionBatchId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
@@ -2060,8 +2108,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeletedAt");
+
                     b.HasIndex("EnvironmentId", "HostName")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"DeletedAt\" IS NULL");
 
                     b.ToTable("Servers", (string)null);
                 });

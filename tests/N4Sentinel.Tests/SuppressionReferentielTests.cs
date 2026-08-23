@@ -188,25 +188,13 @@ public sealed class SuppressionReferentielTests : IAsyncLifetime
     // -----------------------------------------------------------------------
     // Environnement : le geste le plus destructeur
     // -----------------------------------------------------------------------
-    [Fact(DisplayName = "Un environnement Actif ne se supprime pas — il se désactive")]
-    public async Task Un_Environnement_Actif_Est_Protege()
-    {
-        var (envId, _, _) = await EcosystemeAsync(LifecycleStatus.Actif);
-
-        var erreur = await Service().DeleteEnvironmentAsync(envId, "UAT");
-
-        Assert.NotNull(erreur);
-        Assert.Contains("désactive", erreur, StringComparison.OrdinalIgnoreCase);
-
-        await using var db = _factory.CreateDbContext();
-        Assert.Single(await db.Environments.ToListAsync());
-    }
-
-    [Fact(DisplayName = "Sans le code retapé exactement, la suppression est refusée")]
+    [Fact(DisplayName = "Sans le code retapé exactement, la purge est refusée")]
     public async Task La_Confirmation_Est_Exigee()
     {
         var (envId, _, _) = await EcosystemeAsync();
         var service = Service();
+
+        Assert.Null(await service.SoftDeleteEnvironmentAsync(envId, "UAT", "mkonate"));
 
         // La casse compte : « uat » n'est pas « UAT ». Les espaces autour, non —
         // un code recopié depuis l'écran traîne souvent une espace, et refuser
@@ -218,11 +206,11 @@ public sealed class SuppressionReferentielTests : IAsyncLifetime
         }
 
         await using var db = _factory.CreateDbContext();
-        Assert.Single(await db.Environments.ToListAsync());
+        Assert.Single(await db.Environments.IgnoreQueryFilters().ToListAsync());
     }
 
-    [Fact(DisplayName = "Un environnement jamais exploité se supprime avec sa configuration")]
-    public async Task Un_Environnement_Neuf_Se_Supprime()
+    [Fact(DisplayName = "Un environnement jamais exploité se purge avec sa configuration")]
+    public async Task Un_Environnement_Neuf_Se_Purge()
     {
         var (envId, _, _) = await EcosystemeAsync();
 
@@ -238,21 +226,28 @@ public sealed class SuppressionReferentielTests : IAsyncLifetime
             await db.SaveChangesAsync();
         }
 
-        Assert.Null(await Service().DeleteEnvironmentAsync(envId, "UAT"));
+        var service = Service();
+
+        // Le détour par la corbeille est obligatoire : c'est la seule
+        // protection qui reste devant un geste sans retour.
+        Assert.Null(await service.SoftDeleteEnvironmentAsync(envId, "UAT", "mkonate"));
+
+        var lot = (await service.GetDeletionBatchesAsync()).Single();
+        Assert.Null(await service.PurgeBatchAsync(lot.BatchId, "UAT"));
 
         await using var verif = _factory.CreateDbContext();
-        Assert.Empty(await verif.Environments.ToListAsync());
-        Assert.Empty(await verif.Servers.ToListAsync());
-        Assert.Empty(await verif.Components.ToListAsync());
+        Assert.Empty(await verif.Environments.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await verif.Servers.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await verif.Components.IgnoreQueryFilters().ToListAsync());
         Assert.Empty(await verif.Credentials.ToListAsync());
 
         // CE QUI DOIT SURVIVRE : la piste d'audit ne porte aucune clé étrangère
-        // vers l'environnement, et garde donc trace de ce qui a été supprimé.
+        // vers l'environnement, et garde donc trace de ce qui a été purgé.
         Assert.NotEmpty(await verif.AuditEntries.ToListAsync());
     }
 
-    [Fact(DisplayName = "Un environnement qui porte un historique d'exécution est refusé")]
-    public async Task Un_Environnement_Avec_Historique_Est_Protege()
+    [Fact(DisplayName = "Un environnement qui porte un historique d'exécution reste en corbeille, jamais purgé")]
+    public async Task Un_Environnement_Avec_Historique_Reste_En_Corbeille()
     {
         var (envId, _, _) = await EcosystemeAsync();
 
@@ -270,20 +265,27 @@ public sealed class SuppressionReferentielTests : IAsyncLifetime
                 WorkflowName = "Démarrage complet",
                 WorkflowVersion = 1,
                 RequestedBy = "mkonate",
-                CorrelationId = Guid.NewGuid().ToString("N")
+                CorrelationId = Guid.NewGuid().ToString("N"),
+                Status = ExecutionStatus.TermineSucces
             });
             await db.SaveChangesAsync();
         }
 
-        var erreur = await Service().DeleteEnvironmentAsync(envId, "UAT");
+        var service = Service();
+        Assert.Null(await service.SoftDeleteEnvironmentAsync(envId, "UAT", "mkonate"));
+
+        var lot = (await service.GetDeletionBatchesAsync()).Single();
+        var erreur = await service.PurgeBatchAsync(lot.BatchId, "UAT");
 
         Assert.NotNull(erreur);
         Assert.Contains("exécution", erreur, StringComparison.OrdinalIgnoreCase);
 
         // L'historique d'exploitation est ce qui justifie l'existence de cette
         // application : il ne disparaît pas parce qu'on nettoie un référentiel.
+        // L'environnement reste retiré — invisible partout — mais intact.
         await using var verif = _factory.CreateDbContext();
-        Assert.Single(await verif.Environments.ToListAsync());
+        Assert.Empty(await verif.Environments.ToListAsync());
+        Assert.Single(await verif.Environments.IgnoreQueryFilters().ToListAsync());
         Assert.Single(await verif.Executions.ToListAsync());
     }
 

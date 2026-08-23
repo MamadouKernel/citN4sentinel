@@ -81,7 +81,19 @@ public sealed class CapacitesJoignablesTests
     private static bool AppeleeParUnServiceJoignable(string methode)
     {
         var injectes = ServicesInjectesDansUnEcran();
-        var motif = new Regex($@"\.{methode}\s*\(", RegexOptions.Compiled);
+
+        // Appel qualifie (`magasin.Supprimer(...)`) OU appel interne a la classe
+        // (`Supprimer(...)`), car un service joignable peut encapsuler ses
+        // propres etapes - c'est le cas d'une purge qui enchaine composants,
+        // serveurs puis environnement.
+        // Le lookbehind n'exclut QUE les caracteres de mot : il faut laisser
+        // passer le point de l'appel qualifie, tout en refusant qu'un nom plus
+        // long se termine par celui qu'on cherche.
+        var motif = new Regex($@"(?<!\w){methode}\s*\(", RegexOptions.Compiled);
+
+        // La DECLARATION ne compte pas : elle prouverait sa propre existence.
+        var declaration = new Regex(
+            $@"(public|private|internal|protected).*\b{methode}\s*\(", RegexOptions.Compiled);
 
         foreach (var fichier in Directory.EnumerateFiles(
                      RacineInfrastructure(), "*.cs", SearchOption.AllDirectories))
@@ -91,7 +103,10 @@ public sealed class CapacitesJoignablesTests
             var nomClasse = Path.GetFileNameWithoutExtension(fichier);
             if (!injectes.Contains(nomClasse)) continue;
 
-            if (motif.IsMatch(File.ReadAllText(fichier))) return true;
+            var appelants = File.ReadLines(fichier)
+                .Where(l => motif.IsMatch(l) && !declaration.IsMatch(l));
+
+            if (appelants.Any()) return true;
         }
 
         return false;

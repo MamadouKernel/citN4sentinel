@@ -8,8 +8,14 @@ namespace N4Sentinel.Domain;
 /// autorisee sur un composant qui n'a pas ete prealablement enregistre et
 /// valide dans ce referentiel.
 /// </summary>
-public class N4Component : AuditableEntity
+public class N4Component : AuditableEntity, ISoftDeletable
 {
+    // --- Retrait du service (voir ISoftDeletable) ------------------------
+    public DateTimeOffset? DeletedAt { get; set; }
+    public string? DeletedBy { get; set; }
+    public Guid? DeletionBatchId { get; set; }
+    public string? DeletionReason { get; set; }
+
     public Guid EnvironmentId { get; set; }
     public N4Environment? Environment { get; set; }
 

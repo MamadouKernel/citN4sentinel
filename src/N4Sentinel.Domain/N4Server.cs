@@ -7,8 +7,14 @@ namespace N4Sentinel.Domain;
 /// tournent sur la meme machine physique. La cartographie doit le representer
 /// tel quel, sans le dedoubler.
 /// </summary>
-public class N4Server : AuditableEntity
+public class N4Server : AuditableEntity, ISoftDeletable
 {
+    // --- Retrait du service (voir ISoftDeletable) ------------------------
+    public DateTimeOffset? DeletedAt { get; set; }
+    public string? DeletedBy { get; set; }
+    public Guid? DeletionBatchId { get; set; }
+    public string? DeletionReason { get; set; }
+
     public Guid EnvironmentId { get; set; }
     public N4Environment? Environment { get; set; }
 

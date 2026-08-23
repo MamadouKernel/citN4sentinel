@@ -75,16 +75,20 @@ public sealed class ReferentialService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var portes = await db.Components
+        // Sans IgnoreQueryFilters, une purge ne trouverait jamais sa cible :
+        // un objet a purger est, par construction, deja retire du service et
+        // donc invisible pour toute requete ordinaire.
+        var portes = await db.Components.IgnoreQueryFilters()
             .Where(c => c.ServerId == id)
             .Select(c => c.LogicalName)
             .ToListAsync(ct);
 
         if (portes.Count > 0)
-            return $"Suppression refusee : ce serveur heberge {string.Join(", ", portes)}. " +
-                   "Reaffectez ou supprimez ces composants d'abord.";
+            return $"Purge refusée : ce serveur héberge {string.Join(", ", portes)}. " +
+                   "Purgez ou réaffectez ces composants d'abord.";
 
-        var serveur = await db.Servers.FirstOrDefaultAsync(s => s.Id == id, ct);
+        var serveur = await db.Servers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == id, ct);
         if (serveur is null) return "Serveur introuvable.";
 
         db.Servers.Remove(serveur);
@@ -290,7 +294,8 @@ public sealed class ReferentialService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var component = await db.Components.FirstOrDefaultAsync(c => c.Id == id, ct);
+        var component = await db.Components.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
         if (component is null) return "Composant introuvable.";
 
         var dependents = await db.ComponentDependencies
@@ -331,6 +336,245 @@ public sealed class ReferentialService(
         return null;
     }
 
+    // -----------------------------------------------------------------------
+    // Retrait du service (suppression douce) et retablissement
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Retire un environnement du service, avec ses serveurs et ses composants.
+    ///
+    /// Rien n'est efface : les lignes demeurent, les executions passees
+    /// continuent de les designer, et le filtre global du contexte les rend
+    /// invisibles a tout le reste de l'application - y compris au moteur
+    /// d'orchestration et a la supervision de fond.
+    ///
+    /// Un seul refus, et il ne se contourne pas : une operation en cours. On
+    /// n'arrache pas le referentiel sous les pieds d'une sequence qui pilote
+    /// des services N4 en ce moment meme.
+    /// </summary>
+    public async Task<string?> SoftDeleteEnvironmentAsync(
+        Guid id, string confirmation, string actor, string? motif = null,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var environnement = await db.Environments.FirstOrDefaultAsync(e => e.Id == id, ct);
+        if (environnement is null) return "Environnement introuvable.";
+
+        if (!string.Equals(confirmation?.Trim(), environnement.Code, StringComparison.Ordinal))
+            return $"Confirmation incorrecte : retapez exactement le code « {environnement.Code} ».";
+
+        var barrageEnv = await OperationEnCoursAsync(db, id, ct);
+        if (barrageEnv is not null) return barrageEnv;
+
+        var lot = Guid.NewGuid();
+        var quand = DateTimeOffset.UtcNow;
+
+        Marquer(environnement, lot, quand, actor, motif);
+
+        foreach (var serveur in await db.Servers.Where(s => s.EnvironmentId == id).ToListAsync(ct))
+            Marquer(serveur, lot, quand, actor, motif);
+
+        foreach (var composant in await db.Components.Where(c => c.EnvironmentId == id).ToListAsync(ct))
+            Marquer(composant, lot, quand, actor, motif);
+
+        await db.SaveChangesAsync(ct);
+
+        logger.LogWarning(
+            "Environnement {Code} retire du service par {Acteur} (lot {Lot}). Rien n'a ete efface.",
+            environnement.Code, actor, lot);
+
+        return null;
+    }
+
+    /// <summary>Retire un serveur et les composants qu'il heberge.</summary>
+    public async Task<string?> SoftDeleteServerAsync(
+        Guid id, string actor, string? motif = null, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var serveur = await db.Servers.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (serveur is null) return "Serveur introuvable.";
+
+        var barrage = await OperationEnCoursAsync(db, serveur.EnvironmentId, ct);
+        if (barrage is not null) return barrage;
+
+        var lot = Guid.NewGuid();
+        var quand = DateTimeOffset.UtcNow;
+
+        Marquer(serveur, lot, quand, actor, motif);
+
+        // Les composants suivent leur hote : les laisser visibles sans serveur
+        // en ferait des composants injoignables, que la supervision signalerait
+        // en echec sans que personne n'ait rien casse.
+        foreach (var composant in await db.Components.Where(c => c.ServerId == id).ToListAsync(ct))
+            Marquer(composant, lot, quand, actor, motif);
+
+        await db.SaveChangesAsync(ct);
+        logger.LogWarning("Serveur {Hote} retire du service par {Acteur}.", serveur.HostName, actor);
+        return null;
+    }
+
+    /// <summary>Retire un composant.</summary>
+    public async Task<string?> SoftDeleteComponentAsync(
+        Guid id, string actor, string? motif = null, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var composant = await db.Components.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (composant is null) return "Composant introuvable.";
+
+        var barrage = await OperationEnCoursAsync(db, composant.EnvironmentId, ct);
+        if (barrage is not null) return barrage;
+
+        Marquer(composant, Guid.NewGuid(), DateTimeOffset.UtcNow, actor, motif);
+        await db.SaveChangesAsync(ct);
+
+        logger.LogWarning(
+            "Composant {Nom} retire du service par {Acteur}.", composant.LogicalName, actor);
+        return null;
+    }
+
+    /// <summary>
+    /// Retablit ce qu'un retrait avait emporte - ni plus, ni moins.
+    ///
+    /// Le lot est ce qui rend l'operation exacte : retablir un environnement ne
+    /// doit pas ressusciter un serveur retire separement trois semaines plus
+    /// tot, et volontairement.
+    /// </summary>
+    public async Task<string?> RestoreAsync(Guid batchId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var environnements = await db.Environments.IgnoreQueryFilters()
+            .Where(x => x.DeletionBatchId == batchId).ToListAsync(ct);
+        var serveurs = await db.Servers.IgnoreQueryFilters()
+            .Where(x => x.DeletionBatchId == batchId).ToListAsync(ct);
+        var composants = await db.Components.IgnoreQueryFilters()
+            .Where(x => x.DeletionBatchId == batchId).ToListAsync(ct);
+
+        if (environnements.Count == 0 && serveurs.Count == 0 && composants.Count == 0)
+            return "Ce retrait est introuvable : il a peut-être déjà été rétabli ou purgé.";
+
+        // Un code libere puis repris par un nouvel environnement empeche le
+        // retablissement : mieux vaut le dire que de laisser la base refuser
+        // avec une violation d'index incomprehensible.
+        foreach (var env in environnements)
+        {
+            var occupe = await db.Environments.AnyAsync(x => x.Code == env.Code && x.Id != env.Id, ct);
+            if (occupe)
+                return $"Rétablissement impossible : le code « {env.Code} » a été repris par un autre "
+                     + "environnement depuis ce retrait. Renommez-le d'abord.";
+        }
+
+        foreach (var x in environnements) Demarquer(x);
+        foreach (var x in serveurs) Demarquer(x);
+        foreach (var x in composants) Demarquer(x);
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Retrait {Lot} retabli.", batchId);
+        return null;
+    }
+
+    /// <summary>Ce qui a ete retire, groupe par geste de retrait.</summary>
+    public async Task<List<DeletionBatch>> GetDeletionBatchesAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var environnements = await db.Environments.IgnoreQueryFilters()
+            .Where(x => x.DeletedAt != null).AsNoTracking().ToListAsync(ct);
+        var serveurs = await db.Servers.IgnoreQueryFilters()
+            .Where(x => x.DeletedAt != null).AsNoTracking().ToListAsync(ct);
+        var composants = await db.Components.IgnoreQueryFilters()
+            .Where(x => x.DeletedAt != null).AsNoTracking().ToListAsync(ct);
+
+        var lots = environnements.Select(x => (ISoftDeletable)x)
+            .Concat(serveurs)
+            .Concat(composants)
+            .Where(x => x.DeletionBatchId is not null)
+            .GroupBy(x => x.DeletionBatchId!.Value);
+
+        return lots.Select(g => new DeletionBatch
+        {
+            BatchId = g.Key,
+            DeletedAt = g.Max(x => x.DeletedAt!.Value),
+            DeletedBy = g.First().DeletedBy ?? "inconnu",
+            Reason = g.First().DeletionReason,
+            Environments = environnements.Where(x => x.DeletionBatchId == g.Key)
+                                         .Select(x => $"{x.Code} — {x.Name}").ToList(),
+            Servers = serveurs.Where(x => x.DeletionBatchId == g.Key)
+                              .Select(x => x.HostName).ToList(),
+            Components = composants.Where(x => x.DeletionBatchId == g.Key)
+                                   .Select(x => x.LogicalName).ToList()
+        })
+        .OrderByDescending(b => b.DeletedAt)
+        .ToList();
+    }
+
+    // -----------------------------------------------------------------------
+    private static void Marquer(
+        ISoftDeletable cible, Guid lot, DateTimeOffset quand, string actor, string? motif)
+    {
+        // Deja retire : on ne reecrit pas son lot, sans quoi un retrait
+        // d'environnement absorberait un retrait anterieur et le
+        // retablissement rendrait ce que personne n'avait demande de rendre.
+        if (cible.DeletedAt is not null) return;
+
+        cible.DeletedAt = quand;
+        cible.DeletedBy = actor;
+        cible.DeletionBatchId = lot;
+        cible.DeletionReason = motif;
+    }
+
+    private static void Demarquer(ISoftDeletable cible)
+    {
+        cible.DeletedAt = null;
+        cible.DeletedBy = null;
+        cible.DeletionBatchId = null;
+        cible.DeletionReason = null;
+    }
+
+    /// <summary>
+    /// Etats d'execution qui interdisent de retirer le referentiel sous eux.
+    ///
+    /// Les operations EN COURS pour la raison evidente : on n'arrache pas le
+    /// referentiel sous les pieds d'une sequence qui pilote des services N4.
+    ///
+    /// Les operations PREPAREES ou EN ATTENTE D'APPROBATION pour une raison
+    /// moins visible, et c'est celle qui compte. Le pre-check lit
+    /// <c>execution.Environment</c> pour savoir s'il s'agit de la Production ;
+    /// un environnement retire rend cette navigation nulle, et le controle du
+    /// ticket ITSM se declarerait alors « non applicable » au lieu d'exiger le
+    /// ticket. Un garde-fou qui s'eteint sans rien dire est pire que pas de
+    /// garde-fou : on continue de compter dessus.
+    /// </summary>
+    private static async Task<string?> OperationEnCoursAsync(
+        N4SentinelDbContext db, Guid environmentId, CancellationToken ct)
+    {
+        var bloquantes = await db.Executions
+            .Where(x => x.EnvironmentId == environmentId
+                        && (x.Status == ExecutionStatus.EnCours
+                            || x.Status == ExecutionStatus.EnPause
+                            || x.Status == ExecutionStatus.AnnulationDemandee
+                            || x.Status == ExecutionStatus.EnPreparation
+                            || x.Status == ExecutionStatus.EnAttenteApprobation))
+            .Select(x => x.Status)
+            .ToListAsync(ct);
+
+        if (bloquantes.Count == 0) return null;
+
+        var actives = bloquantes.Count(s => s is ExecutionStatus.EnCours
+                                              or ExecutionStatus.EnPause
+                                              or ExecutionStatus.AnnulationDemandee);
+
+        return actives > 0
+            ? "Retrait refusé : une opération est en cours sur cet environnement. "
+              + "Attendez qu'elle se termine — on ne retire pas le référentiel sous les pieds "
+              + "d'une séquence qui pilote des services N4."
+            : $"Retrait refusé : {bloquantes.Count} opération(s) y sont préparées ou attendent une "
+              + "approbation. Lancez-les ou annulez-les d'abord — retirer l'environnement maintenant "
+              + "désactiverait silencieusement leurs contrôles préalables.";
+    }
+
     /// <summary>
     /// Suppression d'un environnement, avec tout ce qu'il configure.
     ///
@@ -356,17 +600,21 @@ public sealed class ReferentialService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        var environnement = await db.Environments.FirstOrDefaultAsync(e => e.Id == id, ct);
+        var environnement = await db.Environments.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(e => e.Id == id, ct);
         if (environnement is null) return "Environnement introuvable.";
 
-        if (environnement.Status is LifecycleStatus.Valide or LifecycleStatus.Actif)
-            return $"Suppression refusée : « {environnement.Code} » est en statut {environnement.Status}. "
-                 + "Un environnement validé ou actif ne se supprime pas — il se désactive. "
-                 + "Changez son statut en Désactivé si vous voulez le retirer du service.";
+        // On ne purge que ce qui a d'abord ete retire du service. Le detour par
+        // la corbeille n'est pas une formalite : il laisse le temps de
+        // s'apercevoir d'une erreur, et c'est la seule protection qui reste
+        // devant un geste sans retour.
+        if (environnement.DeletedAt is null)
+            return $"« {environnement.Code} » est encore en service. Retirez-le d'abord : "
+                 + "la purge définitive ne s'applique qu'à ce qui est dans la corbeille.";
 
         if (!string.Equals(confirmation?.Trim(), environnement.Code, StringComparison.Ordinal))
             return $"Confirmation incorrecte : retapez exactement le code « {environnement.Code} » "
-                 + "pour confirmer une suppression irréversible.";
+                 + "pour confirmer une purge irréversible.";
 
         var obstacles = new List<string>();
 
@@ -377,12 +625,13 @@ public sealed class ReferentialService(
         if (sops > 0) obstacles.Add($"{sops} SOP déroulée(s)");
 
         if (obstacles.Count > 0)
-            return $"Suppression refusée : {string.Join(" et ", obstacles)} s'y rattache(nt). "
-                 + "Cet historique doit rester lisible. Passez l'environnement en Désactivé : "
-                 + "il disparaît de l'exploitation courante sans effacer ce qui a eu lieu.";
+            return $"Purge refusée : {string.Join(" et ", obstacles)} s'y rattache(nt). "
+                 + "Cet historique doit rester lisible, et le purger le rendrait incompréhensible. "
+                 + "L'environnement reste dans la corbeille : il n'apparaît plus nulle part dans "
+                 + "l'exploitation, et rien n'est perdu.";
 
-        var serveurs = await db.Servers.CountAsync(s => s.EnvironmentId == id, ct);
-        var composants = await db.Components.CountAsync(c => c.EnvironmentId == id, ct);
+        var serveurs = await db.Servers.IgnoreQueryFilters().CountAsync(s => s.EnvironmentId == id, ct);
+        var composants = await db.Components.IgnoreQueryFilters().CountAsync(c => c.EnvironmentId == id, ct);
 
         // Les liens en NoAction du modele peuvent encore refuser la suppression
         // pour un cas non anticipe ici. Mieux vaut le dire lisiblement qu'exposer
@@ -394,14 +643,58 @@ public sealed class ReferentialService(
         }
         catch (DbUpdateException ex)
         {
-            return "Suppression refusée par la base : des enregistrements y font encore référence. "
-                 + "Passez l'environnement en Désactivé plutôt que de le supprimer. "
+            return "Purge refusée par la base : des enregistrements y font encore référence. "
+                 + "L'environnement reste dans la corbeille, rien n'est perdu. "
                  + $"Détail technique : {ex.InnerException?.Message ?? ex.Message}";
         }
 
         logger.LogWarning(
-            "Environnement {Code} supprime, avec {Serveurs} serveur(s) et {Composants} composant(s).",
+            "Environnement {Code} PURGE definitivement, avec {Serveurs} serveur(s) et {Composants} composant(s).",
             environnement.Code, serveurs, composants);
+
+        return null;
+    }
+
+    /// <summary>
+    /// Purge definitivement tout ce qu'un retrait avait emporte.
+    ///
+    /// Tout ou rien : si un seul element porte un historique, la purge est
+    /// refusee entiere. Purger la moitie d'un lot laisserait un referentiel
+    /// a moitie coherent, et une corbeille dont le contenu ne correspond plus
+    /// a ce qu'elle annonce.
+    /// </summary>
+    public async Task<string?> PurgeBatchAsync(
+        Guid batchId, string confirmation, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var environnements = await db.Environments.IgnoreQueryFilters()
+            .Where(x => x.DeletionBatchId == batchId).ToListAsync(ct);
+
+        // L'ordre compte : composants, puis serveurs, puis environnements. Un
+        // serveur qui porte encore un composant est refuse, et un environnement
+        // ne se purge qu'une fois vide.
+        var composants = await db.Components.IgnoreQueryFilters()
+            .Where(x => x.DeletionBatchId == batchId).Select(x => x.Id).ToListAsync(ct);
+        foreach (var id in composants)
+        {
+            var erreur = await DeleteComponentAsync(id, ct);
+            if (erreur is not null) return erreur;
+        }
+
+        var serveurs = await db.Servers.IgnoreQueryFilters()
+            .Where(x => x.DeletionBatchId == batchId).Select(x => x.Id).ToListAsync(ct);
+        foreach (var id in serveurs)
+        {
+            var erreur = await DeleteServerAsync(id, ct);
+            if (erreur is not null) return erreur;
+        }
+
+        foreach (var env in environnements)
+        {
+            var erreur = await DeleteEnvironmentAsync(env.Id, confirmation, ct);
+            if (erreur is not null) return erreur;
+        }
 
         return null;
     }
@@ -414,6 +707,20 @@ public sealed class ReferentialService(
     /// un objet en Brouillon pour le corriger, et desactiver depuis n'importe
     /// quel statut valide.
     /// </summary>
+    /// <summary>Un geste de retrait, et ce qu'il a emporte.</summary>
+    public sealed record DeletionBatch
+    {
+        public Guid BatchId { get; init; }
+        public DateTimeOffset DeletedAt { get; init; }
+        public string DeletedBy { get; init; } = string.Empty;
+        public string? Reason { get; init; }
+        public List<string> Environments { get; init; } = [];
+        public List<string> Servers { get; init; } = [];
+        public List<string> Components { get; init; } = [];
+
+        public int Total => Environments.Count + Servers.Count + Components.Count;
+    }
+
     public static IReadOnlyList<LifecycleStatus> AllowedTransitions(LifecycleStatus current) => current switch
     {
         LifecycleStatus.Brouillon => [LifecycleStatus.AValider],

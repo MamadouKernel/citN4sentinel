@@ -1852,6 +1852,20 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<int>("Criticality")
                         .HasColumnType("int");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("DeletionBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
@@ -1923,10 +1937,13 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeletedAt");
+
                     b.HasIndex("ServerId");
 
                     b.HasIndex("EnvironmentId", "LogicalName")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[DeletedAt] IS NULL");
 
                     b.ToTable("Components", (string)null);
                 });
@@ -1961,6 +1978,20 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<string>("DefaultCredentialReference")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("DeletionBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
@@ -2014,7 +2045,10 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[DeletedAt] IS NULL");
+
+                    b.HasIndex("DeletedAt");
 
                     b.ToTable("Environments", (string)null);
                 });
@@ -2038,6 +2072,20 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Criticality")
                         .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("DeletionBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
@@ -2089,8 +2137,11 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeletedAt");
+
                     b.HasIndex("EnvironmentId", "HostName")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[DeletedAt] IS NULL");
 
                     b.ToTable("Servers", (string)null);
                 });
