@@ -383,6 +383,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("AllowTokenPastedLogin")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Authority")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -411,6 +414,15 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<bool>("RequireSignatureValidation")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("RoleMappings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValueSql("'[]'");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -423,6 +435,302 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AzureAdSettings", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.BusinessSuccessMetric", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AggregationKind")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("BaselineBeforeSentinel")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTimeOffset>("CalculatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("EnvironmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsTargetMissed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MetricCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("MetricLabel")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NarrativeComment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<decimal?>("NumericValueAvgOrSum")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("ReportingPeriod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<long?>("SampleSizeCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("TargetFixedValue")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<decimal?>("TrendVsPreviousPeriodPct")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("decimal(8,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("IsTargetMissed");
+
+                    b.HasIndex("MetricCode", "ReportingPeriod");
+
+                    b.HasIndex("ReportingPeriod", "MetricCode", "EnvironmentId")
+                        .IsUnique()
+                        .HasFilter("[EnvironmentId] IS NOT NULL");
+
+                    b.ToTable("BusinessSuccessMetrics", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CapitalizedIncident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ClosedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("CompensatoryMeasures")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("CorrectiveActionsTaken")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("DeclaredSeverity")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("DetectedBySentinelAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExternalReference")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("FiveWhysRootCause")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("GeneratedSOPId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("InitialSymptom")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("LessonsAndCorrectives")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("LinkedDiagnosticSessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("LinkedExecutionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("MainRootCauseCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("MainRootCauseLabel")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("OperatorsInvolvedCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PostMortemDocumentRef")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("QuantifiedBusinessImpact")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("RealIncidentEndedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("RealIncidentStartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("ResolutionSkillLevel")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("SOPsUsedListString")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<long?>("TotalDurationMinutes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalReference")
+                        .IsUnique();
+
+                    b.HasIndex("GeneratedSOPId");
+
+                    b.HasIndex("LinkedDiagnosticSessionId");
+
+                    b.HasIndex("LinkedExecutionId");
+
+                    b.HasIndex("EnvironmentId", "DeclaredSeverity", "RealIncidentStartedAt");
+
+                    b.ToTable("CapitalizedIncidents", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.ComponentAssociatedService", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ComponentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<int?>("ExpectedPort")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ExpectedServiceAccount")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("ExpectedStatus")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsMandatory")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LastObservationNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("LastObservedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("LastObservedPid")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("LastObservedStatus")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("ServiceName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<int?>("TimeoutSecondsOverride")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComponentId", "Order");
+
+                    b.HasIndex("ComponentId", "ServiceName")
+                        .IsUnique();
+
+                    b.ToTable("ComponentAssociatedServices", (string)null);
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.ComponentDependency", b =>
@@ -765,6 +1073,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("ActiveSignaturesCountAtAnalysis")
+                        .HasColumnType("int");
+
                     b.Property<DateTimeOffset?>("AnalysedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -832,6 +1143,9 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
+                    b.Property<string>("SignatureCatalogueVersionAtAnalysis")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<Guid?>("SourceAlertId")
                         .HasColumnType("uniqueidentifier");
 
@@ -843,6 +1157,12 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Top10ChecklistCheckedCodesCsv")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Top10ChecklistNotes")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Verdict")
                         .HasColumnType("int");
@@ -1090,6 +1410,12 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<string>("Partner")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset?>("ResendRequestedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ResendRequestedBy")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
@@ -1433,6 +1759,85 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.ToTable("ExternalActionDeclarations", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.JmxEndpoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("CredentialId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<byte>("EndpointType")
+                        .HasColumnType("tinyint");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("JolokiaBaseUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("LastErrorAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastErrorMessage")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LastFailureMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("LastPooledAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("LastReachableAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("LastSuccessAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndpointType");
+
+                    b.HasIndex("Host", "Port")
+                        .IsUnique();
+
+                    b.ToTable("JmxEndpoints", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.KnowledgeDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1704,6 +2109,12 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("AntivirusChecked")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("AntivirusNote")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<double?>("ClockSkewSecondsAtCollection")
                         .HasColumnType("float");
@@ -2023,7 +2434,12 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Palier2ApprovedBy")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Palier2AuthorizedConnectorReferences")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
@@ -2146,6 +2562,140 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.ToTable("Servers", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.PreventiveRecommendedAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("APRStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("DismissalReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("DismissedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DismissedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("EstimatedDeadlineForAction")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("EstimatedDurationMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("EstimatedP1RiskPct")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("decimal(8,2)");
+
+                    b.Property<string>("EvidenceSummary")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset?>("ExecutedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ExecutedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("FirstWeakSignalAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("GeneratedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsBasedOnTrend")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("LaunchWorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<decimal>("PriorityScore")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("RawSignalSnapshot")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("ResultingExecutionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("RootCauseFamily")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset?>("ScheduledAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ScheduledBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("SourceComponentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code");
+
+                    b.HasIndex("LaunchWorkflowId");
+
+                    b.HasIndex("ResultingExecutionId");
+
+                    b.HasIndex("SourceComponentId");
+
+                    b.HasIndex("EnvironmentId", "PriorityScore");
+
+                    b.HasIndex("EnvironmentId", "APRStatus", "GeneratedAt");
+
+                    b.ToTable("PreventiveRecommendedActions", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.RetentionPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2185,6 +2735,137 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("RetentionPolicies", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.ExecutionSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("AutoApprove")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CronExpression")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("LastTriggeredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.PrimitiveCollection<string>("MonthlyDays")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("NextPlannedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RanAs")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ReasonTemplate")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<bool>("SkipIfActiveAlready")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TicketTemplate")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<TimeSpan>("TimeOfDay")
+                        .HasColumnType("time");
+
+                    b.Property<DateTimeOffset?>("ValidFrom")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ValidUntil")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("WeeklyDayOfWeekMask")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("WorkflowId");
+
+                    b.ToTable("ExecutionSchedules");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.MaintenanceHoliday", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .HasColumnType("varbinary(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.ToTable("MaintenanceHolidays");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.SharedFolderSnapshot", b =>
@@ -2348,8 +3029,26 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<string>("QualificationNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("QualifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("QualifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("RequiresElevatedRole")
                         .HasColumnType("bit");
+
+                    b.Property<string>("RevocationReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RevokedBy")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Risks")
                         .HasMaxLength(2000)
@@ -2485,6 +3184,18 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("FeedbackGivenAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("FeedbackGivenBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FeedbackNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<byte?>("FeedbackStars0To5")
+                        .HasColumnType("tinyint");
 
                     b.Property<DateTimeOffset?>("ModifiedAt")
                         .HasColumnType("datetimeoffset");
@@ -2823,6 +3534,148 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.ToTable("Credentials", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.Ticket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AprId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AssignedTo")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ClosureReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<Guid?>("DiagnosticSignatureId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("EnvironmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExternalTicketId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("OpenedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OperationCorrelationId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte>("Priority")
+                        .HasColumnType("tinyint");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<byte>("Severity")
+                        .HasColumnType("tinyint");
+
+                    b.Property<byte>("Source")
+                        .HasColumnType("tinyint");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("OpenedAt");
+
+                    b.HasIndex("Status", "Priority");
+
+                    b.ToTable("Tickets", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.TicketComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Author")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsInternal")
+                        .HasColumnType("bit");
+
+                    b.Property<byte>("Source")
+                        .HasColumnType("tinyint");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("WrittenAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("WrittenBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId", "WrittenAt");
+
+                    b.ToTable("TicketComments", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.Workflow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3041,6 +3894,12 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<int>("TriggeredBy")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("TriggeredByScheduleId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("WorkflowId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3063,6 +3922,100 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.HasIndex("EnvironmentId", "Status");
 
                     b.ToTable("Executions", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.WorkflowPreCheck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BlockingThreshold")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("ControlInstruction")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RemediationProcedure")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("RequiresExplicitApprovalIfBlocking")
+                        .HasColumnType("bit");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid?>("SuggestedSopId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TargetComponentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<string>("WarningThreshold")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SuggestedSopId");
+
+                    b.HasIndex("TargetComponentId");
+
+                    b.HasIndex("WorkflowId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("WorkflowId", "Order");
+
+                    b.ToTable("WorkflowPreChecks", (string)null);
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.WorkflowStep", b =>
@@ -3392,6 +4345,59 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Navigation("Component");
 
                     b.Navigation("Environment");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.BusinessSuccessMetric", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Environment");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CapitalizedIncident", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("N4Sentinel.Domain.Sop", "GeneratedSOP")
+                        .WithMany()
+                        .HasForeignKey("GeneratedSOPId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.DiagnosticSession", "LinkedDiagnosticSession")
+                        .WithMany()
+                        .HasForeignKey("LinkedDiagnosticSessionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.WorkflowExecution", "LinkedExecution")
+                        .WithMany()
+                        .HasForeignKey("LinkedExecutionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("GeneratedSOP");
+
+                    b.Navigation("LinkedDiagnosticSession");
+
+                    b.Navigation("LinkedExecution");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.ComponentAssociatedService", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Component", "Component")
+                        .WithMany()
+                        .HasForeignKey("ComponentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Component");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.ComponentDependency", b =>
@@ -3760,6 +4766,68 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Navigation("Environment");
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.PreventiveRecommendedAction", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("N4Sentinel.Domain.Workflow", "LaunchWorkflow")
+                        .WithMany()
+                        .HasForeignKey("LaunchWorkflowId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.WorkflowExecution", "ResultingExecution")
+                        .WithMany()
+                        .HasForeignKey("ResultingExecutionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.N4Component", "SourceComponent")
+                        .WithMany()
+                        .HasForeignKey("SourceComponentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("LaunchWorkflow");
+
+                    b.Navigation("ResultingExecution");
+
+                    b.Navigation("SourceComponent");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.ExecutionSchedule", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("N4Sentinel.Domain.Workflow", "Workflow")
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.MaintenanceHoliday", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Environment");
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.SharedFolderSnapshot", b =>
                 {
                     b.HasOne("N4Sentinel.Domain.N4Component", "Component")
@@ -3851,6 +4919,25 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                     b.Navigation("Environment");
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.Ticket", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.TicketComment", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.Ticket", "Ticket")
+                        .WithMany("Comments")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.Workflow", b =>
                 {
                     b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
@@ -3877,6 +4964,31 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Environment");
+
+                    b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.WorkflowPreCheck", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.Sop", "SuggestedSop")
+                        .WithMany()
+                        .HasForeignKey("SuggestedSopId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.N4Component", "TargetComponent")
+                        .WithMany()
+                        .HasForeignKey("TargetComponentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.Workflow", "Workflow")
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SuggestedSop");
+
+                    b.Navigation("TargetComponent");
 
                     b.Navigation("Workflow");
                 });
@@ -3960,6 +5072,11 @@ namespace N4Sentinel.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("N4Sentinel.Domain.SopExecution", b =>
                 {
                     b.Navigation("Steps");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Ticket", b =>
+                {
+                    b.Navigation("Comments");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.Workflow", b =>

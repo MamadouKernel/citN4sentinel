@@ -58,6 +58,28 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
     public DbSet<ApprovalMatrixRule> ApprovalMatrixRules => Set<ApprovalMatrixRule>();
     public DbSet<PasswordHistoryRecord> PasswordHistoryRecords => Set<PasswordHistoryRecord>();
 
+    // -------------------------------------------------------------------
+    // MERISE — 5 nouvelles entités P0 (MPD / MLD)
+    // -------------------------------------------------------------------
+    public DbSet<ComponentAssociatedService> ComponentAssociatedServices => Set<ComponentAssociatedService>();
+    public DbSet<WorkflowPreCheck> WorkflowPreChecks => Set<WorkflowPreCheck>();
+    public DbSet<PreventiveRecommendedAction> PreventiveRecommendedActions => Set<PreventiveRecommendedAction>();
+    public DbSet<CapitalizedIncident> CapitalizedIncidents => Set<CapitalizedIncident>();
+    public DbSet<BusinessSuccessMetric> BusinessSuccessMetrics => Set<BusinessSuccessMetric>();
+
+    // -------------------------------------------------------------------
+    // P6 — Planification récurrente & calendrier de maintenance
+    // -------------------------------------------------------------------
+    public DbSet<Domain.Scheduling.ExecutionSchedule> ExecutionSchedules => Set<Domain.Scheduling.ExecutionSchedule>();
+    public DbSet<Domain.Scheduling.MaintenanceHoliday> MaintenanceHolidays => Set<Domain.Scheduling.MaintenanceHoliday>();
+
+    // -------------------------------------------------------------------
+    // S3-09 — Ticketing & Intégration JMX ActiveMQ
+    // -------------------------------------------------------------------
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<TicketComment> TicketComments => Set<TicketComment>();
+    public DbSet<JmxEndpoint> JmxEndpoints => Set<JmxEndpoint>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -80,6 +102,19 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
         var jsonListComparer = new ValueComparer<List<string>>(
             (a, b) => a != null && b != null && a.SequenceEqual(b),
             v => v.Aggregate(0, (h, s) => HashCode.Combine(h, s.GetHashCode())),
+            v => v.ToList());
+
+        var jsonObjConverter = new ValueConverter<List<AzureAdRoleMapping>, string>(
+            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+            v => JsonSerializer.Deserialize<List<AzureAdRoleMapping>>(v, (JsonSerializerOptions?)null) ?? new List<AzureAdRoleMapping>());
+        var jsonObjComparer = new ValueComparer<List<AzureAdRoleMapping>>(
+            (a, b) => object.ReferenceEquals(a, b)
+                      || (a == null && b == null)
+                      || (a != null && b != null && JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null)),
+            v => v.Aggregate(0, (h, x) => HashCode.Combine(
+                h,
+                x.AzureAdValue == null ? 0 : x.AzureAdValue.GetHashCode(StringComparison.Ordinal),
+                x.SentinelRole == null ? 0 : x.SentinelRole.GetHashCode(StringComparison.Ordinal))),
             v => v.ToList());
 
         builder.Entity<PasswordHistoryRecord>(e =>
@@ -105,6 +140,13 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.FunctionalOwner).HasMaxLength(150);
             e.Property(x => x.DefaultCredentialReference).HasMaxLength(200);
             e.Property(x => x.ExpectedTimeSource).HasMaxLength(200);
+            e.Property(x => x.Palier2ApprovedBy).HasMaxLength(200);
+            e.Property(x => x.Palier2AuthorizedConnectorReferences).HasMaxLength(4000);
+            e.Property(x => x.Palier2AuthorizedConnectorReferences)
+                .HasConversion(
+                    v => v == null || v.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => string.IsNullOrWhiteSpace(v) ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                .Metadata.SetValueComparer(jsonListComparer);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.Ignore(x => x.IsProduction);
             e.Ignore(x => x.IsOperable);
@@ -346,6 +388,25 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
 
             e.HasOne(x => x.Environment).WithMany()
              .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<Domain.Scheduling.ExecutionSchedule>(e =>
+        {
+            e.ToTable("ExecutionSchedules");
+            e.HasIndex(x => x.EnvironmentId);
+            e.HasIndex(x => x.WorkflowId);
+
+            // Supprimer un environnement efface ses planifications : chemin de
+            // cascade UNIQUE et voulu.
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+
+            // La planification -> workflow reste NoAction : sinon SQL Server
+            // refuse DEUX chemins de cascade vers Environments (direct, et via
+            // Workflow qui cascade lui aussi depuis Environment). Supprimer un
+            // workflow encore planifie doit echouer bruyamment.
+            e.HasOne(x => x.Workflow).WithMany()
+             .HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.NoAction);
         });
 
         builder.Entity<WorkflowStep>(e =>
@@ -596,6 +657,13 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
             e.Property(x => x.Authority).HasMaxLength(500);
             e.Property(x => x.PostLogoutRedirectUri).HasMaxLength(500);
             e.Property(x => x.RowVersion).IsRowVersion();
+            // Pas de HasColumnType explicite : par convention, un string est
+            // mappe en nvarchar(max) sous SQL Server et en TEXT sous SQLite.
+            // Coder "nvarchar(max)" en dur cassait le provider SQLite
+            // (« near "max": syntax error »).
+            e.Property(x => x.RoleMappings)
+                .HasConversion(jsonObjConverter, jsonObjComparer)
+                .HasDefaultValueSql("'[]'");
         });
 
         builder.Entity<ComponentSignal>(e =>
@@ -868,6 +936,208 @@ public class N4SentinelDbContext(DbContextOptions<N4SentinelDbContext> options)
         {
             e.Property(x => x.DisplayName).HasMaxLength(150);
             e.Property(x => x.Department).HasMaxLength(150);
+        });
+
+        // -------------------------------------------------------------------
+        // S3-09 — Ticketing & Intégration JMX ActiveMQ
+        // -------------------------------------------------------------------
+        builder.Entity<Ticket>(e =>
+        {
+            e.ToTable("Tickets");
+            e.HasIndex(x => x.Code).IsUnique();
+            e.HasIndex(x => new { x.Status, x.Priority });
+            e.HasIndex(x => x.EnvironmentId);
+            e.HasIndex(x => x.OpenedAt);
+
+            e.Property(x => x.Code).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.AssignedTo).HasMaxLength(256);
+            e.Property(x => x.ExternalTicketId).HasMaxLength(100);
+            e.Property(x => x.OperationCorrelationId).HasMaxLength(100);
+            e.Property(x => x.ClosureReason).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne<N4Environment>()
+             .WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<TicketComment>(e =>
+        {
+            e.ToTable("TicketComments");
+            e.HasIndex(x => new { x.TicketId, x.WrittenAt });
+
+            e.Property(x => x.Author).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Text).HasMaxLength(4000).IsRequired();
+
+            e.HasOne(x => x.Ticket)
+             .WithMany(x => x.Comments)
+             .HasForeignKey(x => x.TicketId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<JmxEndpoint>(e =>
+        {
+            e.ToTable("JmxEndpoints");
+            e.HasIndex(x => new { x.Host, x.Port }).IsUnique();
+            e.HasIndex(x => x.EndpointType);
+
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Host).HasMaxLength(500).IsRequired();
+            e.Property(x => x.JolokiaBaseUrl).HasMaxLength(1000);
+            e.Property(x => x.LastFailureMessage).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+        });
+
+        // -------------------------------------------------------------------
+        // MERISE P0 — 5 nouvelles entités (completion MPD ↔ EF Core)
+        // -------------------------------------------------------------------
+        builder.Entity<ComponentAssociatedService>(e =>
+        {
+            e.ToTable("ComponentAssociatedServices");
+            e.HasIndex(x => new { x.ComponentId, x.ServiceName }).IsUnique();
+            e.HasIndex(x => new { x.ComponentId, x.Order });
+
+            e.Property(x => x.ServiceName).HasMaxLength(255).IsRequired();
+            e.Property(x => x.DisplayName).HasMaxLength(300).IsRequired();
+            e.Property(x => x.ExpectedServiceAccount).HasMaxLength(256);
+            e.Property(x => x.LastObservationNote).HasMaxLength(2000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Component).WithMany()
+             .HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<WorkflowPreCheck>(e =>
+        {
+            e.ToTable("WorkflowPreChecks");
+            e.HasIndex(x => new { x.WorkflowId, x.Code }).IsUnique();
+            e.HasIndex(x => new { x.WorkflowId, x.Order });
+            e.HasIndex(x => x.TargetComponentId);
+
+            e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(2000);
+            e.Property(x => x.ControlInstruction).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.WarningThreshold).HasMaxLength(100);
+            e.Property(x => x.BlockingThreshold).HasMaxLength(100);
+            e.Property(x => x.RemediationProcedure).HasMaxLength(4000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Workflow).WithMany()
+             .HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.TargetComponent).WithMany()
+             .HasForeignKey(x => x.TargetComponentId).OnDelete(DeleteBehavior.NoAction);
+
+            // NoAction vs SetNull : evite cycle cascade SQL Server
+            // (Environment → Workflow → WorkflowPreCheck vs Environment → Sop → WorkflowPreCheck).
+            // La suppression d'un SOP reference dans un modele PreCheck est
+            // donc refusee tant que le PreCheck reference le SOP.
+            e.HasOne(x => x.SuggestedSop).WithMany()
+             .HasForeignKey(x => x.SuggestedSopId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<PreventiveRecommendedAction>(e =>
+        {
+            e.ToTable("PreventiveRecommendedActions");
+            e.HasIndex(x => new { x.EnvironmentId, x.APRStatus, x.GeneratedAt });
+            e.HasIndex(x => new { x.EnvironmentId, x.PriorityScore });
+            e.HasIndex(x => x.SourceComponentId);
+            e.HasIndex(x => x.Code);
+
+            e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.EstimatedP1RiskPct).HasPrecision(8, 2);
+            e.Property(x => x.PriorityScore).HasPrecision(18, 4);
+            e.Property(x => x.ScheduledBy).HasMaxLength(256);
+            e.Property(x => x.ExecutedBy).HasMaxLength(256);
+            e.Property(x => x.DismissedBy).HasMaxLength(256);
+            e.Property(x => x.DismissalReason).HasMaxLength(2000);
+            e.Property(x => x.EvidenceSummary).HasMaxLength(4000);
+            e.Property(x => x.RawSignalSnapshot).HasMaxLength(8000);
+            e.Property(x => x.Notes).HasMaxLength(4000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.SourceComponent).WithMany()
+             .HasForeignKey(x => x.SourceComponentId).OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne(x => x.LaunchWorkflow).WithMany()
+             .HasForeignKey(x => x.LaunchWorkflowId).OnDelete(DeleteBehavior.NoAction);
+
+            // NoAction vs SetNull : evite le cycle cascade SQL Server
+            // (meme raison que CapitalizedIncidents). L'application doit
+            // d'abord desassocier explicitement avant de supprimer une
+            // Execution qui a genere une APR.
+            e.HasOne(x => x.ResultingExecution).WithMany()
+             .HasForeignKey(x => x.ResultingExecutionId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<CapitalizedIncident>(e =>
+        {
+            e.ToTable("CapitalizedIncidents");
+            e.HasIndex(x => x.ExternalReference).IsUnique();
+            e.HasIndex(x => new { x.EnvironmentId, x.DeclaredSeverity, x.RealIncidentStartedAt });
+            e.HasIndex(x => x.LinkedDiagnosticSessionId);
+            e.HasIndex(x => x.LinkedExecutionId);
+
+            e.Property(x => x.ExternalReference).HasMaxLength(50).IsRequired();
+            e.Property(x => x.InitialSymptom).HasMaxLength(2000);
+            e.Property(x => x.MainRootCauseCode).HasMaxLength(50);
+            e.Property(x => x.MainRootCauseLabel).HasMaxLength(500);
+            e.Property(x => x.FiveWhysRootCause).HasMaxLength(8000);
+            e.Property(x => x.CorrectiveActionsTaken).HasMaxLength(8000);
+            e.Property(x => x.SOPsUsedListString).HasMaxLength(1000);
+            e.Property(x => x.QuantifiedBusinessImpact).HasMaxLength(2000);
+            e.Property(x => x.CompensatoryMeasures).HasMaxLength(4000);
+            e.Property(x => x.ClosedBy).HasMaxLength(150);
+            e.Property(x => x.PostMortemDocumentRef).HasMaxLength(500);
+            e.Property(x => x.LessonsAndCorrectives).HasMaxLength(8000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.NoAction);
+
+            // SQL Server INTERDIT plusieurs chemins de cascade aboutissant a la
+            // meme table ("cycles or multiple cascade paths"). Ces 3 FK sont donc
+            // en NoAction : la fiche capitalisee est un historique PERMANENT ;
+            // l'application empechera toute suppression d'un
+            // DiagnosticSession / WorkflowExecution / Sop qui est reference ici.
+            e.HasOne(x => x.LinkedDiagnosticSession).WithMany()
+             .HasForeignKey(x => x.LinkedDiagnosticSessionId).OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne(x => x.LinkedExecution).WithMany()
+             .HasForeignKey(x => x.LinkedExecutionId).OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne(x => x.GeneratedSOP).WithMany()
+             .HasForeignKey(x => x.GeneratedSOPId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        builder.Entity<BusinessSuccessMetric>(e =>
+        {
+            e.ToTable("BusinessSuccessMetrics");
+            e.HasIndex(x => new { x.ReportingPeriod, x.MetricCode, x.EnvironmentId }).IsUnique();
+            e.HasIndex(x => new { x.MetricCode, x.ReportingPeriod });
+            e.HasIndex(x => x.EnvironmentId);
+            e.HasIndex(x => x.IsTargetMissed);
+
+            e.Property(x => x.ReportingPeriod).HasMaxLength(20).IsRequired();
+            e.Property(x => x.MetricCode).HasMaxLength(50).IsRequired();
+            e.Property(x => x.MetricLabel).HasMaxLength(200).IsRequired();
+            e.Property(x => x.NumericValueAvgOrSum).HasPrecision(18, 4);
+            e.Property(x => x.TargetFixedValue).HasPrecision(18, 4);
+            e.Property(x => x.BaselineBeforeSentinel).HasPrecision(18, 4);
+            e.Property(x => x.TrendVsPreviousPeriodPct).HasPrecision(8, 2);
+            e.Property(x => x.NarrativeComment).HasMaxLength(4000);
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne(x => x.Environment).WithMany()
+             .HasForeignKey(x => x.EnvironmentId).OnDelete(DeleteBehavior.NoAction);
         });
 
         AppliquerLeRetraitDuService(builder);

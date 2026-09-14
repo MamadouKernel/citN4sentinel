@@ -126,5 +126,11 @@ public class EdiFile : AuditableEntity
     /// <summary>Nombre de relevés consécutifs où ce fichier a été vu en état Rejeté.</summary>
     public int ConsecutiveRejections { get; set; }
 
+    /// <summary>Date de la dernière demande de renvoi manuel (passage Rejeté → EnAttente).</summary>
+    public DateTimeOffset? ResendRequestedAt { get; set; }
+
+    /// <summary>Actor (opérateur) ayant demandé le dernier renvoi manuel.</summary>
+    public string? ResendRequestedBy { get; set; }
+
     public TimeSpan Age => (Status == EdiFileStatus.Integre ? IntegratedAt ?? LastSeenAt : DateTimeOffset.UtcNow) - FirstSeenAt;
 }

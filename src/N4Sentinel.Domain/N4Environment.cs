@@ -47,6 +47,17 @@ public class N4Environment : AuditableEntity, ISoftDeletable
     /// <summary>Date d'approbation du Palier 2 pour cet environnement.</summary>
     public DateTime? Palier2ApprovedAt { get; set; }
 
+    /// <summary>
+    /// PB-23 · Connecteurs techniques autorisés à exécuter les étapes
+    /// destructives Palier 2 (ex. identifiants PowerShell SSH SMB
+    /// spécifiques à la production). Liste des
+    /// <see cref="TechnicalCredential.Reference"/>.
+    /// Liste vide ou null = seul <see cref="DefaultCredentialReference"/> est
+    /// autorisé (s'il est configuré). Voir
+    /// <c>Palier2ApprovalService.ValidateConnectorAllowedAsync</c>.
+    /// </summary>
+    public List<string>? Palier2AuthorizedConnectorReferences { get; set; }
+
     public string? Description { get; set; }
 
     /// <summary>Responsable technique de l'environnement.</summary>

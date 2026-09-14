@@ -58,16 +58,16 @@ public enum ExecutionStepState
     AVenir = 0,
     EnAttente = 1,
     EnCours = 2,
-
     /// <summary>Action émise, on cherche la preuve que le résultat est atteint.</summary>
     Verification = 3,
-
     Reussi = 4,
     Avertissement = 5,
     Bloque = 6,
     Echec = 7,
     Ignore = 8,
-    Annule = 9
+    Annule = 9,
+    /// <summary>RG-0407 : arrêt forcé décidé par un Admin N4 (FR-029B), jamais automatique.</summary>
+    ForceStopped = 10
 }
 
 /// <summary>
@@ -214,6 +214,13 @@ public class WorkflowExecution : AuditableEntity
 
     /// <summary>Identifiant de corrélation, repris dans les journaux applicatifs.</summary>
     public string CorrelationId { get; set; } = Guid.NewGuid().ToString("N")[..12];
+
+    // --- Planification P6 (nullable, pas de migration forcée) ---------------------------------
+    /// <summary>P6 — Planification récurrente ayant déclenché cette exécution, si applicable.</summary>
+    public Guid? TriggeredByScheduleId { get; set; }
+
+    /// <summary>P6 — Origine du lancement : Manuel (défaut) / Planification / Reprise / APR automatique.</summary>
+    public ExecutionTriggeredBy TriggeredBy { get; set; } = ExecutionTriggeredBy.Manuel;
 
     // --- Pré-check (FR-012) ---------------------------------------------
     /// <summary>

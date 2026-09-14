@@ -10,7 +10,13 @@ public enum WorkflowKind
     OperationUnitaire = 4,
     RollingRestart = 5,
     ControleSeul = 6,
-    RepriseApresEchec = 7
+    RepriseApresEchec = 7,
+
+    /// <summary>P6 — Maintenance hebdomadaire : contrôles, santé, revue alertes.</summary>
+    MaintenanceHebdomadaire = 8,
+
+    /// <summary>P6 — Maintenance mensuelle N4 : snapshots, purge logs, redémarrages sélectifs.</summary>
+    MaintenanceMensuelle = 9
 }
 
 /// <summary>Action portée par une étape.</summary>

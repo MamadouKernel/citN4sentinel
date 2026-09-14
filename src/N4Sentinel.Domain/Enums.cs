@@ -11,7 +11,8 @@ public enum LifecycleStatus
     AValider = 1,
     Valide = 2,
     Actif = 3,
-    Desactive = 4
+    Desactive = 4,
+    Revoque = 5
 }
 
 /// <summary>Type d'environnement N4 (FR-001).</summary>
@@ -149,8 +150,119 @@ public enum AuditAction
     Contournement = 9,
 
     /// <summary>Arrêt forcé d'une étape bloquée en StopPending (FR-029B). Jamais automatique.</summary>
-    ArretForce = 10
+    ArretForce = 10,
+
+    /// <summary>FR-094 : Approbation d'un objet en revue (SOP, document, workflow).</summary>
+    Approbation = 11,
+
+    /// <summary>FR-094 : Révocation d'un objet précédemment publié (SOP, workflow, signature).</summary>
+    Revocation = 12,
+
+    /// <summary>P6 : Création d'une programmation récurrente (planification maintenance N4).</summary>
+    PlanificationCreee = 13,
+
+    /// <summary>P6 : Modification d'une programmation existante (changement horaire, motif, suspension…).</summary>
+    PlanificationModifiee = 14,
+
+    /// <summary>P6 : Déclenchement effectif d'une exécution lancée par le planificateur.</summary>
+    PlanificationDeclenchee = 15,
+
+    /// <summary>P6 : Mise en pause ou reprise d'une programmation récurrente.</summary>
+    PlanificationSuspendue = 16,
+
+    /// <summary>S3-09 : Création d'un ticket d'incident (Ticketing ou diagnostic auto P1).</summary>
+    TicketCree = 17,
+
+    /// <summary>S3-09 : Changement de statut, assignation, priorité ou ajout de commentaire.</summary>
+    TicketModifie = 18,
+
+    /// <summary>S3-09 : Clôture d'un ticket (Résolu / Fermé) avec motif.</summary>
+    TicketCloture = 19,
+
+    /// <summary>S3-09 : Ouverture d'une session JMX contre un broker ActiveMQ ou un serveur applicatif.</summary>
+    JmxSessionOuverte = 20,
+
+    /// <summary>S3-09 : Appel d'un MBean JMX (purge queue, reset, etc.).</summary>
+    JmxMBeanAppel = 21,
+
+    /// <summary>S3-09 : Échec d'une opération JMX (timeout, endpoint injoignable, credential erroné).</summary>
+    JmxEchec = 22,
+
+    /// <summary>PB-25 : Modification / poussée ticket hors de Sentinel vers outil DSI.</summary>
+    TicketSynchroExterne = 23,
+
+    /// <summary>PB-25 : Échec push d'un ticket vers l'outil externe (ServiceNow/Jira/GLPI).</summary>
+    TicketSynchroExterneEchec = 24,
+
+    /// <summary>PB-23 · Validation Palier 2 du connecteur technique d'une étape destructive (autorisé).</summary>
+    Palier2ConnecteurValide = 25,
+
+    /// <summary>PB-23 · Échec : connecteur technique PALIER 2 interdit sur cet environnement.</summary>
+    Palier2ConnecteurInterdit = 26
 }
+
+// ---------------------------------------------------------------------------
+// S3-09 — Ticketing & Intégration JMX ActiveMQ
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Cycle de vie d'un ticket d'incident ouvert par Sentinel,
+/// soit par diagnostic automatique P1, soit par l'opérateur.
+/// </summary>
+public enum TicketStatus : byte
+{
+    Nouveau = 0,
+    EnCours = 1,
+    EnAttenteFournisseur = 2,
+    Resolu = 3,
+    Ferme = 4,
+    Annule = 5
+}
+
+public enum TicketPriority : byte
+{
+    P1Critique = 1,  // Arrêt service, impact client
+    P2Majeur = 2,
+    P3Normal = 3,
+    P4Mineur = 4,
+    P5Information = 5
+}
+
+public enum TicketSeverity : byte
+{
+    Critique = 1,
+    Majeur = 2,
+    Mineur = 3,
+    Informatif = 4
+}
+
+/// <summary>
+/// Origine du ticket. Permet de distinguer les tickets automatiques
+/// (diagnostic, APR) des tickets saisis à la main par l'équipe exploitation.
+/// </summary>
+public enum TicketSource : byte
+{
+    Manuel = 0,
+    DiagnosticP1 = 1,
+    ActionPreventive = 2,
+    SupervisionComposant = 3,
+    EdiEchecRecurrent = 4
+}
+
+/// <summary>
+/// Type d'exposé JMX — typiquement : Broker ActiveMQ (file d'attentes Bridge)
+/// ou serveur applicatif (N4 Center / XPS / ECN4 / WEB).
+/// </summary>
+public enum JmxEndpointType : byte
+{
+    ActiveMQBroker = 0,
+    N4Center = 1,
+    N4Web = 2,
+    N4Xps = 3,
+    N4Ecn4 = 4,
+    Autre = 99
+}
+
 
 /// <summary>
 /// FR-046/047 : choix explicite exige avant toute action mutative (arret,
@@ -165,4 +277,133 @@ public enum CenterContinuityChoice
 
     /// <summary>Le role actif doit passer au Standby pendant l'operation.</summary>
     Basculer = 1
+}
+
+/// <summary>
+/// MERISE — Statut d'un service Windows associé à un composant N4
+/// (ENT_SVCASSOC / ComponentAssociatedServices).
+/// </summary>
+public enum AssociatedServiceStatus
+{
+    Inconnu = 0,
+    Arrete = 1,
+    EnCoursDeDemarrage = 2,
+    EnMarche = 3,
+    EnCoursDArret = 4,
+    EnPanne = 5,
+    Maintenance = 6
+}
+
+/// <summary>
+/// MERISE — Catégorie d'un contrôle préalable Workflow (ENT_VRF / WorkflowPreChecks).
+/// Chaque contrôle appartient à une des 10 familles TOP causes P1 Navis.
+/// </summary>
+public enum WorkflowPreCheckCategory
+{
+    HorlogesNtp = 0,
+    GestionDonneesEtIndex = 1,
+    ConnectiviteReseau = 2,
+    EtatAmqKahaDb = 3,
+    EtatFilesBridge = 4,
+    OrdreArretDemarrage = 5,
+    SnapshotVirtuel = 6,
+    CompatibiliteTiers = 7,
+    VerrouillageEnvironnement = 8,
+    Autre = 99
+}
+
+/// <summary>FR-090 : Niveau de qualité global attribué à un SOP d'après son rapport qualité.</summary>
+public enum SopQualityGrade
+{
+    /// <summary>Au moins un axe est en dessous du niveau minimum publiable (score global &lt; 50).</summary>
+    Insuffisant = 0,
+    /// <summary>Passable, peut être validé mais nécessite encore des retouches (50–69).</summary>
+    Passable = 1,
+    /// <summary>Bon, standard attendu pour la publication Actif (70–89).</summary>
+    Bon = 2,
+    /// <summary>Excellence, SOP de référence : 90+ et TOUS les axes ≥ Bon.</summary>
+    Excellence = 3
+}
+
+/// <summary>
+/// MERISE — Statut d'une Action Préventive Recommandée
+/// (ENT_APR / PreventiveRecommendedActions).
+/// </summary>
+public enum AprStatus
+{
+    Detectee = 0,
+    Proposee = 1,
+    Programmee = 2,
+    EnCoursDExecution = 3,
+    Executee = 4,
+    Ignoree = 5,
+    Resolue = 6,
+    Expiree = 7
+}
+
+/// <summary>
+/// MERISE — Niveau de compétence requis / ayant résolu un incident capitalisé
+/// (ENT_INC / CapitalizedIncidents).
+/// </summary>
+public enum ResolutionSkillLevel
+{
+    N1Support = 0,
+    N2Specialiste = 1,
+    N3ExpertInterne = 2,
+    ExpertNavisEditeur = 3
+}
+
+/// <summary>
+/// MERISE — Mode d'agrégation pour une métrique business
+/// (ENT_METBUS / BusinessSuccessMetrics).
+/// </summary>
+public enum BusinessMetricAggregation
+{
+    Moyenne = 0,
+    Somme = 1,
+    Mediane = 2,
+    Pourcentage = 3
+}
+
+/// <summary>P6 — Récurrence d'une planification de maintenance N4.</summary>
+public enum ScheduleKind
+{
+    /// <summary>Tous les jours à l'heure indiquée (y compris week-ends).</summary>
+    Quotidien = 0,
+
+    /// <summary>Jours ouvrés classiques : lundi → vendredi hors jours fériés.</summary>
+    JoursOuvres = 1,
+
+    /// <summary>Hebdomadaire, jours explicitement sélectionnés via WeeklyDayOfWeekMask.</summary>
+    HebdoJoursChoisis = 2,
+
+    /// <summary>Mensuel, jours numériques listés (1..31) via MonthlyDays.</summary>
+    MensuelJoursPrecis = 3,
+
+    /// <summary>Expression cron standard (réservé à des planifications avancées).</summary>
+    CronExpression = 4
+}
+
+/// <summary>P6 — État d'une planification.</summary>
+public enum ScheduleStatus
+{
+    Actif = 0,
+    Suspendu = 1,
+    Expire = 2
+}
+
+/// <summary>P6 — Origine du lancement d'une exécution Workflow (complète la chaîne de traçabilité).</summary>
+public enum ExecutionTriggeredBy
+{
+    /// <summary>Déclenché par un humain depuis un écran (par défaut pour les versions avant P6).</summary>
+    Manuel = 0,
+
+    /// <summary>Déclenché automatiquement par le planificateur récurrent P6.</summary>
+    Planification = 1,
+
+    /// <summary>Reprise après crash/recyclage applicatif (NFR-002).</summary>
+    RepriseApresCrash = 2,
+
+    /// <summary>Lancé automatiquement depuis une APR validée (P2 Merise).</summary>
+    APRAutomatique = 3
 }

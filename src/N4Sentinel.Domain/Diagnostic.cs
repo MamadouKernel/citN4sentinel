@@ -359,6 +359,32 @@ public class DiagnosticSession : AuditableEntity
     public ICollection<DiagnosticPhaseTransition> PhaseTransitions { get; set; } = [];
     public ICollection<ExternalActionDeclaration> ExternalActions { get; set; } = [];
 
+    /// <summary>
+    /// RG-0307 : checklist des 10 causes P1 Navis les plus fréquentes
+    /// (Top 10 causes d'incident critique documentées par Kaleris).
+    /// Passée en revue À L'OUVERTURE d'une session, avant d'aller
+    /// chercher plus loin — l'erreur la plus fréquente étant de chercher
+    /// compliqué quand la cause est dans cette liste.
+    /// Chaîne de codes séparés par des virgules parmi les valeurs de
+    /// <see cref="Top10NavisCauseCode"/>, ou null/vide si la revue
+    /// n'a pas été faite.
+    /// </summary>
+    public string? Top10ChecklistCheckedCodesCsv { get; set; }
+
+    /// <summary>Résultat/remarques éventuelles sur la revue RG-0307.</summary>
+    public string? Top10ChecklistNotes { get; set; }
+
+    /// <summary>
+    /// P4.6 — Version du catalogue de signatures prise au moment de
+    /// l'analyse (nombre de signatures + version globale), pour
+    /// qu'un diagnostic puisse être relancé avec le même référentiel
+    /// ou comparé à une version ultérieure.
+    /// </summary>
+    public string? SignatureCatalogueVersionAtAnalysis { get; set; }
+
+    /// <summary>P4.6 — Nombre total de règles/signatures actives lors de l'analyse.</summary>
+    public int? ActiveSignaturesCountAtAnalysis { get; set; }
+
     public bool HasBeenAnalysed => AnalysedAt is not null;
 
     /// <summary>
@@ -374,6 +400,91 @@ public class DiagnosticSession : AuditableEntity
     public bool VerdictEstInconcluant => Verdict is DiagnosticVerdict.PisteSerieuse
         or DiagnosticVerdict.AnomaliesSansCause or DiagnosticVerdict.RienDeConcluant
         or DiagnosticVerdict.InformationsInsuffisantes;
+}
+
+/// <summary>
+/// RG-0307 — 10 causes les plus fréquentes d'incident P1 sur Navis N4
+/// (Référence : Kaleris N4 IT Administrator Day 1, Top 10 P1 Causes).
+/// Une revue explicite de cette liste est exigée avant de passer à la
+/// phase #1 Qualification (DiagnosticSessionService.CreateAsync).
+/// </summary>
+public enum Top10NavisCauseCode
+{
+    /// <summary>Arrêt incorrect / kill process / arrêt brutal VM (TOP1).</summary>
+    ArretIncorrect = 0,
+    /// <summary>Corruption des files ActiveMQ ou magasin KahaDB.</summary>
+    CorruptionAmqKahadb = 1,
+    /// <summary>Corruption ou échec d'un snapshot VM (VMWare/Hyper-V checkpoint).</summary>
+    SnapshotVmCorrompu = 2,
+    /// <summary>Split-brain ou perte de membres du cluster N4 Hazelcast.</summary>
+    ClusterPartition = 3,
+    /// <summary>Écart d'horloge / absence de synchronisation NTP.</summary>
+    HorlogeDesync = 4,
+    /// <summary>Files Bridge / XPS saturées ou ordre d'erreur Bridge.</summary>
+    BridgeXpsQueue = 5,
+    /// <summary>Désynchronisation XPS — perte d'événements conteneurs.</summary>
+    XpsDesync = 6,
+    /// <summary>Pannes DNS ou résolution de noms intermittent.</summary>
+    DnsPanne = 7,
+    /// <summary>Fragmentation / corruption index base SQL Server.</summary>
+    BddIndexFrag = 8,
+    /// <summary>Basculement failover ActiveMQ non finalisé (bascule Master/Slave).</summary>
+    AmqFailoverStale = 9
+}
+
+/// <summary>Entrée typée de la checklist RG-0307 TOP10 causes P1 Navis.</summary>
+public sealed record Top10NavisChecklistItem(
+    Top10NavisCauseCode Code,
+    string Libelle,
+    string Verifier,
+    string SeverityColor);
+
+/// <summary>Catalogue des 10 entrées RG-0307 — affichées à l'ouverture de session.</summary>
+public static class Top10NavisChecklist
+{
+    public static IReadOnlyList<Top10NavisChecklistItem> Toutes { get; } =
+    [
+        new(Top10NavisCauseCode.ArretIncorrect,
+            "Arrêt incorrect (brutal) d'un ou plusieurs services N4",
+            "Vérifier log démarrage pour motif unclean/improper shutdown — ordre d'arrêt 3.8.xx.",
+            "darkred"),
+        new(Top10NavisCauseCode.CorruptionAmqKahadb,
+            "Corruption ActiveMQ / KahaDB (db.data corrupt)",
+            "Contrôle intégrité kahadb et liste des messages en attente (ActiveMQ Web Console).",
+            "darkred"),
+        new(Top10NavisCauseCode.SnapshotVmCorrompu,
+            "Snapshot VM corrompu ou restauré (checkpoint appliqué à chaud)",
+            "Relever événements Hyper-V/VMware autour de l'heure du P1 — Snapshot appliqué = corruption garantie.",
+            "darkorange"),
+        new(Top10NavisCauseCode.ClusterPartition,
+            "Split-brain cluster N4 Hazelcast (member lost, merge nodes)",
+            "État des nœuds cluster Center/Standby, rôle actif, membres listés par chaque nœud.",
+            "darkred"),
+        new(Top10NavisCauseCode.HorlogeDesync,
+            "Écart d'horloge > 1s (NTP absent ou désync)",
+            "w32tm /query /status ou ntpq -p sur chaque serveur ; écart mesuré ClockSkew pendant collecte.",
+            "darkorange"),
+        new(Top10NavisCauseCode.BridgeXpsQueue,
+            "Queue Bridge haute / ordre erreur Bridge Daemon",
+            "Taille files AMQ nommées bridge.* et statut Bridge (WAITING / LOADING / ACTIVE).",
+            "darkorange"),
+        new(Top10NavisCauseCode.XpsDesync,
+            "XPS désynchronisé (perte événements conteneurs)",
+            "Comparer nombre conteneurs attendus vs présents XPS ; état d'initialisation Bridge.",
+            "orange"),
+        new(Top10NavisCauseCode.DnsPanne,
+            "DNS / résolution noms intermittent (UnknownHostException)",
+            "ping -a & nslookup sur chaque serveur entre eux — résolution reverse.",
+            "orange"),
+        new(Top10NavisCauseCode.BddIndexFrag,
+            "Index SQL Server fragmentés, corruption ou blocages",
+            "Requête DMV sys.dm_db_index_physical_stats et ALERTS deadlocks SQL dans l'heure.",
+            "orange"),
+        new(Top10NavisCauseCode.AmqFailoverStale,
+            "AMQ failover non finalisé (master/slave stale broker)",
+            "Statut broker networkConnectors, connectivité port 61616/61617 sur tous les brokers.",
+            "darkorange")
+    ];
 }
 
 /// <summary>
@@ -531,6 +642,20 @@ public class LogSource : AuditableEntity
     public LogCollectionFailureReason? FailureReason { get; set; }
 
     public bool Succeeded => Error is null;
+
+    /// <summary>
+    /// SEC-007 : vrai si une analyse antivirus a été effectuée (import manuel)
+    /// avant l'enregistrement de la source. Reste faux quand le scanner
+    /// n'était pas disponible ou pour les collectes ciblées, considérées
+    /// sûres par chaîne de confiance.
+    /// </summary>
+    public bool AntivirusChecked { get; set; }
+
+    /// <summary>
+    /// SEC-007 : Note de l'analyse antivirus — menaces détectées, scanner
+    /// indisponible, etc. Null si l'analyse n'a pas été faite ou si RAS.
+    /// </summary>
+    public string? AntivirusNote { get; set; }
 }
 
 /// <summary>

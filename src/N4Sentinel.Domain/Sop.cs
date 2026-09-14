@@ -97,6 +97,25 @@ public class Sop : AuditableEntity
     /// </summary>
     public bool RequiresElevatedRole { get; set; }
 
+    // --- P5 FR-094 — Approbation et révocation ---------------------------
+    /// <summary>Identité de l'expert N2 minimum qui a qualifié le SOP (AValider → Valide). FR-094.</summary>
+    public string? QualifiedBy { get; set; }
+
+    /// <summary>Moment de la qualification par le relecteur expert (AValider → Valide). FR-094.</summary>
+    public DateTimeOffset? QualifiedAt { get; set; }
+
+    /// <summary>Note libre du relecteur lors de la qualification (FR-094).</summary>
+    public string? QualificationNote { get; set; }
+
+    /// <summary>Identité de l'acteur qui a révoqué le SOP (Valide/Actif → Revoque). FR-094.</summary>
+    public string? RevokedBy { get; set; }
+
+    /// <summary>Moment de la révocation (Valide/Actif → Revoque). FR-094.</summary>
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>Motif obligatoire de la révocation (obsolète, en conflit avec nouvelle version, incident ouvert, etc.).</summary>
+    public string? RevocationReason { get; set; }
+
     // --- Gabarit structuré (FR-088) ---------------------------------------
     public string? Objective { get; set; }
     public string? Scope { get; set; }
@@ -220,6 +239,19 @@ public class SopExecution : AuditableEntity
     public string? OutcomeNote { get; set; }
     public string? OutcomeDeclaredBy { get; set; }
     public DateTimeOffset? OutcomeDeclaredAt { get; set; }
+
+    /// <summary>
+    /// P5 — Note de satisfaction 0 à 5 étoiles attribuée *a posteriori* par
+    /// l'exécutant sur cette exécution une fois terminée. FR-090 : retour
+    /// qualitatif nourrissant la qualité globale du SOP modèle associé.
+    /// Null = pas encore évalué.
+    /// </summary>
+    public byte? FeedbackStars0To5 { get; set; }
+
+    /// <summary>Commentaire libre associé au feedback post-exécution (FR-090).</summary>
+    public string? FeedbackNote { get; set; }
+    public string? FeedbackGivenBy { get; set; }
+    public DateTimeOffset? FeedbackGivenAt { get; set; }
 
     /// <summary>Identifiant de corrélation, repris dans les journaux applicatifs.</summary>
     public string CorrelationId { get; set; } = Guid.NewGuid().ToString("N")[..12];

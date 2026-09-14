@@ -370,6 +370,9 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AllowTokenPastedLogin")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Authority")
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
@@ -398,6 +401,15 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("RequireSignatureValidation")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RoleMappings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("'[]'");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("BLOB");
@@ -409,6 +421,298 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AzureAdSettings", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.BusinessSuccessMetric", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AggregationKind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("BaselineBeforeSentinel")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CalculatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("EnvironmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsTargetMissed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MetricCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MetricLabel")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NarrativeComment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("NumericValueAvgOrSum")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReportingPeriod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<long?>("SampleSizeCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("TargetFixedValue")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("TrendVsPreviousPeriodPct")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("IsTargetMissed");
+
+                    b.HasIndex("MetricCode", "ReportingPeriod");
+
+                    b.HasIndex("ReportingPeriod", "MetricCode", "EnvironmentId")
+                        .IsUnique();
+
+                    b.ToTable("BusinessSuccessMetrics", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CapitalizedIncident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ClosedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClosedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CompensatoryMeasures")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrectiveActionsTaken")
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DeclaredSeverity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("DetectedBySentinelAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalReference")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FiveWhysRootCause")
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("GeneratedSOPId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InitialSymptom")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LessonsAndCorrectives")
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LinkedDiagnosticSessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LinkedExecutionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MainRootCauseCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MainRootCauseLabel")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("OperatorsInvolvedCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PostMortemDocumentRef")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("QuantifiedBusinessImpact")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RealIncidentEndedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("RealIncidentStartedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ResolutionSkillLevel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<string>("SOPsUsedListString")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("TotalDurationMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalReference")
+                        .IsUnique();
+
+                    b.HasIndex("GeneratedSOPId");
+
+                    b.HasIndex("LinkedDiagnosticSessionId");
+
+                    b.HasIndex("LinkedExecutionId");
+
+                    b.HasIndex("EnvironmentId", "DeclaredSeverity", "RealIncidentStartedAt");
+
+                    b.ToTable("CapitalizedIncidents", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.ComponentAssociatedService", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ComponentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ExpectedPort")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExpectedServiceAccount")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ExpectedStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsMandatory")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastObservationNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LastObservedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LastObservedPid")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LastObservedStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<string>("ServiceName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("TimeoutSecondsOverride")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComponentId", "Order");
+
+                    b.HasIndex("ComponentId", "ServiceName")
+                        .IsUnique();
+
+                    b.ToTable("ComponentAssociatedServices", (string)null);
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.ComponentDependency", b =>
@@ -751,6 +1055,9 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("ActiveSignaturesCountAtAnalysis")
+                        .HasColumnType("INTEGER");
+
                     b.Property<long?>("AnalysedAt")
                         .HasColumnType("INTEGER");
 
@@ -817,6 +1124,9 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("BLOB");
 
+                    b.Property<string>("SignatureCatalogueVersionAtAnalysis")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("SourceAlertId")
                         .HasColumnType("TEXT");
 
@@ -827,6 +1137,12 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Top10ChecklistCheckedCodesCsv")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Top10ChecklistNotes")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Verdict")
@@ -1071,6 +1387,12 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.Property<string>("Partner")
                         .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ResendRequestedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResendRequestedBy")
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("RowVersion")
@@ -1411,6 +1733,84 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.ToTable("ExternalActionDeclarations", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.JmxEndpoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CredentialId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte>("EndpointType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("JolokiaBaseUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LastErrorAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastFailureMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LastPooledAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastReachableAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastSuccessAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndpointType");
+
+                    b.HasIndex("Host", "Port")
+                        .IsUnique();
+
+                    b.ToTable("JmxEndpoints", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.KnowledgeDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1678,6 +2078,12 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("AntivirusChecked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AntivirusNote")
                         .HasColumnType("TEXT");
 
                     b.Property<double?>("ClockSkewSecondsAtCollection")
@@ -1996,6 +2402,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Palier2ApprovedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Palier2AuthorizedConnectorReferences")
+                        .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("RowVersion")
@@ -2117,6 +2528,139 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.ToTable("Servers", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.PreventiveRecommendedAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("APRStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DismissalReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("DismissedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DismissedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("EstimatedDeadlineForAction")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EstimatedDurationMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("EstimatedP1RiskPct")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EvidenceSummary")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ExecutedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExecutedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("FirstWeakSignalAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("GeneratedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsBasedOnTrend")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("LaunchWorkflowId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("PriorityScore")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawSignalSnapshot")
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ResultingExecutionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RootCauseFamily")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<long?>("ScheduledAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ScheduledBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SourceComponentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code");
+
+                    b.HasIndex("LaunchWorkflowId");
+
+                    b.HasIndex("ResultingExecutionId");
+
+                    b.HasIndex("SourceComponentId");
+
+                    b.HasIndex("EnvironmentId", "PriorityScore");
+
+                    b.HasIndex("EnvironmentId", "APRStatus", "GeneratedAt");
+
+                    b.ToTable("PreventiveRecommendedActions", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.RetentionPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2155,6 +2699,139 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("RetentionPolicies", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.ExecutionSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("AutoApprove")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CronExpression")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastTriggeredAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("MonthlyDays")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("NextPlannedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RanAs")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReasonTemplate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<bool>("SkipIfActiveAlready")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TicketTemplate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeSpan>("TimeOfDay")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ValidFrom")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ValidUntil")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<ushort>("WeeklyDayOfWeekMask")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("WorkflowId");
+
+                    b.ToTable("ExecutionSchedules", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.MaintenanceHoliday", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.ToTable("MaintenanceHolidays");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.SharedFolderSnapshot", b =>
@@ -2317,8 +2994,26 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("QualificationNote")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("QualifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("QualifiedBy")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("RequiresElevatedRole")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("RevocationReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RevokedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RevokedBy")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Risks")
                         .HasMaxLength(2000)
@@ -2452,6 +3147,18 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
 
                     b.Property<Guid>("EnvironmentId")
                         .HasColumnType("TEXT");
+
+                    b.Property<long?>("FeedbackGivenAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FeedbackGivenBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FeedbackNote")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte?>("FeedbackStars0To5")
+                        .HasColumnType("INTEGER");
 
                     b.Property<long?>("ModifiedAt")
                         .HasColumnType("INTEGER");
@@ -2785,6 +3492,147 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.ToTable("Credentials", (string)null);
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.Ticket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("AprId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AssignedTo")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ClosedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClosureReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DiagnosticSignatureId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("EnvironmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalTicketId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("OpenedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OpenedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OperationCorrelationId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte>("Priority")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte>("Severity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte>("Source")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("OpenedAt");
+
+                    b.HasIndex("Status", "Priority");
+
+                    b.ToTable("Tickets", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.TicketComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Author")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsInternal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte>("Source")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("WrittenAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WrittenBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId", "WrittenAt");
+
+                    b.ToTable("TicketComments", (string)null);
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.Workflow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3001,6 +3849,12 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("TriggeredBy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("TriggeredByScheduleId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("WorkflowId")
                         .HasColumnType("TEXT");
 
@@ -3023,6 +3877,99 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.HasIndex("EnvironmentId", "Status");
 
                     b.ToTable("Executions", (string)null);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.WorkflowPreCheck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BlockingThreshold")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ControlInstruction")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ModifiedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModifiedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RemediationProcedure")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("RequiresExplicitApprovalIfBlocking")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<Guid?>("SuggestedSopId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TargetComponentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WarningThreshold")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SuggestedSopId");
+
+                    b.HasIndex("TargetComponentId");
+
+                    b.HasIndex("WorkflowId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("WorkflowId", "Order");
+
+                    b.ToTable("WorkflowPreChecks", (string)null);
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.WorkflowStep", b =>
@@ -3350,6 +4297,59 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Navigation("Component");
 
                     b.Navigation("Environment");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.BusinessSuccessMetric", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Environment");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.CapitalizedIncident", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("N4Sentinel.Domain.Sop", "GeneratedSOP")
+                        .WithMany()
+                        .HasForeignKey("GeneratedSOPId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.DiagnosticSession", "LinkedDiagnosticSession")
+                        .WithMany()
+                        .HasForeignKey("LinkedDiagnosticSessionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.WorkflowExecution", "LinkedExecution")
+                        .WithMany()
+                        .HasForeignKey("LinkedExecutionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("GeneratedSOP");
+
+                    b.Navigation("LinkedDiagnosticSession");
+
+                    b.Navigation("LinkedExecution");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.ComponentAssociatedService", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Component", "Component")
+                        .WithMany()
+                        .HasForeignKey("ComponentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Component");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.ComponentDependency", b =>
@@ -3718,6 +4718,68 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Navigation("Environment");
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.PreventiveRecommendedAction", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("N4Sentinel.Domain.Workflow", "LaunchWorkflow")
+                        .WithMany()
+                        .HasForeignKey("LaunchWorkflowId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.WorkflowExecution", "ResultingExecution")
+                        .WithMany()
+                        .HasForeignKey("ResultingExecutionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.N4Component", "SourceComponent")
+                        .WithMany()
+                        .HasForeignKey("SourceComponentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("LaunchWorkflow");
+
+                    b.Navigation("ResultingExecution");
+
+                    b.Navigation("SourceComponent");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.ExecutionSchedule", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("N4Sentinel.Domain.Workflow", "Workflow")
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Scheduling.MaintenanceHoliday", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Environment");
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.SharedFolderSnapshot", b =>
                 {
                     b.HasOne("N4Sentinel.Domain.N4Component", "Component")
@@ -3809,6 +4871,25 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                     b.Navigation("Environment");
                 });
 
+            modelBuilder.Entity("N4Sentinel.Domain.Ticket", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.N4Environment", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.TicketComment", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.Ticket", "Ticket")
+                        .WithMany("Comments")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
             modelBuilder.Entity("N4Sentinel.Domain.Workflow", b =>
                 {
                     b.HasOne("N4Sentinel.Domain.N4Environment", "Environment")
@@ -3835,6 +4916,31 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
                         .IsRequired();
 
                     b.Navigation("Environment");
+
+                    b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.WorkflowPreCheck", b =>
+                {
+                    b.HasOne("N4Sentinel.Domain.Sop", "SuggestedSop")
+                        .WithMany()
+                        .HasForeignKey("SuggestedSopId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.N4Component", "TargetComponent")
+                        .WithMany()
+                        .HasForeignKey("TargetComponentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("N4Sentinel.Domain.Workflow", "Workflow")
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SuggestedSop");
+
+                    b.Navigation("TargetComponent");
 
                     b.Navigation("Workflow");
                 });
@@ -3918,6 +5024,11 @@ namespace N4Sentinel.Migrations.Sqlite.Migrations
             modelBuilder.Entity("N4Sentinel.Domain.SopExecution", b =>
                 {
                     b.Navigation("Steps");
+                });
+
+            modelBuilder.Entity("N4Sentinel.Domain.Ticket", b =>
+                {
+                    b.Navigation("Comments");
                 });
 
             modelBuilder.Entity("N4Sentinel.Domain.Workflow", b =>
