@@ -113,14 +113,50 @@ window.n4VoiceCopilot = {
         }
     },
 
+    _pickFrenchVoice: function () {
+        var voices = (window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || [];
+        var fr = voices.filter(function (v) { return /^fr\b/i.test((v.lang || '').replace('_', '-')); });
+        if (fr.length === 0) { return null; }
+        // Préférence : voix neuronales EN LIGNE (Edge « Online (Natural) », les
+        // mêmes que celles d'Azure, gratuites), puis Google, puis toute voix fr-FR.
+        // Sans ce tri, le navigateur choisit souvent une voix locale robotique.
+        var score = function (v) {
+            var n = (v.name || '').toLowerCase();
+            var s = 0;
+            if (/natural|online|neural/.test(n)) { s += 100; }
+            if (/google/.test(n)) { s += 40; }
+            if (/vivienne|denise|remy|henri|eloise|yves/.test(n)) { s += 20; }
+            if ((v.lang || '').toLowerCase() === 'fr-fr') { s += 10; }
+            if (v.localService === false) { s += 5; }
+            return s;
+        };
+        fr.sort(function (a, b) { return score(b) - score(a); });
+        return fr[0];
+    },
+
     speak: function (textToSpeak) {
-        if ('speechSynthesis' in window) {
+        if (!('speechSynthesis' in window)) { return; }
+        var self = this;
+        var doSpeak = function () {
             window.speechSynthesis.cancel(); // Annule toute synthèse en cours
             var utterance = new SpeechSynthesisUtterance(textToSpeak);
-            utterance.lang = 'fr-FR';
-            utterance.rate = 1.0;
+            var voice = self._pickFrenchVoice();
+            if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+            else { utterance.lang = 'fr-FR'; }
+            utterance.rate = 0.95; // légèrement ralenti : diction plus posée, plus humaine
             utterance.pitch = 1.0;
             window.speechSynthesis.speak(utterance);
+        };
+        // Les voix se chargent de façon ASYNCHRONE : si la liste est vide au
+        // premier appel, on attend l'événement (avec un filet de sécurité par
+        // délai), sans jamais lire deux fois.
+        if (((window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || []).length === 0) {
+            var done = false;
+            var once = function () { if (done) { return; } done = true; doSpeak(); };
+            window.speechSynthesis.addEventListener('voiceschanged', once, { once: true });
+            setTimeout(once, 300);
+        } else {
+            doSpeak();
         }
     }
 };

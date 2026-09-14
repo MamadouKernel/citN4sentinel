@@ -9,6 +9,7 @@ using N4Sentinel.Web.Components;
 using N4Sentinel.Web.Components.Account;
 using Microsoft.AspNetCore.DataProtection;
 using N4Sentinel.Web.Security;
+using N4Sentinel.Web.Voice;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -159,6 +160,7 @@ builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuth
 // Persistance, referentiel et audit
 // ---------------------------------------------------------------------------
 builder.Services.AddN4SentinelInfrastructure(builder.Configuration);
+builder.Services.AddVoiceSpeech(builder.Configuration);
 
 // L'acteur reel remplace le contexte "systeme" enregistre par l'Infrastructure :
 // c'est lui qui apparaitra dans le journal d'audit.
@@ -372,6 +374,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapAdditionalIdentityEndpoints();
+app.MapVoiceSpeech();
 
 // §3.19 : comportement dégradé explicite. AddHealthChecks() était enregistré
 // mais n'était exposé nulle part — le contrôle existait sans être joignable,
