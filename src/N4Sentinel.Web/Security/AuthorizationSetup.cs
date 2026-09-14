@@ -137,6 +137,16 @@ public static class AuthorizationSetup
 
             .AddPolicy(N4Policies.PeutAuditer, p => p.RequireRole(
                 N4Roles.Auditeur,
+                N4Roles.AdministrateurSolution))
+
+            // Garde du groupe « Administration » de la navigation : union des rôles
+            // qui peuvent atteindre au moins un écran de configuration. Chaque écran
+            // reste filtré par sa politique propre (Référentiel, Connecteurs ou
+            // ActionsSensibles) ; cette politique ne fait qu'éviter d'afficher un
+            // en-tête de groupe vide.
+            .AddPolicy(N4Policies.PeutAdministrer, p => p.RequireRole(
+                N4Roles.AdministrateurN4,
+                N4Roles.AdministrateurInfrastructure,
                 N4Roles.AdministrateurSolution));
 
         return services;

@@ -102,4 +102,12 @@ public static class N4Policies
     public const string PeutAdministrerReferentiel = "PeutAdministrerReferentiel";
     public const string PeutAdministrerConnecteurs = "PeutAdministrerConnecteurs";
     public const string PeutAuditer = "PeutAuditer";
+
+    /// <summary>
+    /// Union des rôles qui peuvent administrer AU MOINS un écran de configuration
+    /// (référentiel, connecteurs ou actions sensibles). Sert de garde au groupe
+    /// « Administration » de la navigation : le groupe s'affiche dès qu'un de ces
+    /// écrans est accessible, chaque écran restant filtré par sa propre politique.
+    /// </summary>
+    public const string PeutAdministrer = "PeutAdministrer";
 }
