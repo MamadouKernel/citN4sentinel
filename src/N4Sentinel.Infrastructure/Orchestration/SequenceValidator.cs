@@ -19,7 +19,9 @@ namespace N4Sentinel.Infrastructure.Orchestration;
 /// démarrage, et dans le sens inverse à l'arrêt — mais il n'impose jamais que
 /// l'un soit le miroir de l'autre.
 /// </summary>
-public sealed class SequenceValidator(IDbContextFactory<N4SentinelDbContext> dbFactory)
+public sealed class SequenceValidator(
+    IDbContextFactory<N4SentinelDbContext> dbFactory,
+    MeriseBusinessPolicyService? merisePolicies = null)
 {
     /// <summary>
     /// Vérifie qu'une suite d'étapes respecte le graphe de dépendances.
@@ -206,6 +208,25 @@ public sealed class SequenceValidator(IDbContextFactory<N4SentinelDbContext> dbF
                     + "qu'une fois la plateforme stabilisée.",
                 Remedy = "Retirer le job conditionnel de cette séquence et le lancer dans une séquence distincte."
             });
+        }
+
+        // --- RG-SPLIT-BRAIN : Standby DOIT démarrer avant Center
+        // Guide Navis 3.8.25 §10.6 explicite : en cas de redémarrage Center + Standby,
+        // Standby doit repasser ACTIVE avant le Center pour éviter 2 KahaDB actifs.
+        if (merisePolicies is not null)
+        {
+            var demarresOrdonnes = steps
+                .Where(s => s.Action is StepAction.Demarrer or StepAction.Redemarrer && s.ComponentId is not null)
+                .OrderBy(s => s.Order)
+                .Select(s => (
+                    s.Order,
+                    LogicalName: composants.TryGetValue(s.ComponentId!.Value, out var comp)
+                        ? comp.LogicalName : "?",
+                    Role: composants.TryGetValue(s.ComponentId!.Value, out var comp2)
+                        ? comp2.Role : ComponentRole.Autre))
+                .ToList();
+
+            violations.AddRange(merisePolicies.ValidateSplitBrainStandbyFirstOrder(demarresOrdonnes));
         }
 
         return violations.OrderBy(v => v.Order).ToList();

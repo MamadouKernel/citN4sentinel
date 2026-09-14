@@ -162,6 +162,7 @@ public static class DependencyInjection
         services.AddScoped<DatabaseHealthService>();
         services.AddScoped<SharedFolderHealthService>();
         services.AddScoped<Edi.EdiTrackingService>();
+        services.AddScoped<Domain.Interfaces.IEdiConnector, Edi.EdiTrackingService>();
 
         // Vitalité des nœuds. Le service est à portée de requête — il dépend du
         // référentiel — mais le cache des mises à jour Windows est un singleton :
@@ -179,7 +180,21 @@ public static class DependencyInjection
         services.AddScoped<Referential.EnvironmentDuplicationService>();
         services.AddScoped<Referential.ReferentialCsvImporter>();
         services.AddScoped<Security.AzureAdSettingsService>();
-        services.AddScoped<AzureAdAuthProvider>();
+        services.AddScoped<Security.AzureAdAuthProvider>();
+        services.AddScoped<Domain.Interfaces.IAuthProvider, Security.AzureAdAuthProvider>();
+
+        // S3-09 · Ticketing & JMX (IHttpClientFactory + Jolokia). Les connexions
+        // externes sont protégées par une double-garde : si le composant n'est
+        // pas paramétré ou que JolokiaBaseUrl est vide, le service passe en mode
+        // simulation et n'émet aucun appel HTTP réel.
+        services.AddHttpClient();
+        services.Configure<Ticketing.TicketingExternalOptions>(
+            configuration.GetSection(Ticketing.TicketingExternalOptions.SectionName));
+        services.AddScoped<Ticketing.TicketingService>();
+        services.AddScoped<Ticketing.TicketingSyncService>();
+        services.AddScoped<Domain.Interfaces.ITicketingConnector, Ticketing.TicketingSyncService>();
+        services.AddScoped<Domain.Interfaces.IJmxConnector, Ticketing.JolokiaJmxConnector>();
+        services.AddHostedService<Ticketing.JmxCollectorHostedService>();
 
         // Sentinel Intelligence Suite V2.5
         services.AddSingleton<Procedures.FlightSimulatorService>();
@@ -202,6 +217,8 @@ public static class DependencyInjection
         // propres portées pour tout ce qui touche la base.
         services.AddScoped<WorkflowService>();
         services.AddScoped<ExecutionService>();
+        services.AddScoped<MeriseBusinessPolicyService>();
+        services.AddScoped<Palier2ApprovalService>();
         services.AddScoped<Orchestration.UseCases.PrepareExecutionUseCase>();
         services.AddScoped<Orchestration.UseCases.ApproveExecutionUseCase>();
         services.AddScoped<Orchestration.UseCases.ControlExecutionUseCase>();
@@ -215,6 +232,17 @@ public static class DependencyInjection
         services.AddScoped<ApprovalMatrixService>();
         services.AddSingleton<OrchestrationEngine>();
         services.AddHostedService<OrchestrationBackgroundService>();
+
+        // APR — Actions Préventives Recommandées (P2 MERISE · RG-0904).
+        // Signaux faibles 15 min → candidatures APR → tri Dashboard TOP-10 par
+        // PriorityScore = RisqueP1EvitéPct ÷ Durée_min. HostedService singleton
+        // utilise IServiceScopeFactory ; tous services métier = Scoped.
+        services.AddScoped<Apr.AprDetectionService>();
+        services.AddScoped<Apr.AprQueryService>();
+        services.AddScoped<Apr.AprScheduleUseCase>();
+        services.AddScoped<Apr.AprLaunchViaWorkflowUseCase>();
+        services.AddScoped<Apr.AprDismissUseCase>();
+        services.AddHostedService<Apr.AprBackgroundService>();
 
         // Diagnostic (sprint 6). Le masquage des secrets est statique et sans
         // état : il n'a rien à enregistrer ici, mais tout ce qui écrit un
@@ -236,8 +264,13 @@ public static class DependencyInjection
         // Rapport d'incident automatique (FR-096).
         services.AddScoped<Reporting.IncidentReportService>();
 
-        // Notifications (FR-095). INotificationSender est fourni par le projet
-        // Web (SmtpEmailSender) — voir Program.cs.
+        // Notifications (FR-095 + PB-22). INotificationSender est fourni par le
+        // projet Web (SmtpEmailSender) ; ResilientMultiChannelNotifier s'appuie
+        // dessus en canal #3 + 2 webhooks Teams/Slack désactivés par défaut
+        // (SEC-001 · URLs vides ⇒ 0 appel HTTP hors prod).
+        services.Configure<Notifications.NotificationChannelsOptions>(
+            configuration.GetSection(Notifications.NotificationChannelsOptions.SectionName));
+        services.AddScoped<Notifications.ResilientMultiChannelNotifier>();
         services.AddScoped<Notifications.OperationNotificationService>();
 
         // SOP — procédures opérationnelles standard (Phase C, Lot 2a).
@@ -246,6 +279,14 @@ public static class DependencyInjection
         // donc pas de l'orchestrateur.
         services.AddScoped<Procedures.SopService>();
         services.AddScoped<Procedures.SopExecutionService>();
+
+        // P6 — Planification récurrente & calendrier de maintenance N4.
+        services.AddScoped<Scheduling.MaintenanceScheduleService>();
+        services.AddScoped<Scheduling.MaintenanceCalendarService>();
+        services.AddHostedService<Scheduling.SchedulerTriggerBackgroundService>();
+
+        // P6 — Surveillance EDI WatchFolder légère (diagnostics auto FR-059J).
+        services.AddHostedService<Edi.EdiWatchFolderLightBackgroundService>();
 
         // Exploitation (sprint 8). La sauvegarde couvre la base ET le trousseau
         // de clés : la base seule redonnerait des comptes techniques dont les
@@ -261,6 +302,15 @@ public static class DependencyInjection
         // pas seulement quand un administrateur clique dessus.
         services.AddScoped<Retention.RetentionPolicyService>();
         services.AddHostedService<Retention.RetentionPurgeBackgroundService>();
+
+        // P3 MERISE · Capitalisation Incidents & Métriques Business (ENT_INC + ENT_METBUS).
+        // Après chaque fin d'exécution WF terminale → 0..1 ligne ENT_INC
+        // (anti-doublon LinkedExecutionId) avec famille cause racine 10 TOP P1
+        // Navis déduite heuristiquement. HostedService quotidien 02:15 UTC =
+        // calcul Upsert métriques J / S / M sur tous environnements + global.
+        services.AddScoped<Capitalisation.IncidentCapitalizationService>();
+        services.AddScoped<Capitalisation.BusinessMetricsService>();
+        services.AddHostedService<Capitalisation.MetricsBackgroundService>();
 
         // Scan antivirus au versement de documents (SEC-007). Sans etat,
         // partageable.

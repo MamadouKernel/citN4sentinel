@@ -94,12 +94,32 @@ public sealed class SopService(
                             || (signatureId != null && a.SignatureId == signatureId)))
             .ToListAsync(ct);
 
-        return associations
+        var candidats = associations
             .Select(a => a.Sop!)
             .Where(s => s.Steps.Count > 0)
             .GroupBy(s => s.Code)
             .Select(g => g.OrderByDescending(s => s.Version).First())
-            .OrderByDescending(s => s.ModifiedAt ?? s.CreatedAt)
+            .ToList();
+
+        // P5 — Tri amélioré FR-089D :
+        //   1. Score qualité (si calculable)
+        //   2. Taux de réussite attesté (descendant, null en dernier)
+        //   3. Dernière utilisation (récente en premier)
+        //   4. Recence de modification
+        var resultats = new List<(Domain.Sop Sop, int Score, int? TauxSucces, DateTimeOffset? DernierUsage)>();
+        foreach (var s in candidats)
+        {
+            var stats = await GetDetailedUsageStatsAsync(s.Id, ct);
+            var q = await CalculerRapportQualiteInterne(db, s, ct);
+            resultats.Add((s, q.OverallScorePercent, stats.SuccessRatePercent, stats.DerniereUtilisation));
+        }
+
+        return resultats
+            .OrderByDescending(r => r.Score)
+            .ThenByDescending(r => r.TauxSucces ?? -1)
+            .ThenByDescending(r => r.DernierUsage ?? DateTimeOffset.MinValue)
+            .ThenByDescending(r => r.Sop.ModifiedAt ?? r.Sop.CreatedAt)
+            .Select(r => r.Sop)
             .ToList();
     }
 
@@ -812,6 +832,448 @@ public sealed class SopService(
         sop.EscalationPath = gabarit.EscalationPath;
         sop.AppliesToVersion = gabarit.AppliesToVersion;
     }
+
+    // -----------------------------------------------------------------------
+    // P5 — Cycle de vie approuvé FR-094 (Brouillon → AValider → Valide → Actif → Revoque)
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// Soumet le brouillon à la revue d'un expert (Brouillon → AValider).
+    /// Garde FR-090 : au moins 6/8 sections FR-088 renseignées, au moins 1 étape,
+    /// Instructions + ExpectedResult non vides sur chaque étape.
+    /// </summary>
+    public async Task<string?> SubmitForReviewAsync(Guid sopId, string actor, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var sop = await db.Sops.Include(s => s.Steps).FirstOrDefaultAsync(s => s.Id == sopId, ct);
+        if (sop is null) return "SOP introuvable.";
+        if (sop.Status != LifecycleStatus.Brouillon)
+            return $"Le SOP doit être en Brouillon, il est « {sop.Status} ».";
+        if (sop.Steps.Count == 0) return "Le SOP n'a aucune étape : il ne peut pas être soumis en revue.";
+
+        var sections = CompterSectionsRemplies(sop);
+        if (sections < 6)
+            return $"Complétude gabarit insuffisante : {sections}/8 sections FR-088 renseignées. Minimum 6 pour soumettre.";
+
+        var etapeTrouee = sop.Steps.FirstOrDefault(s =>
+            string.IsNullOrWhiteSpace(s.Title) || string.IsNullOrWhiteSpace(s.Instruction));
+        if (etapeTrouee is not null)
+            return $"L'étape #{etapeTrouee.Order} « {etapeTrouee.Title} » manque de Titre ou d'Instruction obligatoires.";
+
+        sop.Status = LifecycleStatus.AValider;
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.ChangementDeStatut, AuditOutcome.Succes, actor,
+            entityType: nameof(Domain.Sop), entityId: sop.Id.ToString(),
+            entityLabel: $"{sop.Title} v{sop.Version}",
+            environmentId: sop.EnvironmentId,
+            reason: $"Brouillon → AValider (revue expert demandée). {sections}/8 sections FR-088, {sop.Steps.Count} étapes.",
+            ct: ct);
+
+        return null;
+    }
+
+    /// <summary>
+    /// Approbation expert — AValider → Valide. FR-094 : le relecteur doit être
+    /// DISTINCT de l'auteur initial. La qualification est refusée si le score
+    /// qualité calculé est Insuffisant (score global &lt; 50), sinon on autorise
+    /// la qualification avec une note si le score est moyen.
+    /// </summary>
+    public async Task<(string? Error, SopQualityReport? Report)> ApproveQualificationAsync(
+        Guid sopId, string reviewer, string? note, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var sop = await db.Sops.Include(s => s.Steps).FirstOrDefaultAsync(s => s.Id == sopId, ct);
+        if (sop is null) return ("SOP introuvable.", null);
+        if (sop.Status != LifecycleStatus.AValider)
+            return ($"Le SOP doit être en AValider, il est « {sop.Status} ».", null);
+
+        // FR-094 — reviewer distinct de l'auteur. Cas sans auteur (import legacy) :
+        // on ne bloque pas, mais on log un warning.
+        if (!string.IsNullOrWhiteSpace(sop.CreatedBy)
+            && string.Equals(sop.CreatedBy, reviewer, StringComparison.OrdinalIgnoreCase))
+        {
+            await auditWriter.WriteAsync(
+                AuditAction.TentativeNonAutorisee, AuditOutcome.Refuse, reviewer,
+                entityType: nameof(Domain.Sop), entityId: sop.Id.ToString(),
+                entityLabel: sop.Title,
+                environmentId: sop.EnvironmentId,
+                reason: "Tentative de qualification par l'auteur initial du SOP — FR-094 interdit l'auto-approbation.",
+                ct: ct);
+            return ("FR-094 : un SOP ne peut pas être qualifié par son propre auteur. "
+                  + "Demandez à un relecteur N2 minimum distinct.", null);
+        }
+
+        var rapport = await CalculerRapportQualiteInterne(db, sop, ct);
+        if (rapport.Grade == SopQualityGrade.Insuffisant)
+        {
+            return ("Score qualité Insuffisant (" + rapport.OverallScorePercent
+                    + "/100) : au moins un axe est en dessous du minimum attendu. "
+                    + "Corriger puis resoumettre.", rapport);
+        }
+
+        sop.Status = LifecycleStatus.Valide;
+        sop.QualifiedBy = reviewer;
+        sop.QualifiedAt = DateTimeOffset.UtcNow;
+        sop.QualificationNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Approbation, AuditOutcome.Succes, reviewer,
+            entityType: nameof(Domain.Sop), entityId: sop.Id.ToString(),
+            entityLabel: $"{sop.Title} v{sop.Version}",
+            environmentId: sop.EnvironmentId,
+            reason: $"AValider → Valide. Score qualité {rapport.OverallScorePercent}/100, niveau {rapport.Grade}. "
+                  + (note is { Length: > 0 } ? $"Note : {note}" : string.Empty),
+            ct: ct);
+
+        return (null, rapport);
+    }
+
+    /// <summary>
+    /// Passe le SOP en Actif — désormais il est sélectionnable par SuggestForReuse
+    /// et démarrable. Ne fait rien si déjà Actif ; Valide uniquement ou Actif/Valide sont OK.
+    /// </summary>
+    public async Task<string?> PublishAsync(Guid sopId, string actor, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var sop = await db.Sops.Include(s => s.Steps).FirstOrDefaultAsync(s => s.Id == sopId, ct);
+        if (sop is null) return "SOP introuvable.";
+        if (sop.Status is LifecycleStatus.Brouillon or LifecycleStatus.AValider)
+            return $"Le SOP doit d'abord être qualifié Valide, il est « {sop.Status} ».";
+        if (sop.Status == LifecycleStatus.Revoque)
+            return "Un SOP révoqué ne peut pas être republié — créez une nouvelle version plutôt.";
+        if (sop.Status == LifecycleStatus.Actif) return null;
+
+        var precedent = sop.Status;
+        sop.Status = LifecycleStatus.Actif;
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.ChangementDeStatut, AuditOutcome.Succes, actor,
+            entityType: nameof(Domain.Sop), entityId: sop.Id.ToString(),
+            entityLabel: $"{sop.Title} v{sop.Version}",
+            environmentId: sop.EnvironmentId,
+            reason: $"{precedent} → Actif (publié, démarrable).",
+            ct: ct);
+        return null;
+    }
+
+    /// <summary>
+    /// FR-094 : Révocation d'un SOP publié (Actif/Valide → Revoque). Motif
+    /// obligatoire, piste d'audit, plus utilisable après appel.
+    /// </summary>
+    public async Task<string?> RevokeAsync(Guid sopId, string actor, string reason, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return "La révocation est tracée : un motif est OBLIGATOIRE.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var sop = await db.Sops.FirstOrDefaultAsync(s => s.Id == sopId, ct);
+        if (sop is null) return "SOP introuvable.";
+        if (sop.Status is not (LifecycleStatus.Valide or LifecycleStatus.Actif or LifecycleStatus.Desactive))
+            return $"Seul un SOP publié (Valide/Actif/Désactivé) peut être révoqué. Actuel : {sop.Status}.";
+        if (sop.Status == LifecycleStatus.Revoque) return null;
+
+        var precedent = sop.Status;
+        sop.Status = LifecycleStatus.Revoque;
+        sop.RevokedBy = actor;
+        sop.RevokedAt = DateTimeOffset.UtcNow;
+        sop.RevocationReason = reason.Trim();
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Revocation, AuditOutcome.Succes, actor,
+            entityType: nameof(Domain.Sop), entityId: sop.Id.ToString(),
+            entityLabel: $"{sop.Title} v{sop.Version}",
+            environmentId: sop.EnvironmentId,
+            reason: $"{precedent} → Révoqué. Motif : {reason.Trim()}",
+            ct: ct);
+
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // P5 — Qualité FR-090 : 5 axes → score 0–100, Niveau
+    // -----------------------------------------------------------------------
+    public async Task<SopQualityReport> CalculateQualityReportAsync(Guid sopId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var sop = await db.Sops.Include(s => s.Steps).Include(s => s.Associations)
+            .FirstOrDefaultAsync(s => s.Id == sopId, ct)
+            ?? throw new InvalidOperationException("SOP introuvable.");
+        return await CalculerRapportQualiteInterne(db, sop, ct);
+    }
+
+    /// <summary>
+    /// P5 — Statistiques d'utilisation détaillées d'un SOP (médiane durée par
+    /// étape, % confirmee/ecart/contournee, top deviations, feedback moyen,
+    /// dernière utilisation). Outrepasse SopUsageStats pour trier SuggestForReuse
+    /// et décider de révoquer.
+    /// </summary>
+    public async Task<SopDetailedUsageStats> GetDetailedUsageStatsAsync(Guid sopId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var baseStats = await GetUsageStatsAsync(sopId, ct);
+        var executions = await db.SopExecutions
+            .AsNoTracking()
+            .Where(e => e.SopId == sopId)
+            .Include(e => e.Steps)
+            .OrderByDescending(e => e.StartedAt)
+            .ToListAsync(ct);
+
+        var toutesEtapes = executions.SelectMany(e => e.Steps).ToList();
+
+        Dictionary<int, double> medianes = new();
+        if (toutesEtapes.Count > 0)
+        {
+            foreach (var grp in toutesEtapes.Where(s => s.Duration is not null)
+                                            .GroupBy(s => s.Order))
+            {
+                var valeurs = grp.Select(s => s.Duration!.Value.TotalSeconds)
+                                 .OrderBy(v => v).ToList();
+                if (valeurs.Count > 0)
+                    medianes[grp.Key] = valeurs.Count % 2 == 0
+                        ? (valeurs[valeurs.Count / 2 - 1] + valeurs[valeurs.Count / 2]) / 2.0
+                        : valeurs[valeurs.Count / 2];
+            }
+        }
+
+        int confirm = toutesEtapes.Count(s => s.State == SopExecutionStepState.Confirmee);
+        int ecart = toutesEtapes.Count(s => s.State == SopExecutionStepState.Ecart);
+        int ignorees = toutesEtapes.Count(s => s.State == SopExecutionStepState.Ignoree);
+        int total = confirm + ecart + ignorees;
+
+        var deviations = toutesEtapes
+            .Where(s => s.State == SopExecutionStepState.Ecart && s.DeviationNote is { Length: > 0 })
+            .Select(s => TronquerMot(s.DeviationNote!))
+            .GroupBy(s => s)
+            .OrderByDescending(g => g.Count())
+            .Take(3)
+            .Select(g => (DeviationPattern: g.Key, Count: g.Count()))
+            .ToList();
+
+        var stars = executions.Where(e => e.FeedbackStars0To5.HasValue)
+                              .Select(e => (double)e.FeedbackStars0To5!.Value)
+                              .ToList();
+        int feedbackCount = stars.Count;
+        double? feedbackAvg = feedbackCount == 0 ? null : Math.Round(stars.Sum() / feedbackCount, 2);
+        DateTimeOffset? derniere = executions.Count == 0 ? null : executions.Max(e => e.StartedAt);
+
+        return new SopDetailedUsageStats
+        {
+            Termine = baseStats.Termine,
+            Abandonne = baseStats.Abandonne,
+            EnCours = baseStats.EnCours,
+            OutcomesAttestes = baseStats.OutcomesAttestes,
+            SuccessRatePercent = baseStats.SuccessRatePercent,
+            MedianStepDurationSecPerOrder = medianes,
+            PercentConfirmeeSteps = total == 0 ? 0 : (int)Math.Round(100.0 * confirm / total),
+            PercentEcartSteps = total == 0 ? 0 : (int)Math.Round(100.0 * ecart / total),
+            PercentIgnoreesSteps = total == 0 ? 0 : (int)Math.Round(100.0 * ignorees / total),
+            TopDeviations = deviations,
+            DerniereUtilisation = derniere,
+            AverageFeedbackStars = feedbackAvg,
+            FeedbackCount = feedbackCount
+        };
+    }
+
+    /// <summary>
+    /// P5 FR-097 — Promouvoir une EXÉCUTION DE SOP réussie (Outcome Problème
+    /// Résolu) en CapitalizedIncident lié au SOP utilisé. Complète la voie
+    /// Diagnostic → Incident déjà présente dans LogAnalysisService : ici
+    /// c'est une exécution humaine résolutoire → capitalisation.
+    /// </summary>
+    public async Task<(bool Ok, Guid? IncidentId, string? Error)> PromoteExecutionToCapitalizedIncidentAsync(
+        Guid sopExecutionId, string actor,
+        string? rootCauseCode = null, string? rootCauseLabel = null,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var exec = await db.SopExecutions.FirstOrDefaultAsync(e => e.Id == sopExecutionId, ct);
+        if (exec is null) return (false, null, "Exécution de SOP introuvable.");
+        if (exec.Outcome != SopOutcome.ProblemeResolu)
+            return (false, null, "Seule une exécution de SOP avec résultat « Problème Résolu » peut être capitalisée.");
+
+        if (await db.CapitalizedIncidents.AnyAsync(ci => ci.LinkedExecutionId == sopExecutionId, ct))
+            return (false, null, "Cette exécution est déjà rattachée à un incident capitalisé.");
+
+        var dureeMin = (long)Math.Round(exec.Duration.TotalMinutes);
+        if (dureeMin < 0) dureeMin = 0;
+        ResolutionSkillLevel skill = dureeMin > 240 ? ResolutionSkillLevel.ExpertNavisEditeur
+                                  : dureeMin > 60  ? ResolutionSkillLevel.N2Specialiste
+                                                   : ResolutionSkillLevel.N1Support;
+
+        var ci = new CapitalizedIncident
+        {
+            ExternalReference = $"INC-SOP-{exec.StartedAt:yyyyMMdd}-{exec.CorrelationId[..6].ToUpperInvariant()}",
+            EnvironmentId = exec.EnvironmentId,
+            DeclaredSeverity = CriticalityLevel.Moyenne,
+            InitialSymptom = exec.Reason ?? exec.SopTitle,
+            RealIncidentStartedAt = exec.StartedAt,
+            RealIncidentEndedAt = exec.EndedAt ?? DateTimeOffset.UtcNow,
+            TotalDurationMinutes = dureeMin,
+            DetectedBySentinelAt = exec.StartedAt,
+            MainRootCauseCode = rootCauseCode ?? exec.SopCode,
+            MainRootCauseLabel = rootCauseLabel ?? exec.OutcomeNote ?? exec.Reason ?? $"{exec.SopCode} — SOP",
+            CorrectiveActionsTaken = $"SOP appliqué : {exec.SopTitle} v{exec.SopVersion} — ticket {exec.TicketReference ?? "N/A"}.",
+            LinkedExecutionId = sopExecutionId,
+            GeneratedSOPId = exec.SopId,
+            OperatorsInvolvedCount = 1,
+            ResolutionSkillLevel = skill,
+            ClosedBy = actor,
+            ClosedAt = DateTimeOffset.UtcNow,
+            LessonsAndCorrectives = exec.OutcomeNote
+        };
+        db.CapitalizedIncidents.Add(ci);
+        await db.SaveChangesAsync(ct);
+        return (true, ci.Id, null);
+    }
+
+    // -----------------------------------------------------------------------
+    // P5 — internes qualité
+    // -----------------------------------------------------------------------
+    private static int CompterSectionsRemplies(Domain.Sop s)
+    {
+        var sections = new string?[]
+        {
+            s.Objective, s.Scope, s.Prerequisites, s.Risks, s.Controls,
+            s.ExpectedOutcome, s.RollbackPlan, s.EscalationPath
+        };
+        return sections.Count(x => !string.IsNullOrWhiteSpace(x));
+    }
+
+    private async Task<SopQualityReport> CalculerRapportQualiteInterne(
+        N4SentinelDbContext db, Domain.Sop sop, CancellationToken ct)
+    {
+        var axes = new List<SopAxisScore>(5);
+
+        // --- 1. Complétude FR-088 : max 20 ---------------------------------
+        int n = CompterSectionsRemplies(sop);
+        int scoreCompletude = n * 20 / 8;
+        axes.Add(new SopAxisScore
+        {
+            Code = "FR088",
+            Label = "Complétude du gabarit FR-088 (8 sections)",
+            Score = scoreCompletude,
+            Justification = $"{n}/8 sections renseignées. Minimum attendu 6/8."
+        });
+
+        // --- 2. Qualité des étapes : max 20 --------------------------------
+        var etapes = sop.Steps.ToList();
+        int scoreEtapes = 0;
+        string justEtapes;
+        if (etapes.Count == 0) { scoreEtapes = 0; justEtapes = "Aucune étape : non publiable."; }
+        else
+        {
+            int avecInstruction = etapes.Count(s => !string.IsNullOrWhiteSpace(s.Instruction));
+            int avecAttendu = etapes.Count(s => !string.IsNullOrWhiteSpace(s.ExpectedResult));
+            scoreEtapes = (avecInstruction * 10 + avecAttendu * 10) / Math.Max(1, etapes.Count);
+            if (etapes.Count >= 3) scoreEtapes = Math.Min(20, scoreEtapes + 0); // bonus implicite = plus d'étapes = mieux documenté
+            justEtapes = $"{etapes.Count} étape(s). {avecInstruction} avec Instruction obligatoire, "
+                       + $"{avecAttendu} avec Résultat attendu.";
+        }
+        axes.Add(new SopAxisScore
+        {
+            Code = "STEPS",
+            Label = "Qualité des étapes (instruction + attendu)",
+            Score = scoreEtapes,
+            Justification = justEtapes
+        });
+
+        // --- 3. Couverture associations : max 20 -------------------------
+        var associations = sop.Associations.Count;
+        int scoreAssoc = associations switch
+        {
+            0 => 0,
+            1 => 10,
+            2 => 16,
+            _ => 20
+        };
+        axes.Add(new SopAxisScore
+        {
+            Code = "LINKS",
+            Label = "Couverture associations (composant / signature / session)",
+            Score = scoreAssoc,
+            Justification = associations == 0
+                ? "Aucune association. Le SOP ne sera pas suggéré automatiquement."
+                : $"{associations} association(s) → SuggestForReuse actif."
+        });
+
+        // --- 4. Historique exécutions attestées : max 20 ------------------
+        var detail = await GetDetailedUsageStatsAsync(sop.Id, ct);
+        int scoreHistorique = detail.OutcomesAttestes switch
+        {
+            0 => 4,   // pas encore de recul
+            1 => 9,
+            2 => 14,
+            >= 5 and < 10 => 17,
+            >= 10 => 20,
+            _ => 12
+        };
+        axes.Add(new SopAxisScore
+        {
+            Code = "HIST",
+            Label = "Historique d'utilisation & attestations FR-089D",
+            Score = scoreHistorique,
+            Justification = $"{detail.Total} exécution(s), {detail.OutcomesAttestes} résultat(s) attesté(s). "
+                          + $"Taux succès attesté : {detail.SuccessRatePercent?.ToString() ?? "N/A"}%"
+        });
+
+        // --- 5. Gestion des risques & sensibilité : max 20 ----------------
+        int scoreRisques;
+        string justRisques;
+        bool sensible = sop.RequiresElevatedRole;
+        bool risqueRempli = !string.IsNullOrWhiteSpace(sop.Risks)
+                         && !string.IsNullOrWhiteSpace(sop.RollbackPlan)
+                         && !string.IsNullOrWhiteSpace(sop.EscalationPath);
+        if (sensible && risqueRempli) { scoreRisques = 20; justRisques = "SOP sensible. Risques, Rollback et Escalade tous renseignés : OK."; }
+        else if (sensible) { scoreRisques = 5; justRisques = "SOP sensible : Risques/Rollback/Escalade TOUS obligatoires, mais il en manque au moins un."; }
+        else if (risqueRempli) { scoreRisques = 18; justRisques = "SOP standard, triade Risques/Rollback/Escalade complète : bonne pratique."; }
+        else { scoreRisques = 10; justRisques = "Triade Risques/Rollback/Escalade incomplète : à compléter avant publication Actif."; }
+        axes.Add(new SopAxisScore
+        {
+            Code = "RISK",
+            Label = "Gestion des risques (Risques/Rollback/Escalade)",
+            Score = scoreRisques,
+            Justification = justRisques
+        });
+
+        int global = axes.Sum(a => a.Score);
+        SopQualityGrade grade;
+        if (global < 50 || axes.Any(a => a.Score < 7)) grade = SopQualityGrade.Insuffisant;
+        else if (global < 70) grade = SopQualityGrade.Passable;
+        else if (global >= 90 && axes.All(a => a.Score >= 14)) grade = SopQualityGrade.Excellence;
+        else grade = SopQualityGrade.Bon;
+
+        string resume = grade switch
+        {
+            SopQualityGrade.Insuffisant => $"Insuffisant ({global}/100). Corriger le ou les axes faibles avant soumission.",
+            SopQualityGrade.Passable => $"Passable ({global}/100). Qualifiable en Valide, mais améliorations conseillées avant Actif.",
+            SopQualityGrade.Bon => $"Bon ({global}/100). Standard attendu pour publication Actif.",
+            SopQualityGrade.Excellence => $"Excellence ({global}/100). SOP de référence.",
+            _ => $"{global}/100."
+        };
+
+        return new SopQualityReport
+        {
+            Axes = axes,
+            OverallScorePercent = global,
+            Grade = grade,
+            Resume = resume
+        };
+    }
+
+    private static string TronquerMot(string texte)
+    {
+        if (string.IsNullOrWhiteSpace(texte)) return "(sans motif)";
+        var premier = texte.Split(['.', '\n'], StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+        return premier.Length <= 120 ? premier : premier[..120];
+    }
 }
 
 /// <summary>Les champs du gabarit structuré (FR-088), regroupés pour ne pas alourdir la signature de <c>SaveAsync</c>.</summary>
@@ -896,6 +1358,63 @@ public sealed record SopUsageStats
     /// qu'aucun opérateur n'a attesté de résultat — jamais fabriqué.
     /// </summary>
     public int? SuccessRatePercent { get; init; }
+
+    public int Total => Termine + Abandonne + EnCours;
+}
+
+/// <summary>
+/// P5 FR-090 — Rapport qualité 5 axes d'un SOP, score global et niveau
+/// d'excellence. Calculé à la demande, jamais persisté : il reflète toujours
+/// l'état courant des exécutions attestées et du contenu du SOP.
+/// </summary>
+public sealed record SopQualityReport
+{
+    public required List<SopAxisScore> Axes { get; init; } = [];
+    public int OverallScorePercent { get; init; }
+    public SopQualityGrade Grade { get; init; }
+    public required string Resume { get; init; }
+}
+
+/// <summary>
+/// Un axe du rapport qualité FR-090 : son nom, son score 0–20 (max 20/axe,
+/// ce qui donne 100 pour 5 axes), sa note explicative pour un lecteur humain.
+/// </summary>
+public sealed record SopAxisScore
+{
+    public required string Code { get; init; }
+    public required string Label { get; init; }
+    public int Score { get; init; }
+    public required string Justification { get; init; }
+}
+
+/// <summary>
+/// P5 — Statistiques d'utilisation détaillées d'un SOP, au-delà de
+/// <see cref="SopUsageStats"/>. Utilisé pour prioriser les suggestions de
+/// réutilisation et décider de la révocation d'un SOP peu utilisé ou
+/// régulièrement mis en échec.
+/// </summary>
+public sealed record SopDetailedUsageStats
+{
+    public int Termine { get; init; }
+    public int Abandonne { get; init; }
+    public int EnCours { get; init; }
+    public int OutcomesAttestes { get; init; }
+    public int? SuccessRatePercent { get; init; }
+
+    /// <summary>Médiane (pas moyenne : la normale est un piège) de la durée par étape, en secondes.</summary>
+    public Dictionary<int, double> MedianStepDurationSecPerOrder { get; init; } = new();
+
+    /// <summary>Pourcentage global des étapes confirmées « conforme » vs « écart » vs « contournée ».</summary>
+    public int PercentConfirmeeSteps { get; init; }
+    public int PercentEcartSteps { get; init; }
+    public int PercentIgnoreesSteps { get; init; }
+
+    /// <summary>Top 3 des écarts les plus fréquents dans ce SOP — utile pour améliorer les instructions.</summary>
+    public List<(string DeviationPattern, int Count)> TopDeviations { get; init; } = [];
+
+    public DateTimeOffset? DerniereUtilisation { get; init; }
+    public double? AverageFeedbackStars { get; init; }
+    public int FeedbackCount { get; init; }
 
     public int Total => Termine + Abandonne + EnCours;
 }

@@ -19,6 +19,9 @@ public sealed class MetricsService
 
     private readonly ConcurrentDictionary<ExecutionStepState, long> _stepOutcomes = new();
     private readonly ConcurrentDictionary<DiagnosticVerdict, long> _diagnosticVerdicts = new();
+    private readonly ConcurrentDictionary<ResolutionSkillLevel, long> _incidentResolutionLevels = new();
+    private long _incidentMttrSumMinutes;
+    private long _incidentCount;
 
     public void RecordSupervisionPoll(TimeSpan duree, bool succes)
     {
@@ -33,16 +36,35 @@ public sealed class MetricsService
     public void RecordDiagnosticVerdict(DiagnosticVerdict verdict) =>
         _diagnosticVerdicts.AddOrUpdate(verdict, 1, (_, n) => n + 1);
 
+    /// <summary>
+    /// NFR-008 : métriques de capitalisation d'incident après diagnostic.
+    /// Permet de suivre l'évolution du MTTR moyen et la répartition des
+    /// niveaux de résolution N1/N2/Expert, ainsi que la distribution des
+    /// verdicts pour les incidents capitalisés.
+    /// </summary>
+    public void RecordIncidentCapitalized(ResolutionSkillLevel niveau, long mttrMinutes, DiagnosticVerdict verdict)
+    {
+        _incidentResolutionLevels.AddOrUpdate(niveau, 1, (_, n) => n + 1);
+        Interlocked.Add(ref _incidentMttrSumMinutes, mttrMinutes);
+        Interlocked.Increment(ref _incidentCount);
+        RecordDiagnosticVerdict(verdict);
+    }
+
     public MetricsSnapshot GetSnapshot()
     {
         var polls = Interlocked.Read(ref _supervisionPolls);
+        var incidents = Interlocked.Read(ref _incidentCount);
         return new MetricsSnapshot
         {
             SupervisionPollCount = polls,
             SupervisionPollFailureCount = Interlocked.Read(ref _supervisionPollFailures),
             SupervisionPollAverageMs = polls > 0 ? (double)Interlocked.Read(ref _supervisionPollTotalMs) / polls : 0,
             StepOutcomes = _stepOutcomes.ToDictionary(kv => kv.Key, kv => kv.Value),
-            DiagnosticVerdicts = _diagnosticVerdicts.ToDictionary(kv => kv.Key, kv => kv.Value)
+            DiagnosticVerdicts = _diagnosticVerdicts.ToDictionary(kv => kv.Key, kv => kv.Value),
+            CapitalizedIncidentCount = incidents,
+            CapitalizedIncidentAverageMttrMinutes = incidents > 0
+                ? (double)Interlocked.Read(ref _incidentMttrSumMinutes) / incidents : null,
+            IncidentResolutionLevels = _incidentResolutionLevels.ToDictionary(kv => kv.Key, kv => kv.Value)
         };
     }
 }
@@ -54,4 +76,8 @@ public sealed record MetricsSnapshot
     public double SupervisionPollAverageMs { get; init; }
     public Dictionary<ExecutionStepState, long> StepOutcomes { get; init; } = new();
     public Dictionary<DiagnosticVerdict, long> DiagnosticVerdicts { get; init; } = new();
+
+    public long CapitalizedIncidentCount { get; init; }
+    public double? CapitalizedIncidentAverageMttrMinutes { get; init; }
+    public Dictionary<ResolutionSkillLevel, long> IncidentResolutionLevels { get; init; } = new();
 }

@@ -1,11 +1,14 @@
 @page "/admin/azure-ad"
 @using Microsoft.AspNetCore.Authorization
 @using N4Sentinel.Domain
+@using N4Sentinel.Domain.Interfaces
 @using N4Sentinel.Infrastructure.Security
 @attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
 @rendermode InteractiveServer
 @inject AzureAdSettingsService Settings
-@inject AuthenticationStateProvider AuthProvider
+@inject IAuthProvider? AuthProvider
+@inject AuthenticationStateProvider AuthProviderUI
+@inject ILogger<AzureAd> Logger
 
 <PageTitle>Azure AD / SSO — N4 Sentinel</PageTitle>
 
@@ -13,17 +16,23 @@
     <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Azure AD / SSO</h1>
         <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
-            SEC-001 — intégration prévue pour la V2. Ces paramètres préparent le futur connecteur OpenID Connect ;
-            ils n'activent aucune connexion SSO fonctionnelle en V1, quelle que soit la valeur ci-dessous.
+            SEC-001 · S3-08. Configuration complète du SSO Entra ID (Azure AD) pour la V2.
+            <strong class="text-rose-400">La connexion est actuellement désactivée par défaut</strong> :
+            seuls la configuration, le mapping de rôles et les tests d'intégrité hors signature
+            sont accessibles. Pour activer réellement le flux SSO, il faudra installer le package
+            OpenIdConnect, positionner <em>RequireSignatureValidation=false</em> et
+            <em>AllowTokenPastedLogin=true</em> en accord avec la DSI.
         </p>
     </div>
 
-    <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-xs leading-relaxed">
-        <strong>Aucun connecteur OIDC réel n'est implémenté.</strong> Une intégration Azure AD authentique exige la
-        vérification de signature contre le JWKS du tenant, le contrôle d'audience/émetteur et d'expiration.
-        Tant que ce connecteur n'existe pas, toute tentative de connexion SSO échoue par construction — activer
-        « Enabled » ci-dessous ne fait qu'enregistrer l'intention, pas la fonctionnalité. Le second facteur TOTP
-        (Microsoft/Google Authenticator) reste le mécanisme d'authentification retenu pour la V1 (SEC-001).
+    <div class="p-4 rounded-xl border text-xs leading-relaxed @_statutClasse">
+        <div class="flex items-center gap-2 font-bold">
+            <i class="bi @_statutIcone"></i>
+            <span>État actuel : @_statutTexte</span>
+        </div>
+        <div class="mt-1 text-slate-300">
+            @_statutDetail
+        </div>
     </div>
 
     @if (_message is not null)
@@ -37,12 +46,47 @@
     }
     else
     {
-        <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4 text-xs">
-            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
-                <input type="checkbox" class="rounded bg-slate-900 border-slate-700" @bind="_parametres.Enabled" />
-                <span><strong>Enabled</strong> — intention d'activer le SSO Azure AD (sans effet fonctionnel tant que le connecteur V2 n'existe pas)</span>
-            </label>
+        <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-5 text-xs">
+            @* Partie 1 : Activation & Gardes SEC-001 *@
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label class="flex flex-col gap-2 p-3 rounded-xl bg-slate-800/40 border border-slate-700 cursor-pointer hover:bg-slate-800/60 transition">
+                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700 w-4 h-4" @bind="_parametres.Enabled" />
+                    <div>
+                        <div class="text-slate-200 font-bold">Enabled — Intention d'activer le SSO</div>
+                        <div class="text-slate-400 mt-1 text-[10.5px] leading-relaxed">
+                            Active l'affichage du bouton « Se connecter avec Azure AD » sur l'écran de login.
+                            À lui seul, ce switch <strong>ne suffit pas</strong> : les deux gardes ci-dessous
+                            doivent aussi être levés.
+                        </div>
+                    </div>
+                </label>
 
+                <label class="flex flex-col gap-2 p-3 rounded-xl @GardeClasse(_parametres.RequireSignatureValidation) cursor-pointer hover:opacity-95 transition">
+                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700 w-4 h-4" @bind="_parametres.RequireSignatureValidation" />
+                    <div>
+                        <div class="text-slate-200 font-bold">RequireSignatureValidation — Garde #1 (défaut ON)</div>
+                        <div class="text-slate-400 mt-1 text-[10.5px] leading-relaxed">
+                            Tant que <strong>coché</strong>, toute tentative de connexion SSO est
+                            <span class="text-rose-400 font-semibold">systématiquement rejetée</span>.
+                            Décocher en recettes pour tester le flux jetons sans vérification de signature
+                            RS256 (recommandé V1 P1).
+                        </div>
+                    </div>
+                </label>
+
+                <label class="flex flex-col gap-2 p-3 rounded-xl @GardeClasse(_parametres.AllowTokenPastedLogin) cursor-pointer hover:opacity-95 transition">
+                    <input type="checkbox" class="rounded bg-slate-900 border-slate-700 w-4 h-4" @bind="_parametres.AllowTokenPastedLogin" />
+                    <div>
+                        <div class="text-slate-200 font-bold">AllowTokenPastedLogin — Garde #2 (défaut OFF)</div>
+                        <div class="text-slate-400 mt-1 text-[10.5px] leading-relaxed">
+                            Autorise l'écran de login à proposer un champ « Coller un id_token » pour les recettes.
+                            Le flux OIDC Authorization Code + PKCE (production) reste non câblé en V1.
+                        </div>
+                    </div>
+                </label>
+            </div>
+
+            @* Partie 2 : Paramètres techniques (tenant / authority / clientid) *@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-slate-400 font-semibold mb-1">Tenant ID</label>
@@ -52,10 +96,10 @@
                 <div>
                     <label class="block text-slate-400 font-semibold mb-1">Client ID</label>
                     <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
-                           placeholder="(à renseigner lors de l'inscription de l'application)" @bind="_parametres.ClientId" />
+                           placeholder="(App registration Entra ID)" @bind="_parametres.ClientId" />
                 </div>
                 <div class="md:col-span-2">
-                    <label class="block text-slate-400 font-semibold mb-1">Authority</label>
+                    <label class="block text-slate-400 font-semibold mb-1">Authority (issuer prefix)</label>
                     <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
                            placeholder="https://login.microsoftonline.com/{tenant}/v2.0" @bind="_parametres.Authority" />
                 </div>
@@ -66,9 +110,104 @@
                 </div>
             </div>
 
-            <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition" @onclick="Enregistrer">
-                Enregistrer
-            </button>
+            @* Partie 3 : Mapping de rôles Azure AD → Rôles Sentinel *@
+            <div class="p-4 rounded-xl bg-slate-800/30 border border-slate-700 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-slate-200 font-bold text-sm">Mapping rôles Azure AD → Rôles Sentinel</div>
+                        <div class="text-slate-400 text-[11px] mt-0.5">
+                            Pour chaque valeur trouvée dans les claims <code>roles</code> ou <code>groups</code>
+                            d'Entra ID, on associe un rôle Sentinel de référence (AdminN4 / ExploitN4 / LectureSeule).
+                        </div>
+                    </div>
+                    <button class="btn-theme-secondary text-[11px] px-3 py-1.5 rounded-lg font-bold" @onclick="AjouterRoleMapping">
+                        <i class="bi bi-plus-lg mr-1"></i> Ajouter une règle
+                    </button>
+                </div>
+
+                @if (_parametres.RoleMappings.Count == 0)
+                {
+                    <div class="text-[11px] text-slate-400 italic">
+                        Aucune règle de mapping. Les rôles des utilisateurs connectés en SSO ne seront pas mis à jour.
+                    </div>
+                }
+                else
+                {
+                    <table class="w-full text-[11px] border border-slate-700 rounded-xl overflow-hidden">
+                        <thead class="bg-slate-900 text-slate-400 uppercase tracking-wide">
+                            <tr>
+                                <th class="text-left px-3 py-2 w-1/2">Valeur Azure AD (roles/groups claim)</th>
+                                <th class="text-left px-3 py-2 w-1/3">→ Rôle Sentinel</th>
+                                <th class="text-right px-3 py-2 w-24">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < _parametres.RoleMappings.Count; i++)
+                            {
+                                var index = i;
+                                var regle = _parametres.RoleMappings[index];
+                                <tr class="border-t border-slate-700/70 hover:bg-slate-900/40">
+                                    <td class="px-3 py-1.5">
+                                        <input class="w-full bg-transparent outline-none border border-slate-700/60 rounded px-2 py-1 font-mono text-slate-100 placeholder-slate-500 focus:border-purple-500/60"
+                                               placeholder="N4-ADMINS-GROUP"
+                                               @bind="regle.AzureAdValue" />
+                                    </td>
+                                    <td class="px-3 py-1.5">
+                                        <select class="w-full bg-slate-900 rounded px-2 py-1 border border-slate-700 text-slate-100"
+                                                @bind="regle.SentinelRole">
+                                            <option value="">(ne pas mapper)</option>
+                                            <option value="@N4Roles.AdministrateurN4">@N4Roles.AdministrateurN4</option>
+                                            <option value="@N4Roles.OperateurN4">@N4Roles.OperateurN4</option>
+                                            <option value="@N4Roles.LecteurSupportN1">@N4Roles.LecteurSupportN1</option>
+                                        </select>
+                                    </td>
+                                    <td class="px-3 py-1.5 text-right">
+                                        <button class="px-2 py-0.5 text-rose-400 hover:text-rose-300 font-semibold rounded hover:bg-rose-500/10 transition"
+                                                @onclick="() => SupprimerRoleMapping(index)">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+
+            @* Partie 4 : Test d'intégrité SSO (désactivé — conforme SEC-001) *@
+            <div class="p-4 rounded-xl bg-slate-800/30 border border-slate-700 space-y-3">
+                <div class="text-slate-200 font-bold text-sm">Test d'intégrité id_token (mode recettes)</div>
+                <div class="text-slate-400 text-[11px] leading-relaxed">
+                    Collez un id_token OIDC (format JWT) ci-dessous pour vérifier qu'il passe les contrôles
+                    d'<em>issuer</em>, d'<em>audience</em>, d'expiration et qu'il contient <code>email</code>
+                    + <code>sub</code>. Si <em>RequireSignatureValidation=true</em> (défaut), ce test affiche
+                    systématiquement un échec <strong>même si le jeton est parfaitement valide</strong> :
+                    c'est le comportement attendu d'une configuration « paramétrée mais désactivée ».
+                </div>
+                <textarea rows="3" placeholder="eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMy00NTY..."
+                          class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-[10.5px] font-mono text-slate-200 placeholder-slate-500"
+                          @bind="_jetonTest"></textarea>
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                    <button class="btn-theme-primary text-[11px] px-3 py-1.5 rounded-lg font-bold" @onclick="TesterJeton" disabled="@_testEnCours">
+                        @(_testEnCours ? "Test en cours…" : "Tester l'intégrité du jeton")
+                    </button>
+                    <div class="text-[11px] text-slate-400">
+                        Résultat :
+                        <span class="font-mono ml-1 @(_testResultatOk == true ? "text-emerald-400" :
+                                                    _testResultatOk == false ? "text-rose-400" : "text-slate-500")">@_testResultatTexte</span>
+                    </div>
+                </div>
+                @if (_testDetail is not null)
+                {
+                    <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[10.5px] text-slate-300 whitespace-pre-wrap">@_testDetail</div>
+                }
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-1">
+                <button class="px-5 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition shadow-lg shadow-purple-600/15" @onclick="Enregistrer">
+                    Enregistrer la configuration
+                </button>
+            </div>
         </div>
     }
 </div>
@@ -77,19 +216,163 @@
     private AzureAdSettings? _parametres;
     private string? _message;
     private string _messageClass = string.Empty;
+    private string _jetonTest = string.Empty;
+    private bool _testEnCours;
+    private bool? _testResultatOk;
+    private string _testResultatTexte = "non testé";
+    private string? _testDetail;
 
-    protected override async Task OnInitializedAsync() => _parametres = await Settings.GetAsync();
+    // Statut bandeau SEC-001
+    private string _statutTexte = "Chargement…";
+    private string _statutIcone = "bi-hourglass-split text-slate-400";
+    private string _statutDetail = string.Empty;
+    private string _statutClasse = "bg-slate-800/40 border-slate-700 text-slate-300";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _parametres = await Settings.GetAsync();
+        MettreAJourStatut();
+    }
+
+    protected override void OnParametersSet() => MettreAJourStatut();
+
+    private void MettreAJourStatut()
+    {
+        if (_parametres is null) return;
+        var enabled = _parametres.Enabled;
+        var needSig = _parametres.RequireSignatureValidation;
+        var allowPasted = _parametres.AllowTokenPastedLogin;
+
+        if (!enabled)
+        {
+            _statutTexte = "DÉSACTIVÉ (Enabled=false)";
+            _statutIcone = "bi-shield-x text-slate-400";
+            _statutClasse = "bg-slate-800/40 border-slate-700 text-slate-300";
+            _statutDetail = "Aucune connexion SSO ne sera acceptée tant que Enabled n'est pas coché.";
+        }
+        else if (needSig)
+        {
+            _statutTexte = "CONFIGURÉ MAIS INOPÉRANT (Garde #1 exigée : signature RS256)";
+            _statutIcone = "bi-shield-lock text-amber-400";
+            _statutClasse = "bg-amber-500/10 border-amber-500/25 text-amber-200";
+            _statutDetail =
+                "RequireSignatureValidation=true : les jetons sont systématiquement rejetés, car le package "
+                + "OpenIdConnect/JWKS nécessaire à la vérification de signature RS256 n'est pas installé en V1.";
+        }
+        else if (!allowPasted)
+        {
+            _statutTexte = "CONFIGURÉ — mode recettes DÉSACTIVÉ (Garde #2)";
+            _statutIcone = "bi-shield-exclamation text-sky-400";
+            _statutClasse = "bg-sky-500/10 border-sky-500/25 text-sky-200";
+            _statutDetail =
+                "L'intégrité des jetons serait acceptée hors signature, mais AllowTokenPastedLogin=false : "
+                + "la page Login ne propose pas le champ « coller un id_token ». Connexion SSO impossible.";
+        }
+        else
+        {
+            _statutTexte = "ACTIVÉ (mode recettes — ATTENTION SECURITE)";
+            _statutIcone = "bi-shield-check text-emerald-400";
+            _statutClasse = "bg-emerald-500/10 border-emerald-500/25 text-emerald-200";
+            _statutDetail =
+                "Les deux gardes sont levées : le flux SSO est actif en mode recettes (jetons validés hors "
+                + "signature RS256). Pour repasser en mode désactivé : cochez à nouveau RequireSignatureValidation.";
+        }
+    }
+
+    private static string GardeClasse(bool allume) => allume
+        ? "bg-rose-500/5 border-rose-500/20"
+        : "bg-slate-800/40 border-slate-700";
+
+    private void AjouterRoleMapping()
+    {
+        if (_parametres is null) return;
+        _parametres.RoleMappings.Add(new AzureAdRoleMapping { AzureAdValue = string.Empty, SentinelRole = string.Empty });
+    }
+
+    private void SupprimerRoleMapping(int index)
+    {
+        if (_parametres is null) return;
+        if (index < 0 || index >= _parametres.RoleMappings.Count) return;
+        _parametres.RoleMappings.RemoveAt(index);
+    }
 
     private async Task Enregistrer()
     {
         if (_parametres is null) return;
 
-        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var etat = await AuthProviderUI.GetAuthenticationStateAsync();
         var acteur = etat.User.Identity?.Name ?? "inconnu";
 
         await Settings.SaveAsync(_parametres, acteur);
 
-        _message = "Paramètres enregistrés. Rappel : aucune connexion SSO fonctionnelle n'est active en V1.";
+        _message = "Configuration enregistrée. Rappel : la connexion SSO reste désactivée tant que le bandeau "
+                 + "d'état n'affiche pas « ACTIVÉ » (gardes SEC-001).";
         _messageClass = "bg-emerald-500/10 border-emerald-500/20 text-emerald-300";
+        MettreAJourStatut();
+    }
+
+    private async Task TesterJeton()
+    {
+        if (_parametres is null || AuthProvider is null)
+        {
+            _testResultatOk = false;
+            _testResultatTexte = "connecteur SSO introuvable";
+            _testDetail = AuthProvider is null ? "Aucun IAuthProvider enregistré dans DI." : null;
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_jetonTest))
+        {
+            _testResultatOk = null;
+            _testResultatTexte = "jeton vide";
+            _testDetail = null;
+            return;
+        }
+
+        _testEnCours = true;
+        try
+        {
+            var resultat = await AuthProvider.AuthenticateAsync(_jetonTest);
+            if (resultat is null)
+            {
+                _testResultatOk = false;
+                _testResultatTexte = "REFUSÉ";
+                _testDetail =
+                    "Le jeton n'a pas été accepté par le fournisseur SSO. Raisons possibles selon la configuration :\n"
+                    + "  • Enabled=false          → refus sur intention d'activer\n"
+                    + "  • RequireSignatureValidation=true (défaut) → refus car signature non vérifiée en V1\n"
+                    + "  • Issuer / Audience non conformes aux paramètres enregistrés\n"
+                    + "  • Jeton expiré (exp) ou pas encore valide (nbf)\n"
+                    + "  • Claims email / sub manquants.\n\n"
+                    + "Voir les logs applicatifs (LogWarning [AzureAd]) pour le motif exact.";
+            }
+            else
+            {
+                _testResultatOk = true;
+                _testResultatTexte = "ACCEPTÉ (mode recettes)";
+                var roles = AuthProvider is AzureAdAuthProvider aad && _parametres is not null
+                    ? aad.ApplyRoleMappings(_parametres, resultat.ProviderRoles)
+                    : Array.Empty<string>();
+                _testDetail =
+                    $"Email :       {resultat.Email}\n"
+                    + $"Affichage :   {resultat.DisplayName}\n"
+                    + $"Tenant ID :   {resultat.TenantId}\n"
+                    + $"Subject (sub): {resultat.SubjectId}\n"
+                    + $"Rôles bruts fournisseur : {string.Join(", ", resultat.ProviderRoles.DefaultIfEmpty("(aucun)"))}\n"
+                    + $"Rôles Sentinel après mapping : {string.Join(", ", roles.DefaultIfEmpty("(aucun — voir tableau mapping)"))}\n\n"
+                    + "⚠️ Cette validation n'est valable en recettes que si RequireSignatureValidation a été "
+                    + "explicitement désactivé. Ce résultat ne garantit pas la validité de la signature RS256.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _testResultatOk = false;
+            _testResultatTexte = "ERREUR TECHNIQUE";
+            _testDetail = ex.InnerException?.Message ?? ex.Message;
+            Logger.LogWarning(ex, "Échec technique test intégrité SSO token.");
+        }
+        finally
+        {
+            _testEnCours = false;
+        }
     }
 }

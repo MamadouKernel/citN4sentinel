@@ -51,6 +51,37 @@ public sealed class CredentialStore
     // Lecture - jamais le secret
     // -----------------------------------------------------------------------
     /// <summary>
+    /// Liste globale de tous les comptes techniques (partagés et nominatifs),
+    /// en mode lecture seule du métadonnées — à destination des pages Admin
+    /// qui doivent référencer une credential (connecteurs JMX / serveurs / etc.).
+    /// </summary>
+    public async Task<List<TechnicalCredential>> ListAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        return await db.Credentials
+            .AsNoTracking()
+            .OrderBy(c => c.EnvironmentId)
+            .ThenBy(c => c.Label)
+            .ThenBy(c => c.Reference)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Lecture d'une credential par son ID — utilisée par les connecteurs
+    /// externes (Jolokia JMX). Retourne null si l'ID est vide ou introuvable.
+    /// </summary>
+    public async Task<TechnicalCredential?> GetByIdAsync(
+        Guid? credentialId, CancellationToken ct = default)
+    {
+        if (credentialId == null || credentialId.Value == Guid.Empty) return null;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        return await db.Credentials
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == credentialId.Value, ct);
+    }
+
+    /// <summary>
     /// Comptes PARTAGES d'un environnement, ceux qu'une fiche serveur peut
     /// designer.
     ///
@@ -119,6 +150,40 @@ public sealed class CredentialStore
         return await db.Credentials
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.OwnerLogin == login, ct);
+    }
+
+    /// <summary>
+    /// Dévoile les identifiants en clair (User/Password) pour les connecteurs
+    /// techniques autorisés (Jolokia JMX). Retourne null si la credential est
+    /// introuvable, en mode IdentiteDuProcessus, incomplète ou si déchiffrement échoue.
+    /// </summary>
+    public async Task<(string UserName, string Password)?> GetClearTextLoginAsync(
+        Guid? credentialId, CancellationToken ct = default)
+    {
+        var cred = await GetByIdAsync(credentialId, ct);
+        if (cred is null) return null;
+        if (cred.Mode == CredentialMode.IdentiteDuProcessus) return null;
+        if (string.IsNullOrWhiteSpace(cred.UserName)
+            || string.IsNullOrWhiteSpace(cred.ProtectedPassword))
+        {
+            _logger.LogWarning(
+                "[CredentialStore] Compte {Reference} incomplet — impossible de dévoiler les identifiants.",
+                cred.Reference);
+            return null;
+        }
+
+        try
+        {
+            var clair = _protector.Unprotect(cred.ProtectedPassword);
+            return (cred.UserName, clair);
+        }
+        catch (System.Security.Cryptography.CryptographicException ex)
+        {
+            _logger.LogError(ex,
+                "[CredentialStore] Déchiffrement impossible {Reference}. Ré-enregistrez le mot de passe.",
+                cred.Reference);
+            return null;
+        }
     }
 
     /// <summary>

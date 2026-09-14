@@ -173,6 +173,7 @@ public sealed class OrchestrationEngine(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<N4SentinelDbContext>>();
         var executor = sp.GetRequiredService<StepExecutor>();
         var locks = sp.GetRequiredService<EnvironmentLockService>();
+        var palier2Approvals = sp.GetRequiredService<Palier2ApprovalService>();
 
         while (!ct.IsCancellationRequested)
         {
@@ -201,7 +202,7 @@ public sealed class OrchestrationEngine(
                 execution.PostCancellationReport = rapportEtat;
                 execution.RequiresManualInterventionAfterCancel = interventionRequise;
 
-                await TerminerAsync(db, execution, ExecutionStatus.Annule,
+                await TerminerAsync(sp, db, execution, ExecutionStatus.Annule,
                     $"Annulée par {execution.CancelRequestedBy}. Les étapes déjà exécutées ne sont PAS défaites."
                     + (interventionRequise
                         ? " ÉTAT INSTABLE CONSTATÉ — une intervention manuelle ou une escalade est requise avant toute reprise."
@@ -238,7 +239,7 @@ public sealed class OrchestrationEngine(
             if (restantes.Count == 0)
             {
                 var (statut, motif) = Conclure(execution);
-                await TerminerAsync(db, execution, statut, motif, locks, ct);
+                await TerminerAsync(sp, db, execution, statut, motif, locks, ct);
                 await NotifierFinDOperationAsync(execution, ct);
                 Notifier(executionId);
                 return;
@@ -270,16 +271,38 @@ public sealed class OrchestrationEngine(
             // --- Confirmation préalable exigée : le moteur vérifie si le Palier 2 (automatique bout en bout) est actif.
             if (suivante.RequiresConfirmation && suivante.ConfirmedBy is null)
             {
-                var isPalier2Auto = execution.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout 
-                                  && !execution.IsFallbackSemiAutoForced 
-                                  && suivante.Action != StepAction.InterventionManuelle;
+                var isPalier2Auto = execution.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout
+                                  && !execution.IsFallbackSemiAutoForced
+                                  && suivante.Action != StepAction.InterventionManuelle
+                                  && !suivante.IsDestructive;
 
                 if (isPalier2Auto)
                 {
                     suivante.ConfirmedBy = "Système (Palier 2 Automatique)";
                     suivante.ConfirmedAt = DateTimeOffset.UtcNow;
                     suivante.ProgressMessage = "Validation automatique Palier 2 — Exécution contrôlée de bout en bout.";
-                    logger.LogInformation("[Palier 2] Auto-confirmation de l'étape {StepName} pour l'exécution {CorrelationId}.", suivante.Name, execution.CorrelationId);
+                    logger.LogInformation(
+                        "[Palier 2 auto-confirmé] Étape {StepName} confirmée automatiquement pour l'exécution {CorrelationId}.",
+                        suivante.Name, execution.CorrelationId);
+                }
+                else if (execution.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout
+                         && !execution.IsFallbackSemiAutoForced
+                         && suivante.IsDestructive)
+                {
+                    // RG-039 : étape destructive (Arrêter / Redémarrer / ArrêtForce) — MÊME en
+                    // Palier 2, la validation humaine reste obligatoire. On ne passe JAMAIS en
+                    // auto-confirmé : l'opérateur doit explicitement accepter le risque.
+                    logger.LogWarning(
+                        "[Palier 2] Étape destructive {StepName} ({Action}) sur {CorrelationId} : passage en attente de validation humaine (double garde Palier2).",
+                        suivante.Name, suivante.Action, execution.CorrelationId);
+
+                    suivante.State = ExecutionStepState.EnAttente;
+                    suivante.ProgressMessage =
+                        "Palier 2 actif, mais cette étape est destructive (arrêt, redémarrage ou arrêt forcé). "
+                        + "Une validation humaine explicite est requise avant exécution — le moteur ne la confirme pas automatiquement.";
+                    await db.SaveChangesAsync(ct);
+                    Notifier(executionId);
+                    continue;
                 }
                 else
                 {
@@ -315,7 +338,42 @@ public sealed class OrchestrationEngine(
 
             // --- Lancement du lot.
             var enParallele = lot.Count > 1;
+
+            // PB-23 : pour TOUTE étape destructive du lot (même après approbation
+            // RG-039 manuelle), on vérifie que le connecteur technique est bien
+            // dans la liste Palier2AuthorizedConnectorReferences. Une étape qui
+            // échoue est replacée en EnAttente avec message, le lot continue sans
+            // elle (les autres étapes non destructives sont lancées).
+            var demarrables = new List<ExecutionStep>(lot.Count);
             foreach (var etape in lot)
+            {
+                if (etape.IsDestructive && etape.ComponentId is not null)
+                {
+                    var creds = await db.Components
+                        .AsNoTracking()
+                        .Where(c => c.Id == etape.ComponentId.Value)
+                        .Select(c => new { c.Server!.CredentialReference })
+                        .FirstOrDefaultAsync(ct);
+                    var ok = await palier2Approvals.ValidateConnectorAllowedAsync(
+                        execution.EnvironmentId,
+                        creds?.CredentialReference,
+                        etape.Name,
+                        execution.RequestedBy,
+                        ct);
+                    if (!ok)
+                    {
+                        etape.State = ExecutionStepState.EnAttente;
+                        etape.ProgressMessage =
+                            "PB-23 Palier 2 : la référence de credential utilisée sur cette étape destructive " +
+                            "n'apparaît PAS dans la liste des connecteurs autorisés de l'environnement. " +
+                            "Demandez à un AdminN4 d'ajouter la référence ou d'approuver manuellement.";
+                        continue;
+                    }
+                }
+                demarrables.Add(etape);
+            }
+
+            foreach (var etape in demarrables)
             {
                 etape.State = ExecutionStepState.EnCours;
                 etape.StartedAt ??= DateTimeOffset.UtcNow;
@@ -326,12 +384,19 @@ public sealed class OrchestrationEngine(
             await db.SaveChangesAsync(ct);
             Notifier(executionId);
 
+            if (demarrables.Count == 0)
+            {
+                _progression.TryRemove(executionId, out _);
+                Notifier(executionId);
+                continue;
+            }
+
             if (enParallele)
                 logger.LogInformation(
                     "[{Correlation}] Lancement en parallèle de {N} étapes : {Etapes}.",
-                    execution.CorrelationId, lot.Count, string.Join(", ", lot.Select(e => e.Name)));
+                    execution.CorrelationId, demarrables.Count, string.Join(", ", demarrables.Select(e => e.Name)));
 
-            var taches = lot.Select(etape => ExecuterUneEtapeAsync(
+            var taches = demarrables.Select(etape => ExecuterUneEtapeAsync(
                 dbFactory, executor, executionId, execution.CorrelationId, execution.IsSimulation, etape, ct));
 
             await Task.WhenAll(taches);
@@ -625,6 +690,7 @@ public sealed class OrchestrationEngine(
     }
 
     private static async Task TerminerAsync(
+        IServiceProvider sp,
         N4SentinelDbContext db, WorkflowExecution execution, ExecutionStatus statut, string motif,
         EnvironmentLockService locks, CancellationToken ct)
     {
@@ -634,6 +700,28 @@ public sealed class OrchestrationEngine(
 
         await db.SaveChangesAsync(ct);
         await locks.ReleaseAsync(execution.Id, ct);
+
+        try
+        {
+            var capitalisation = sp.GetService<Capitalisation.IncidentCapitalizationService>();
+            if (capitalisation is not null)
+            {
+                var (err, _) = await capitalisation.CapitalizeFromExecutionAsync(execution.Id, ct);
+                if (!string.IsNullOrWhiteSpace(err))
+                {
+                    // Capitalisation non bloquante pour l'opération WF : journalisation
+                    // seulement, ne pas faire échouer Terminer.
+                    var log = sp.GetService<ILoggerFactory>()?.CreateLogger<OrchestrationEngine>();
+                    log?.LogWarning("Capitalisation incident échouée pour exécution {Exe} : {Erreur}",
+                        execution.Id, err);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            var log = sp.GetService<ILoggerFactory>()?.CreateLogger<OrchestrationEngine>();
+            log?.LogError(ex, "Capitalisation incident a levé une exception pour exécution {Exe}.", execution.Id);
+        }
     }
 
     /// <summary>

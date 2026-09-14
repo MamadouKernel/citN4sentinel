@@ -108,6 +108,9 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
                 _factory,
                 new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
                 NullLogger<N4Sentinel.Infrastructure.Security.EnvironmentAccessService>.Instance),
+            new SupervisionStateCache(),
+            new MeriseBusinessPolicyService(_factory),
+            new Palier2ApprovalService(_factory, new AuditWriter(_factory)),
             NullLogger<PreflightService>.Instance);
 
         _moteur = new OrchestrationEngine(
@@ -116,7 +119,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             NullLogger<OrchestrationEngine>.Instance);
 
         var prepareUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase(_factory, NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase>.Instance);
-        var approveUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ApproveExecutionUseCase(_factory);
+        var approveUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ApproveExecutionUseCase(_factory, new MeriseBusinessPolicyService(_factory));
         var controlUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase(_factory, _verrous, new AuditWriter(_factory), NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase>.Instance, engine: _moteur, supervision: supervision);
 
         _executions = new ExecutionService(_factory, _verrous, new AuditWriter(_factory),

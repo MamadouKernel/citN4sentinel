@@ -1,0 +1,320 @@
+@page "/admin/jmx"
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Persistence
+@using N4Sentinel.Infrastructure.Security
+@using N4Sentinel.Domain.Interfaces
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerConnecteurs)]
+@rendermode InteractiveServer
+@inject IDbContextFactory<N4SentinelDbContext> DbFactory
+@inject IJmxConnector Jmx
+@inject CredentialStore Credentials
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Connecteurs JMX ActiveMQ — N4 Sentinel</PageTitle>
+
+<div class="space-y-5">
+    <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Connecteurs JMX / Jolokia ActiveMQ</h1>
+        <p class="text-xs text-slate-400 mt-1 max-w-4xl leading-relaxed">
+            S3-09. Déclarez ici les endpoints Jolokia des brokers ActiveMQ, Center, XPS, ECN4, Web de N4.
+            Un endpoint sans <em>Jolokia Base URL</em> est opéré en <strong>mode simulé sécuritaire</strong> :
+            les opérations (purge queue, reset stats, read size) ne sont jamais émises en HTTP réel,
+            et leur appel génère une réponse de simulation + un audit JmxEchec.
+        </p>
+    </div>
+
+    @if (_endpoints is null)
+    {
+        <div class="text-xs text-slate-400">Chargement…</div>
+    }
+    else
+    {
+        <div class="flex flex-wrap items-center gap-2 justify-end mb-1">
+            <button class="btn-theme-primary text-xs px-4 py-2 rounded-xl font-bold" @onclick="AjouterEndpoint">
+                <i class="bi bi-plus-lg mr-1"></i> Nouvel endpoint JMX
+            </button>
+            <button class="btn-theme-secondary text-xs px-4 py-2 rounded-xl font-bold" @onclick="Recharger">
+                <i class="bi bi-arrow-clockwise mr-1"></i> Recharger
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            @foreach (var ep in _endpoints)
+            {
+                @if (_edition != null && _edition.Id == ep.Id)
+                {
+                    <div class="rounded-2xl glass-card border-2 border-purple-500/40 p-5 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="text-sm font-extrabold text-white">✎ Édition — @_edition.Name</div>
+                            <button class="text-slate-400 hover:text-white text-xs" @onclick="AnnulerEdition">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                            <div>
+                                <label class="block text-slate-400 font-bold mb-1">Nom</label>
+                                <input class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_edition.Name" />
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold mb-1">Type</label>
+                                <select class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                        @bind="_edition.EndpointType">
+                                    <option value="@JmxEndpointType.ActiveMQBroker">ActiveMQ Broker (Bridge)</option>
+                                    <option value="@JmxEndpointType.N4Center">N4 Center</option>
+                                    <option value="@JmxEndpointType.N4Xps">N4 XPS</option>
+                                    <option value="@JmxEndpointType.N4Ecn4">N4 ECN4</option>
+                                    <option value="@JmxEndpointType.N4Web">N4 Web</option>
+                                    <option value="@JmxEndpointType.Autre">Autre</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold mb-1">Hôte</label>
+                                <input class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono" @bind="_edition.Host" />
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold mb-1">Port</label>
+                                <input type="number" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono" @bind="_edition.Port" />
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-slate-400 font-bold mb-1">Jolokia Base URL</label>
+                                <input class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                       placeholder="http://broker-prd.local:8161/api/jolokia/ — laisser VIDE pour activer le MODE SIMULÉ"
+                                       @bind="_edition.JolokiaBaseUrl" />
+                                <p class="text-[10px] text-amber-400 mt-1">
+                                    ⚠ Si vide : TOUTES les opérations resteront en simulation (pas d'appel HTTP émis).
+                                </p>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold mb-1">Identifiants techniques</label>
+                                <select class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_editionCredentialId">
+                                    <option value="">(aucun)</option>
+                                    @if (_creds is not null)
+                                    {
+                                        @foreach (var c in _creds)
+                                        {
+                                            <option value="@c.Id">@c.Label — @c.Mode</option>
+                                        }
+                                    }
+                                </select>
+                                <p class="text-[10px] text-slate-500 mt-1">Utilisé en Basic Auth vers Jolokia.</p>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold mb-1">Activation</label>
+                                <label class="flex items-center gap-2 text-slate-200 mt-1 cursor-pointer">
+                                    <input type="checkbox" class="rounded w-4 h-4" @bind="_edition.Enabled" />
+                                    <span class="text-[11px]">Enabled — autoriser les appels (et la simulation si pas d'URL)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        @if (_erreur is not null)
+                        {
+                            <div class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] font-semibold">@_erreur</div>
+                        }
+
+                        <div class="flex justify-end gap-2 pt-2">
+                            <button class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
+                                    @onclick="AnnulerEdition">
+                                Annuler
+                            </button>
+                            <button class="px-4 py-2 rounded-xl btn-theme-primary text-white text-xs font-bold transition disabled:opacity-40"
+                                    disabled="@_sauvegardeEnCours" @onclick="SauverEdition">
+                                @(_sauvegardeEnCours ? "Sauvegarde…" : "Enregistrer")
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="rounded-2xl glass-card border border-slate-800 p-5 space-y-3">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h3 class="text-sm font-extrabold text-white">@ep.Name</h3>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/50 text-slate-300 border border-slate-600/30">@ep.EndpointType</span>
+                                    @if (ep.Enabled)
+                                    {
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">ENABLED</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">DÉSACTIVÉ</span>
+                                    }
+                                    @if (string.IsNullOrWhiteSpace(ep.JolokiaBaseUrl))
+                                    {
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 uppercase">Mode simulé</span>
+                                    }
+                                </div>
+                                <div class="text-[10.5px] text-slate-400 mt-1 font-mono">@ep.Host:@ep.Port</div>
+                                @if (!string.IsNullOrWhiteSpace(ep.JolokiaBaseUrl))
+                                {
+                                    <div class="text-[10.5px] text-slate-500 mt-0.5 font-mono truncate max-w-md">@ep.JolokiaBaseUrl</div>
+                                }
+                                @if (ep.LastReachableAt.HasValue)
+                                {
+                                    <div class="text-[10.5px] text-emerald-400 mt-0.5 font-mono">Dernière connectivité OK : @ep.LastReachableAt.Value.ToString("dd/MM/yyyy HH:mm") UTC</div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(ep.LastFailureMessage))
+                                {
+                                    <div class="text-[10.5px] text-rose-400 mt-0.5 truncate">Dernier échec : @ep.LastFailureMessage</div>
+                                }
+                            </div>
+                            <button class="text-slate-400 hover:text-white" @onclick="() => OuvrirEdition(ep)">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                            <button class="btn-theme-secondary font-bold" @onclick="@(async () => await TesterConnectivite(ep))">
+                                <i class="bi bi-wifi"></i> Test connectivité
+                            </button>
+                            <button class="btn-theme-secondary font-bold" @onclick="@(async () => await AppelerOperation(ep, "purge", _queueName))">
+                                <i class="bi bi-x-circle-fill text-rose-400"></i> Purge queue
+                            </button>
+                            <button class="btn-theme-secondary font-bold" @onclick="@(async () => await AppelerOperation(ep, "size", _queueName))">
+                                <i class="bi bi-rulers"></i> Depth queue
+                            </button>
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <label class="text-[10.5px] text-slate-400 font-bold">Queue cible :</label>
+                            <input class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-white font-mono"
+                                   placeholder="N4.BridgeToXPS.Queue / SIM.ERR.BRIDGE …"
+                                   @bind="_queueName" />
+                        </div>
+                        @if (_resultats.TryGetValue(ep.Id, out var res) && res is not null)
+                        {
+                            <div class="p-3 rounded-lg bg-slate-950 border border-slate-800 text-[10.5px] text-slate-300 whitespace-pre-wrap max-h-40 overflow-auto">@res</div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<JmxEndpoint>? _endpoints;
+    private List<TechnicalCredential>? _creds;
+    private JmxEndpoint? _edition;
+    private string? _editionCredentialId;
+    private string? _erreur;
+    private bool _sauvegardeEnCours;
+    private string _queueName = "N4.BridgeToXPS.Queue";
+    private Dictionary<Guid, string> _resultats = new();
+
+    protected override async Task OnInitializedAsync() => await Recharger();
+
+    private async Task Recharger()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        _endpoints = await db.JmxEndpoints.AsNoTracking().OrderBy(e => e.Name).ToListAsync();
+        _creds = await Credentials.ListAsync();
+    }
+
+    private void AjouterEndpoint()
+    {
+        _edition = new JmxEndpoint
+        {
+            Name = "Nouvel endpoint",
+            EndpointType = JmxEndpointType.ActiveMQBroker,
+            Host = string.Empty,
+            Port = 8161,
+            JolokiaBaseUrl = null,
+            Enabled = true
+        };
+        _editionCredentialId = null;
+        _erreur = null;
+    }
+
+    private void OuvrirEdition(JmxEndpoint ep)
+    {
+        _edition = new JmxEndpoint
+        {
+            Id = ep.Id,
+            Name = ep.Name,
+            EndpointType = ep.EndpointType,
+            Host = ep.Host,
+            Port = ep.Port,
+            JolokiaBaseUrl = ep.JolokiaBaseUrl,
+            CredentialId = ep.CredentialId,
+            Enabled = ep.Enabled,
+            LastFailureMessage = ep.LastFailureMessage,
+            LastReachableAt = ep.LastReachableAt
+        };
+        _editionCredentialId = ep.CredentialId?.ToString();
+        _erreur = null;
+    }
+
+    private void AnnulerEdition()
+    {
+        _edition = null;
+        _editionCredentialId = null;
+        _erreur = null;
+    }
+
+    private async Task SauverEdition()
+    {
+        if (_edition is null) return;
+        _sauvegardeEnCours = true;
+        _erreur = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_edition.Name) || string.IsNullOrWhiteSpace(_edition.Host))
+            {
+                _erreur = "Nom et hôte sont obligatoires.";
+                return;
+            }
+            if (_edition.Port <= 0 || _edition.Port > 65535)
+            {
+                _erreur = "Port invalide.";
+                return;
+            }
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existing = await db.JmxEndpoints.FirstOrDefaultAsync(e => e.Id == _edition.Id);
+            if (existing is null)
+            {
+                _edition.CredentialId = string.IsNullOrWhiteSpace(_editionCredentialId) ? null : Guid.Parse(_editionCredentialId);
+                db.JmxEndpoints.Add(_edition);
+            }
+            else
+            {
+                existing.Name = _edition.Name;
+                existing.EndpointType = _edition.EndpointType;
+                existing.Host = _edition.Host;
+                existing.Port = _edition.Port;
+                existing.JolokiaBaseUrl = string.IsNullOrWhiteSpace(_edition.JolokiaBaseUrl) ? null : _edition.JolokiaBaseUrl.Trim();
+                existing.CredentialId = string.IsNullOrWhiteSpace(_editionCredentialId) ? null : Guid.Parse(_editionCredentialId);
+                existing.Enabled = _edition.Enabled;
+            }
+            await db.SaveChangesAsync();
+            AnnulerEdition();
+            await Recharger();
+        }
+        catch (Exception ex)
+        {
+            _erreur = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _sauvegardeEnCours = false;
+        }
+    }
+
+    private async Task TesterConnectivite(JmxEndpoint ep)
+    {
+        _resultats[ep.Id] = "Test de connectivité en cours…";
+        var ok = await Jmx.TestConnectivityAsync(ep.Id);
+        _resultats[ep.Id] = ok ? "✅ Connectivité Jolokia OK (ping version)." : "❌ Connectivité échouée (voir log ou audit JmxEchec).";
+        await Recharger();
+    }
+
+    private async Task AppelerOperation(JmxEndpoint ep, string operation, string? queue)
+    {
+        _resultats[ep.Id] = $"Appel {operation}…";
+        var r = await Jmx.InvokeBrokerOperationAsync(ep.Id, operation, string.IsNullOrWhiteSpace(queue) ? null : queue.Trim());
+        _resultats[ep.Id] = r;
+    }
+}

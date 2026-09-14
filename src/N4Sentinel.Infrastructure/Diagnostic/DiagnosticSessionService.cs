@@ -42,7 +42,99 @@ public sealed class DiagnosticSessionService(
 
         db.Sessions.Add(session);
         await db.SaveChangesAsync(ct);
+
+        // P4.1 / §3.10.1 — Transition phase #1 QUALIFICATION OBLIGATOIRE
+        // dès la création. La phase « Détection et enregistrement » (phase 0)
+        // correspond à l'acte de créer la session — elle est immédiatement
+        // suivie de la phase Qualification, qui exige la revue de la checklist
+        // RG-0307. On trace les DEUX transitions pour ne pas laisser de trou
+        // dans l'historique du cycle de vie.
+        db.PhaseTransitions.Add(new DiagnosticPhaseTransition
+        {
+            SessionId = session.Id,
+            Phase = DiagnosticPhase.DetectionEtEnregistrement,
+            EnteredBy = requestedBy,
+            EnteredAt = session.CreatedAt,
+            Note = "Ouverture de la session de diagnostic."
+        });
+        db.PhaseTransitions.Add(new DiagnosticPhaseTransition
+        {
+            SessionId = session.Id,
+            Phase = DiagnosticPhase.QualificationEtCollecte,
+            EnteredBy = requestedBy,
+            EnteredAt = DateTimeOffset.UtcNow,
+            Note = "P4.1 — Transition automatique vers la phase Qualification et collecte. "
+                 + "Revue RG-0307 (Top 10 causes P1 Navis) requise avant de poursuivre."
+        });
+        session.Phase = DiagnosticPhase.QualificationEtCollecte;
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Creation, AuditOutcome.Succes, requestedBy,
+            entityType: nameof(DiagnosticSession), entityId: session.Id.ToString(), entityLabel: session.Title,
+            environmentId: environmentId, detail: $"Ouverture session — phase auto Qualification (RG-0307 TOP10).", ct: ct);
+
         return session.Id;
+    }
+
+    /// <summary>
+    /// P4.1 — Enregistre que la checklist RG-0307 TOP10 a été passée en revue.
+    /// Ne bloque pas : une revue est enregistrée avec ses notes ; une entrée
+    /// d'audit est émise. Permet d'attester devant un auditeur qu'on est bien
+    /// allé chercher dans les causes les plus fréquentes AVANT de creuser.
+    /// </summary>
+    public async Task<string?> RecordTop10ChecklistAsync(
+        Guid sessionId, IEnumerable<Top10NavisCauseCode> codesVerifies,
+        string? notes, string actor, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(actor)) return "Acteur manquant.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var session = await db.Sessions.FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+        if (session is null) return "Session introuvable.";
+
+        var codes = codesVerifies?.Distinct().OrderBy(c => c).ToList() ?? [];
+        session.Top10ChecklistCheckedCodesCsv = codes.Count == 0
+            ? null
+            : string.Join(",", codes.Select(c => c.ToString()));
+        session.Top10ChecklistNotes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+
+        await db.SaveChangesAsync(ct);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Modification, AuditOutcome.Succes, actor,
+            entityType: nameof(DiagnosticSession), entityId: sessionId.ToString(), entityLabel: session.Title,
+            environmentId: session.EnvironmentId,
+            detail: $"Checklist RG-0307 TOP10 P1 : {codes.Count}/10 causes vérifiées. "
+                  + (string.IsNullOrWhiteSpace(notes) ? "" : notes.Trim()),
+            ct: ct);
+
+        return null;
+    }
+
+    /// <summary>
+    /// P4.2 — Suggestion de chemin logs Navis par défaut (ProgramData\Navis).
+    /// L'opérateur peut les conserver, modifier, ou ajouter des chemins
+    /// spécifiques. Retourne une liste de suggestions par rôle de composant.
+    /// </summary>
+    public static IReadOnlyList<(ComponentRole Role, string CheminSuggere)> CheminsLogsNavis()
+    {
+        // Référence : N4 IT Administrator Day 1 §1.2 + convention installateur
+        // standard : tous les logs N4 sous %ProgramData%\Navis\<Service>\logs.
+        // Les chemins respectent la casse Windows mais on les écrit en
+        // absolu à la C# convention pour faciliter le connecteur SMB/WMI.
+        return
+        [
+            (ComponentRole.CenterNode, @"C:\ProgramData\Navis\Navis N4 Center\logs"),
+            (ComponentRole.StandbyCenterNode, @"C:\ProgramData\Navis\Navis N4 Standby\logs"),
+            (ComponentRole.ClusterNode, @"C:\ProgramData\Navis\Navis N4 Cluster\logs"),
+            (ComponentRole.BridgeDaemon, @"C:\ProgramData\Navis\Navis N4 XPS Bridge Daemon\logs"),
+            (ComponentRole.Xps, @"C:\ProgramData\Navis\Navis N4 XPS\logs"),
+            (ComponentRole.Ecn4, @"C:\ProgramData\Navis\Navis N4 ECN4\logs"),
+            (ComponentRole.Ecn4Web, @"C:\inetpub\logs\LogFiles\W3SVC*"),
+            (ComponentRole.ActiveMq, @"C:\ProgramData\Navis\ActiveMQ\data\kahadb"),
+            (ComponentRole.BaseDeDonnees, @"C:\Program Files\Microsoft SQL Server\MSSQL*\MSSQL\Log")
+        ];
     }
 
     /// <summary>

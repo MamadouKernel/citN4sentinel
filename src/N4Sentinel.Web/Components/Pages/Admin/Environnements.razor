@@ -2,10 +2,13 @@
 @using Microsoft.AspNetCore.Authorization
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Referential
+@using N4Sentinel.Infrastructure.Orchestration
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @using N4Sentinel.Infrastructure.Persistence
 @inject ReferentialService Referential
+@inject Palier2ApprovalService Palier2Approval
+@inject IAuthorizationService Authorization
 @inject DemonstrationSeeder Demonstration
 @inject EnvironmentDuplicationService Duplication
 @inject AuthenticationStateProvider AuthProvider
@@ -108,6 +111,25 @@
                                 </td>
                                 <td class="py-4 px-4 whitespace-nowrap">
                                     <StatutBadge Statut="env.Status" />
+                                    @{
+                                        var palier2Approuve = env.Palier2ApprovedBy is not null && env.Palier2ApprovedAt is not null;
+                                        if (palier2Approuve && env.Palier2ApprovedAt.HasValue)
+                                        {
+                                            var palier2Titre =
+                                                $"Palier 2 Automatique approuvé par {env.Palier2ApprovedBy} le {env.Palier2ApprovedAt.Value:dd/MM/yyyy HH:mm} UTC.";
+                                            <span class="ml-2 inline-block px-2 py-0.5 rounded text-[9px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 align-middle"
+                                                  title="@palier2Titre">
+                                                PALIER2 ✓
+                                            </span>
+                                        }
+                                        else if (env.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout)
+                                        {
+                                            <span class="ml-2 inline-block px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/15 text-amber-400 border border-amber-500/30 align-middle"
+                                                  title="Réglé en AutomatiqueBoutEnBout MAIS approbation Palier2 manquante (RG-039).">
+                                                PALIER2 ⚠
+                                            </span>
+                                        }
+                                    }
                                 </td>
                                 <td class="py-4 px-4 whitespace-nowrap">
                                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
@@ -115,6 +137,13 @@
                                     </span>
                                 </td>
                                 <td class="py-4 px-4 text-right whitespace-nowrap">
+                                    <AuthorizeView Policy="@N4Policies.PeutAdministrerReferentiel">
+                                        <button @onclick="@(() => OuvrirPalier2(env))"
+                                                title="Gérer l'approbation Palier 2 (RG-039)"
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-purple-200 font-semibold text-xs transition mr-2">
+                                            <i class="bi bi-shield-check"></i> Palier2
+                                        </button>
+                                    </AuthorizeView>
                                     <button @onclick="() => OuvrirDuplication(env)"
                                             title="Créer un environnement de même topologie à partir de celui-ci"
                                             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs transition mr-2">
@@ -292,15 +321,196 @@
             </div>
         </div>
     }
+
+    @* Gestion de l'approbation Palier 2 par environnement (RG-039 · S3-07). *@
+    @if (_palier2Cible is not null)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <div class="w-full max-w-xl rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 space-y-5">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-shield-check text-purple-400"></i>
+                        Approbation Palier 2 — @_palier2Cible.Code
+                    </h3>
+                    <button type="button" class="text-slate-400 hover:text-white transition" @onclick="FermerPalier2">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+
+                @if (_palier2Etat is not null)
+                {
+                    @if (_palier2Etat.IsApproved)
+                    {
+                        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200 space-y-1">
+                            <div class="font-bold text-emerald-300">Palier 2 actuellement <span class="uppercase">approuvé</span></div>
+                            <div>Approuvé par : <span class="font-semibold">@_palier2Etat.ApprovedBy</span></div>
+                            <div>Date d'approbation : <span class="font-mono">@_palier2Etat.ApprovedAt?.ToString("dd/MM/yyyy HH:mm") UTC</span></div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 space-y-1">
+                            <div class="font-bold text-amber-300">Palier 2 actuellement <span class="uppercase">non approuvé</span></div>
+                            <div>Les exécutions en AutomatiqueBoutEnBout sur cet environnement seront <strong>systématiquement bloquées</strong> au pré-check et au lancement.</div>
+                        </div>
+                    }
+                }
+
+                <div class="p-3 rounded-xl bg-slate-800/40 border border-slate-700 text-[11px] text-slate-400 space-y-1">
+                    <div class="font-semibold text-slate-300">Règle RG-039 — double-garde avant automatique bout en bout</div>
+                    <div>Le Palier 2 n'est jamais un défaut. Il doit être attribué par un acteur AdminN4,
+                         horodaté, et tracé au journal d'audit (action <span class="font-mono">Approbation</span> /
+                         <span class="font-mono">Revocation</span>).</div>
+                    <div>Même une fois approuvé, toute étape destructive (Arrêter, Redémarrer, Arrêt forcé)
+                         reste <strong>exclue</strong> de l'auto-confirmation et revient à une validation humaine.</div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-400 mb-1">Action à enregistrer</label>
+                        <select class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:ring-2 focus:ring-purple-500/50 focus:outline-none"
+                                @bind="_palier2Action">
+                            <option value="@Palier2UiAction.Conserver">Conserver l'état actuel</option>
+                            <option value="@Palier2UiAction.Approuver">Approuver le Palier 2 pour cet environnement</option>
+                            <option value="@Palier2UiAction.Revoquer">Révoquer l'approbation Palier 2 (retour Palier 1)</option>
+                        </select>
+                    </div>
+
+                    @if (_palier2Action == Palier2UiAction.Approuver)
+                    {
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-400 mb-1">Approuvé par (acteur AdminN4)</label>
+                            <input class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-purple-500/50 focus:outline-none"
+                                   @bind="_palier2Acteur" placeholder="Identité (ex: n.diop)" />
+                            <p class="text-[10px] text-slate-500 mt-1">
+                                L'horodatage sera positionné à <span class="font-mono">DateTime.UtcNow</span> au moment de l'enregistrement.
+                            </p>
+                        </div>
+                    }
+                </div>
+
+                @if (_palier2Erreur is not null)
+                {
+                    <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] font-semibold">@_palier2Erreur</div>
+                }
+                @if (_palier2Succes is not null)
+                {
+                    <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold">@_palier2Succes</div>
+                }
+
+                <div class="flex justify-end gap-2 pt-1">
+                    <button type="button" @onclick="FermerPalier2"
+                            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                        Fermer
+                    </button>
+                    <button type="button" @onclick="AppliquerPalier2"
+                            disabled="@(_palier2EnCours || !PeutAppliquerPalier2())"
+                            class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition disabled:opacity-40 shadow-lg shadow-purple-600/20">
+                        @(_palier2EnCours ? "Application…" : "Appliquer")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
+    private enum Palier2UiAction { Conserver, Approuver, Revoquer }
+
     private List<N4Environment>? _environnements;
     private Dictionary<Guid, int> _compteurs = [];
     private N4Environment? _edition;
     private bool _estNouveau;
     private string? _erreur;
     private bool _demoEnCours;
+
+    // --- Approbation Palier 2 (S3-07 RG-039) ----------------------------
+    private N4Environment? _palier2Cible;
+    private Palier2ApprovalState? _palier2Etat;
+    private Palier2UiAction _palier2Action = Palier2UiAction.Conserver;
+    private string _palier2Acteur = string.Empty;
+    private bool _palier2EnCours;
+    private string? _palier2Erreur;
+    private string? _palier2Succes;
+
+    private bool PeutAppliquerPalier2()
+    {
+        if (_palier2Cible is null) return false;
+        if (_palier2Action == Palier2UiAction.Conserver) return false;
+        if (_palier2Action == Palier2UiAction.Approuver && string.IsNullOrWhiteSpace(_palier2Acteur)) return false;
+        return true;
+    }
+
+    private async Task OuvrirPalier2(N4Environment env)
+    {
+        _palier2Cible = env;
+        _palier2Etat = await Palier2Approval.GetStateAsync(env.Id);
+        _palier2Action = Palier2UiAction.Conserver;
+        _palier2Acteur = string.Empty;
+        _palier2Erreur = null;
+        _palier2Succes = null;
+    }
+
+    private void FermerPalier2()
+    {
+        _palier2Cible = null;
+        _palier2Etat = null;
+        _palier2Erreur = null;
+        _palier2Succes = null;
+    }
+
+    private async Task AppliquerPalier2()
+    {
+        if (_palier2Cible is null || !PeutAppliquerPalier2()) return;
+
+        _palier2EnCours = true;
+        _palier2Erreur = null;
+        _palier2Succes = null;
+
+        try
+        {
+            var authState = await AuthProvider.GetAuthenticationStateAsync();
+            var isAdminRazor = (await Authorization.AuthorizeAsync(authState.User, N4Policies.PeutAdministrerReferentiel)).Succeeded;
+
+            string? acteurDecision = _palier2Action == Palier2UiAction.Approuver
+                ? _palier2Acteur.Trim()
+                : (authState.User.Identity?.Name ?? "systeme");
+
+            string? resultat;
+            if (_palier2Action == Palier2UiAction.Approuver)
+            {
+                resultat = await Palier2Approval.SetApprovalAsync(
+                    _palier2Cible.Id, acteurDecision, approverIsAdmin: isAdminRazor);
+            }
+            else
+            {
+                resultat = await Palier2Approval.SetApprovalAsync(
+                    _palier2Cible.Id, approvedBy: null, approverIsAdmin: isAdminRazor);
+            }
+
+            if (resultat is not null)
+            {
+                _palier2Erreur = resultat;
+                return;
+            }
+
+            _palier2Succes = _palier2Action == Palier2UiAction.Approuver
+                ? $"Approbation Palier 2 enregistrée pour « {_palier2Cible.Code} » par {acteurDecision}."
+                : $"Approbation Palier 2 révoquée sur « {_palier2Cible.Code} ».";
+
+            _palier2Etat = await Palier2Approval.GetStateAsync(_palier2Cible.Id);
+            _palier2Action = Palier2UiAction.Conserver;
+            await Recharger();
+        }
+        catch (Exception ex)
+        {
+            _palier2Erreur = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _palier2EnCours = false;
+        }
+    }
 
     // --- Duplication ------------------------------------------------------
     private N4Environment? _sourceDuplication;

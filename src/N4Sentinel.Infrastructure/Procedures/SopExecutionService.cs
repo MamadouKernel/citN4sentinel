@@ -392,6 +392,63 @@ public sealed class SopExecutionService(
     }
 
     // -----------------------------------------------------------------------
+    // Feedback post-exécution FR-090 & Suggestions
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// P5 FR-090 : Feedback post-exécution — 0 à 5 étoiles + note libre.
+    /// Garde : exécution terminée, feedback non déjà déposé par le même
+    /// acteur sauf modification (autorisé), étoiles dans la borne [0,5].
+    /// </summary>
+    public async Task<string?> SubmitFeedbackAsync(
+        Guid executionId, string actor, byte stars0To5, string? note,
+        bool allowOverwrite = false, CancellationToken ct = default)
+    {
+        if (stars0To5 > 5) return "Le feedback étoilé est borné à 5 maximum.";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var execution = await db.SopExecutions.FirstOrDefaultAsync(x => x.Id == executionId, ct);
+        if (execution is null) return "Exécution SOP introuvable.";
+        if (!execution.IsFinished)
+            return $"L'exécution est en état {execution.Status} : feedback autorisé seulement une fois Terminée ou Abandonnée.";
+
+        // Garde acteur : seul l'exécutant peut évaluer, ou un Administrateur N4
+        // (on ne peut pas vérifier le rôle ici sans PolicyService, donc on se
+        //  contente au minimum du acteur == StartedBy). Si non StartedBy :
+        //  levée d'avertissement + on laisse passer (cas d'un N2 qui donne
+        //  son avis pour completer la qualité).
+        bool pasLExecuteur = !string.IsNullOrWhiteSpace(execution.StartedBy)
+                          && !string.Equals(execution.StartedBy, actor, StringComparison.OrdinalIgnoreCase);
+
+        if (!allowOverwrite && execution.FeedbackStars0To5.HasValue
+            && string.Equals(execution.FeedbackGivenBy, actor, StringComparison.OrdinalIgnoreCase))
+        {
+            return "Vous avez déjà déposé un feedback pour cette exécution. Réappelez avec allowOverwrite=true pour le modifier.";
+        }
+
+        execution.FeedbackStars0To5 = stars0To5;
+        execution.FeedbackNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        execution.FeedbackGivenBy = actor;
+        execution.FeedbackGivenAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        var raison = $"Feedback {stars0To5}/5 déposé"
+                   + (pasLExecuteur ? " par un tiers à l'exécution (N2/N3)." : " par l'exécutant.")
+                   + (note is { Length: > 0 } ? $" Note : {note}" : string.Empty);
+
+        await auditWriter.WriteAsync(
+            AuditAction.Modification, AuditOutcome.Succes, actor,
+            entityType: nameof(SopExecution), entityId: execution.Id.ToString(),
+            entityLabel: execution.SopTitle,
+            environmentId: execution.EnvironmentId,
+            reason: raison,
+            correlationId: execution.CorrelationId,
+            ct: ct);
+
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
     // Lecture
     // -----------------------------------------------------------------------
     public async Task<SopExecution?> GetAsync(Guid executionId, CancellationToken ct = default)

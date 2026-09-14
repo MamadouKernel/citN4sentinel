@@ -4,7 +4,9 @@ using N4Sentinel.Infrastructure.Persistence;
 
 namespace N4Sentinel.Infrastructure.Orchestration.UseCases;
 
-public sealed class ApproveExecutionUseCase(IDbContextFactory<N4SentinelDbContext> dbFactory)
+public sealed class ApproveExecutionUseCase(
+    IDbContextFactory<N4SentinelDbContext> dbFactory,
+    MeriseBusinessPolicyService merisePolicies)
 {
     public async Task<string?> ExecuteAsync(Guid executionId, string approvedBy, CancellationToken ct = default)
     {
@@ -38,6 +40,20 @@ public sealed class ApproveExecutionUseCase(IDbContextFactory<N4SentinelDbContex
         if (string.Equals(execution.ApprovedBy, approvedBy, StringComparison.OrdinalIgnoreCase))
             return "Le second approbateur doit être une personne différente du premier — "
                  + "un double regard par la même personne n'en est pas un.";
+
+        var estProd = await db.Environments.AsNoTracking()
+            .Where(e => e.Id == execution.EnvironmentId)
+            .Select(e => e.IsProduction)
+            .FirstOrDefaultAsync(ct);
+
+        var rgTroisDistincts = merisePolicies.ValidateDoubleApprovalDistinctActors(
+            execution.RequestedBy,
+            execution.ApprovedBy,
+            approvedBy,
+            estProd,
+            execution.RequiresDoubleApproval);
+
+        if (rgTroisDistincts is not null) return rgTroisDistincts;
 
         execution.SecondApprovedBy = approvedBy;
         execution.SecondApprovedAt = DateTimeOffset.UtcNow;

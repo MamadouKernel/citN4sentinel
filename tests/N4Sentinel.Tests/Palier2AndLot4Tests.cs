@@ -51,7 +51,7 @@ public sealed class Palier2AndLot4Tests
             await settingsService.SaveAsync(new AzureAdSettings { Enabled = true, TenantId = "cotedivoireterminal.onmicrosoft.com" }, "m.konate");
 
             var provider = new AzureAdAuthProvider(settingsService, NullLogger<AzureAdAuthProvider>.Instance);
-            var userInfo = await provider.AuthenticateSsoTokenAsync("n'importe-quelle-chaine");
+            var userInfo = await provider.AuthenticateAsync("n'importe-quelle-chaine");
 
             Assert.Null(userInfo);
 

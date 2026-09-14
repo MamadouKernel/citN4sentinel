@@ -58,7 +58,7 @@ public sealed class OrchestrationTests : IAsyncLifetime
         _matrix = new ApprovalMatrixService(_factory);
         _adhoc = new AdHocOperationService(_factory, NullLogger<AdHocOperationService>.Instance);
         var prepareUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase(_factory, NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.PrepareExecutionUseCase>.Instance, approvalMatrix: _matrix);
-        var approveUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ApproveExecutionUseCase(_factory);
+        var approveUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ApproveExecutionUseCase(_factory, new MeriseBusinessPolicyService(_factory));
         var controlUseCase = new N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase(_factory, _locks, new AuditWriter(_factory), NullLogger<N4Sentinel.Infrastructure.Orchestration.UseCases.ControlExecutionUseCase>.Instance, approvalMatrix: _matrix);
 
         _executions = new ExecutionService(_factory, _locks, new AuditWriter(_factory), NullLogger<ExecutionService>.Instance,
@@ -79,6 +79,8 @@ public sealed class OrchestrationTests : IAsyncLifetime
 
         var supervisionService = new SupervisionService(_factory, cibles, connecteur, NullLogger<SupervisionService>.Instance);
 
+        var cacheEtat = new SupervisionStateCache();
+
         _preflight = new PreflightService(
             _factory,
             cibles,
@@ -89,6 +91,9 @@ public sealed class OrchestrationTests : IAsyncLifetime
             new CenterContinuityService(_factory, supervisionService),
             new N4Sentinel.Infrastructure.Security.EnvironmentAccessService(
                 _factory, ConfigurationVide(), NullLogger<N4Sentinel.Infrastructure.Security.EnvironmentAccessService>.Instance),
+            cacheEtat,
+            new MeriseBusinessPolicyService(_factory),
+            new Palier2ApprovalService(_factory, new AuditWriter(_factory)),
             NullLogger<PreflightService>.Instance);
 
         await using var db = _factory.CreateDbContext();

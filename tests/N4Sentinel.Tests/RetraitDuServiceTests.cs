@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using N4Sentinel.Domain;
+using N4Sentinel.Infrastructure.Orchestration;
 using N4Sentinel.Infrastructure.Persistence;
 using N4Sentinel.Infrastructure.Referential;
 
@@ -29,7 +30,7 @@ public sealed class RetraitDuServiceTests : IAsyncLifetime
     private TestDbContextFactory _factory = null!;
 
     private ReferentialService Service() =>
-        new(_factory, NullLogger<ReferentialService>.Instance);
+        new(_factory, new MeriseBusinessPolicyService(_factory), NullLogger<ReferentialService>.Instance);
 
     public async Task InitializeAsync()
     {

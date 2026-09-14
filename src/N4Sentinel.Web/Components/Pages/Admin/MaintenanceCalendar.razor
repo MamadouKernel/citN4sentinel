@@ -1,0 +1,264 @@
+@page "/admin/maintenance-calendrier"
+@using Microsoft.AspNetCore.Authorization
+@using N4Sentinel.Domain
+@using N4Sentinel.Domain.Scheduling
+@using N4Sentinel.Infrastructure.Scheduling
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject MaintenanceCalendarService Calendar
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
+
+<PageTitle>Calendrier de maintenance — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Calendrier de maintenance</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Jours exclus du planificateur automatique : jours fériés légaux, pics d'activité,
+                fermetures terminales ou maintenance préalable d'un autre système. <strong class="text-white">Toute planification est automatiquement skippée</strong>
+                si elle tombe un jour marqué ici.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3 flex-wrap">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="RechargerAsync">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="AllerPlanifications">
+                <i class="bi bi-calendar-event"></i> Gérer les planifications
+            </button>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    @if (_envId == Guid.Empty)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            Choisissez un environnement pour gérer son calendrier d'exclusions.
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div class="lg:col-span-2">
+                <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+                    <div class="p-4 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="bi bi-calendar-x text-amber-400"></i> Jours exclus (@_jours.Count)
+                        </h3>
+                        <span class="text-[11px] text-slate-400">Triés par date croissante</span>
+                    </div>
+
+                    @if (_jours.Count == 0)
+                    {
+                        <div class="p-8 text-center text-slate-400 text-xs space-y-2">
+                            <i class="bi bi-calendar3 text-2xl text-slate-600"></i>
+                            <p>Aucun jour exclu sur cet environnement.</p>
+                            <p class="text-slate-500 max-w-xl mx-auto leading-relaxed">
+                                Par défaut, le planificateur respecte les jours ouvrés (lun→ven) si vous choisissez
+                                cette fréquence. Utilisez ce calendrier pour les <strong>exceptions</strong> :
+                                jours fériés légaux, fermetures annuelles, pics d'activité où N4 doit rester stable.
+                            </p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                                    <tr>
+                                        <th class="text-left p-3">Date</th>
+                                        <th class="text-left p-3">Jour de semaine</th>
+                                        <th class="text-left p-3">Motif</th>
+                                        <th class="text-right p-3 pr-4">Ajouté par</th>
+                                        <th class="text-right p-3 pr-4">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-800/70">
+                                    @foreach (var j in _jours)
+                                    {
+                                        <tr class="hover:bg-slate-900/30 transition">
+                                            <td class="p-3 font-mono text-amber-300 whitespace-nowrap">@j.Date.ToString("yyyy-MM-dd")</td>
+                                            <td class="p-3 text-slate-300 whitespace-nowrap">@JourSemaine(j.Date)</td>
+                                            <td class="p-3 text-slate-200">@j.Reason</td>
+                                            <td class="p-3 pr-4 text-right text-slate-500 font-mono whitespace-nowrap">
+                                                @j.CreatedBy
+                                                <span class="block text-[9px] text-slate-600 normal-case not-italic">@j.CreatedAt.LocalDateTime.ToString("g")</span>
+                                            </td>
+                                            <td class="p-3 pr-4 whitespace-nowrap text-right">
+                                                <button class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition disabled:opacity-40"
+                                                        disabled="@_busy" @onclick="@(async () => await SupprimerJourAsync(j.Date))" title="Supprimer cette exclusion">
+                                                    <i class="bi bi-x-circle"></i> Supprimer
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="space-y-5">
+                <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="bi bi-plus-circle text-sky-400"></i> Ajouter un jour exclu
+                    </h3>
+
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Date</label>
+                            <input type="date" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   @bind="_nouvelleDate" />
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Motif <span class="text-rose-400">*</span></label>
+                            <textarea rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                      placeholder="Jour férié légal (Ascension), pic Black-Friday, fermeture annuelle août…"
+                                      @bind="_nouveauMotif"></textarea>
+                        </div>
+
+                        <button class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                                disabled="@(_busy || !PeutAjouter)" @onclick="AjouterJourAsync">
+                            <i class="bi bi-calendar-plus"></i> @(_busy ? "Ajout…" : "Ajouter au calendrier")
+                        </button>
+
+                        <div class="text-[10px] text-slate-500 space-y-1">
+                            <p>💡 <strong class="text-slate-400">Astuce</strong> : les récurrences (chaque 1er mai, chaque 25 déc)
+                               doivent être saisies explicitement année par année. Une règle récurrente serait sujette à casse
+                               (années à 52 semaines + 1 jour, calendriers variables).</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl border border-sky-500/30 p-5 space-y-2 text-[11px] text-sky-200 leading-relaxed">
+                    <h3 class="text-sm font-bold text-sky-200 flex items-center gap-2"><i class="bi bi-info-circle"></i> Impact sur le planificateur</h3>
+                    <ul class="list-disc pl-4 space-y-1">
+                        <li>Le <strong>scheduler (60s)</strong> appelle <span class="font-mono">IsHolidayAsync</span> avant chaque déclenchement.</li>
+                        <li>Un jour marqué ici skippe <em>toutes</em> les planifications : il n'y a pas d'exception par workflow.</li>
+                        <li>L'audit PlanificationDeclenchee (outcome Échec) garde la trace si nécessaire.</li>
+                        <li>Le contrôle « Jours ouvrés » (lun→ven) se <em>superpose</em> aux exclusions calendaires : sam+dim + fériés = triple couche.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<MaintenanceHoliday> _jours = [];
+    private Guid _envId;
+    private DateTime? _nouvelleDate;
+    private string _nouveauMotif = string.Empty;
+    private string? _message;
+    private string _messageClass = "border-slate-700 bg-slate-900 text-slate-200";
+    private bool _busy;
+
+    private bool PeutAjouter => _nouvelleDate.HasValue && !string.IsNullOrWhiteSpace(_nouveauMotif);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1)
+        {
+            _envId = _environnements[0].Id;
+            await RechargerAsync();
+        }
+    }
+
+    private async Task RechargerAsync()
+    {
+        _jours = _envId == Guid.Empty ? [] : await Calendar.ListAsync(_envId);
+        _nouveauMotif = string.Empty;
+        _nouvelleDate = null;
+    }
+
+    private async Task<string> ActeurAsync()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        return etat.User.Identity?.Name ?? "inconnu";
+    }
+
+    private async Task AjouterJourAsync()
+    {
+        if (!PeutAjouter || _envId == Guid.Empty) return;
+        _busy = true;
+        try
+        {
+            var date = DateOnly.FromDateTime(_nouvelleDate!.Value.Date);
+            var err = await Calendar.AddAsync(_envId, date, _nouveauMotif, await ActeurAsync());
+            if (err is not null)
+            {
+                Signaler(err, false);
+                return;
+            }
+            Signaler($"Date {date:yyyy-MM-dd} exclue : {_nouveauMotif}", true);
+            await RechargerAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SupprimerJourAsync(DateOnly date)
+    {
+        if (_envId == Guid.Empty) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Supprimer l'exclusion du {date:yyyy-MM-dd} ?")) return;
+        _busy = true;
+        try
+        {
+            var err = await Calendar.RemoveAsync(_envId, date, await ActeurAsync());
+            if (err is not null)
+            {
+                Signaler(err, false);
+                return;
+            }
+            Signaler($"Exclusion du {date:yyyy-MM-dd} supprimée.", true);
+            await RechargerAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void Signaler(string msg, bool ok)
+    {
+        _message = msg;
+        _messageClass = ok
+            ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+            : "bg-rose-500/10 border-rose-500/40 text-rose-200";
+    }
+
+    private static string JourSemaine(DateOnly d) => d.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Lundi",
+        DayOfWeek.Tuesday => "Mardi",
+        DayOfWeek.Wednesday => "Mercredi",
+        DayOfWeek.Thursday => "Jeudi",
+        DayOfWeek.Friday => "Vendredi",
+        DayOfWeek.Saturday => "Samedi",
+        DayOfWeek.Sunday => "Dimanche",
+        _ => d.DayOfWeek.ToString()
+    };
+
+    private void AllerPlanifications()
+    {
+        Nav.NavigateTo($"/admin/planifications?env={_envId}");
+    }
+}

@@ -1,0 +1,627 @@
+@page "/admin/planifications/{Id:guid?}"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.WebUtilities
+@using N4Sentinel.Domain
+@using N4Sentinel.Domain.Scheduling
+@using N4Sentinel.Infrastructure.Orchestration
+@using N4Sentinel.Infrastructure.Scheduling
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject MaintenanceScheduleService Scheduler
+@inject WorkflowService CatalogueWorkflows
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>@(_title ?? "Planification") — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+            <a href="/admin/planifications" class="text-xs text-theme-primary hover:underline transition flex items-center gap-1 mb-1">
+                <i class="bi bi-arrow-left"></i> Retour aux planifications
+            </a>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">@_title</h1>
+            <p class="text-xs text-slate-400 mt-1">
+                @if (_estNouveau)
+                {
+                    <span>Créez une nouvelle planification récurrente — le planificateur de fond la déclenchera à l'heure indiquée.</span>
+                }
+                else
+                {
+                    <span>Modifiez les paramètres de la planification. Toute modification est tracée en audit.</span>
+                }
+            </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_enregistrement || _chargement)" @onclick="ApercuProchainesOccurrencesAsync">
+                <i class="bi bi-calendar3-range"></i> Calculer les 10 prochaines occurrences
+            </button>
+            <button class="px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_enregistrement || _chargement || !PeutEnregistrer)" @onclick="EnregistrerAsync">
+                <i class="bi bi-save"></i> @(_enregistrement ? "Enregistrement…" : "Enregistrer")
+            </button>
+        </div>
+    </div>
+
+    @if (_chargement)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            <div class="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+            <div>Chargement…</div>
+        </div>
+    }
+    else if (_estNouveau == false && _form is null)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-rose-500/30 text-center text-rose-300 text-xs">
+            <i class="bi bi-exclamation-triangle text-2xl mb-2"></i>
+            <div>Planification introuvable — elle a peut-être été supprimée.</div>
+            <a href="/admin/planifications" class="text-theme-primary underline underline-offset-2 mt-2 inline-block">Retourner à la liste</a>
+        </div>
+    }
+    else
+    {
+        if (_message is not null)
+        {
+            <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+        }
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+            <!-- Colonne principale -->
+            <div class="lg:col-span-2 space-y-5">
+
+                <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="bi bi-gear-wide text-sky-400"></i> Paramètres principaux</h3>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Environnement</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white disabled:opacity-50"
+                                    @bind="_envId" @bind:after="ChargerWorkflowsAsync" disabled="@(!_estNouveau)">
+                                <option value="@Guid.Empty">Choisir…</option>
+                                @foreach (var e in _environnements)
+                                {
+                                    <option value="@e.Id">@e.Code — @e.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Workflow cible</label>
+                            <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                    @bind="_form!.WorkflowId">
+                                <option value="@Guid.Empty">Choisir un workflow…</option>
+                                @foreach (var w in _workflows)
+                                {
+                                    <option value="@w.Id">
+                                        @w.Code — @w.Name <text>(v@w.Version)</text>
+                                    </option>
+                                }
+                            </select>
+                            <p class="text-[10px] text-slate-500 mt-1">Seuls les workflows <strong>démarrables</strong> (au moins une étape, statut Brouillon/Valide/Actif) sont proposés.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Code <span class="text-rose-400">*</span></label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   placeholder="NIGHTLY-RESTART-N4"
+                                   @bind="_form!.Code" />
+                            <p class="text-[10px] text-slate-500 mt-1">Unique PAR ENVIRONNEMENT — ne changera jamais.</p>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-slate-400 font-semibold mb-1">Nom</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                   placeholder="Redémarrage nocturne complet écosystème N4"
+                                   @bind="_form!.Name" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1 text-xs">Type de récurrence</label>
+                        <div class="flex flex-wrap gap-3 text-xs">
+                            @foreach (var k in Enum.GetValues<ScheduleKind>())
+                            {
+                                var actif = _form!.Kind == k;
+                                <button type="button"
+                                        class="px-3 py-1.5 rounded-lg border font-bold transition @(actif ? "bg-sky-500/15 border-sky-500/50 text-sky-300" : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")"
+                                        @onclick="() => _form.Kind = k">
+                                    @LibelleKind(k)
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (_form!.Kind == ScheduleKind.HebdoJoursChoisis)
+                    {
+                        <div class="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-2">
+                            <label class="block text-slate-400 font-semibold mb-0 text-xs">Jours de la semaine</label>
+                            <div class="flex flex-wrap gap-2 text-xs">
+                                @foreach (var j in _joursSemaine)
+                                {
+                                    var coche = JourDansMask(j.Dow);
+                                    <button type="button"
+                                            class="px-3 py-1.5 rounded-md border font-bold transition @(coche ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300" : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")"
+                                            @onclick="@( () => ToggleJourMask(j.Dow) )">
+                                        @j.Libelle
+                                    </button>
+                                }
+                            </div>
+                            <p class="text-[10px] text-slate-500">Au moins un jour doit être sélectionné.</p>
+                        </div>
+                    }
+
+                    @if (_form.Kind == ScheduleKind.MensuelJoursPrecis)
+                    {
+                        <div class="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-2 text-xs">
+                            <label class="block text-slate-400 font-semibold">Jours numériques du mois (1..31, séparés par des virgules)</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   placeholder="1, 15, 28"
+                                   @bind="_mensuelJoursTexte" />
+                            @if (_mensuelJoursErreur is not null)
+                            {
+                                <p class="text-[10px] text-rose-400 mt-1">@_mensuelJoursErreur</p>
+                            }
+                            else
+                            {
+                                <p class="text-[10px] text-slate-500 mt-1">
+                                    Jours détectés : @( _form.MonthlyDays.Count == 0 ? "(aucun)" : string.Join(", ", _form.MonthlyDays.OrderBy(d => d)) )
+                                </p>
+                            }
+                        </div>
+                    }
+
+                    @if (_form.Kind == ScheduleKind.CronExpression)
+                    {
+                        <div class="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-2 text-xs">
+                            <label class="block text-slate-400 font-semibold">Expression Cron standard</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   placeholder="0 22 * * 1-5"
+                                   @bind="_form.CronExpression" />
+                            <p class="text-[10px] text-slate-500">5 ou 6 champs : <span class="font-mono">minute heure jour mois jour-semaine [année]</span>. TimeOfDay est utilisé à titre d'affichage.</p>
+                        </div>
+                    }
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Heure (locale de l'environnement)</label>
+                            <input type="time" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   @bind="_heureLocale" />
+                            <p class="text-[10px] text-slate-500 mt-1">
+                                TZ par défaut : UTC+00. Heure d'été/hiver <em>non</em> appliquée silencieusement.
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Exécutant automatique (RanAs)</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   placeholder="scheduler@navis.acme.corp"
+                                   @bind="_form!.RanAs" />
+                            <p class="text-[10px] text-slate-500 mt-1">Traçabilité : sera inscrit comme créateur de chaque exécution lancée par le planificateur.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Motif template (Reason)</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                                   placeholder="Maintenance récurrente mensuelle"
+                                   @bind="_form!.ReasonTemplate" />
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Ticket template</label>
+                            <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   placeholder="OPS-12345"
+                                   @bind="_form!.TicketTemplate" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="bi bi-shield-check text-emerald-400"></i> Fenêtre de validité & comportement</h3>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Valide à partir du (incluse)</label>
+                            <input type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   @bind="_validFromLocal" />
+                            <p class="text-[10px] text-slate-500 mt-1">Laissez vide = valide dès maintenant.</p>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 font-semibold mb-1">Valide jusqu'au (incluse)</label>
+                            <input type="datetime-local" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                                   @bind="_validUntilLocal" />
+                            <p class="text-[10px] text-slate-500 mt-1">Laissez vide = jamais expiré.</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800">
+                        <label class="flex items-start gap-3 text-xs cursor-pointer select-none">
+                            <input type="checkbox" class="mt-0.5" @bind="_form!.AutoApprove" />
+                            <span>
+                                <strong class="text-white">Approbation automatique</strong>
+                                <span class="text-slate-400 block text-[11px] mt-0.5">
+                                    Après préparation, si le workflow autorise (RequiresApproval=false ou simple approbation et RanAs ≠ créateur du workflow),
+                                    l'exécution est approuvée immédiatement. Si AutoApprove est désactivé, une intervention humaine est nécessaire.
+                                </span>
+                            </span>
+                        </label>
+
+                        <label class="flex items-start gap-3 text-xs cursor-pointer select-none">
+                            <input type="checkbox" class="mt-0.5" @bind="_form!.SkipIfActiveAlready" />
+                            <span>
+                                <strong class="text-white">Sauter si le workflow est déjà en cours</strong>
+                                <span class="text-slate-400 block text-[11px] mt-0.5">
+                                    Recommandé activé (défaut). Si désactivé, le planificateur lancera une 2ᵉ exécution
+                                    parallèle — risque de double start sur les services N4 qui ne tolèrent pas d'être démarrés deux fois.
+                                </span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                @if (_prochainesOccurrences.Count > 0)
+                {
+                    <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="bi bi-calendar3 text-sky-400"></i> 10 prochaines occurrences planifiées</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] font-mono">
+                            @foreach (var dt in _prochainesOccurrences)
+                            {
+                                <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-slate-200">
+                                    @MaintenanceScheduleService.ToLocal(dt, TimeZoneIdSelectionne).LocalDateTime.ToString("g")
+                                </div>
+                            }
+                        </div>
+                        <p class="text-[10px] text-slate-500">
+                            Calcul effectué avec les jours fériés du calendrier de cet environnement. Les jours marqués exclus ne sont pas listés.
+                        </p>
+                    </div>
+                }
+            </div>
+
+            <!-- Colonne secondaire -->
+            <div class="space-y-5">
+                <div class="glass-card rounded-2xl border border-slate-800 p-5 space-y-3">
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="bi bi-info-circle text-sky-400"></i> Synthèse</h3>
+                    <dl class="text-xs space-y-2.5">
+                        <div class="flex justify-between gap-2"><dt class="text-slate-400">Statut</dt><dd class="font-bold">
+                            @switch (_form!.Status)
+                            {
+                                case ScheduleStatus.Actif: <span class="text-emerald-300">Actif</span>; break;
+                                case ScheduleStatus.Suspendu: <span class="text-amber-300">Suspendu</span>; break;
+                                case ScheduleStatus.Expire: <span class="text-slate-400">Expiré</span>; break;
+                            }
+                        </dd></div>
+                        <div class="flex justify-between gap-2"><dt class="text-slate-400">AutoApprove</dt><dd class="@(_form.AutoApprove ? "text-emerald-300" : "text-slate-500") font-bold">@(_form.AutoApprove ? "OUI" : "NON")</dd></div>
+                        <div class="flex justify-between gap-2"><dt class="text-slate-400">Skip si actif</dt><dd class="@(_form.SkipIfActiveAlready ? "text-emerald-300" : "text-amber-300") font-bold">@(_form.SkipIfActiveAlready ? "OUI" : "NON")</dd></div>
+                        @if (!_estNouveau)
+                        {
+                            <div class="flex justify-between gap-2"><dt class="text-slate-400">Créé le</dt><dd class="font-mono text-slate-200">@_form.CreatedAt.LocalDateTime.ToString("g")</dd></div>
+                            <div class="flex justify-between gap-2"><dt class="text-slate-400">Par</dt><dd class="font-mono text-slate-200">@_form.CreatedBy</dd></div>
+                            <div class="flex justify-between gap-2"><dt class="text-slate-400">Modifié le</dt><dd class="font-mono text-slate-200">@(_form.ModifiedAt.HasValue ? _form.ModifiedAt.Value.LocalDateTime.ToString("g") : "—")</dd></div>
+                            if (_form.LastTriggeredAt.HasValue)
+                            {
+                                <div class="flex justify-between gap-2"><dt class="text-slate-400">Dernier déclenchement</dt><dd class="font-mono text-emerald-300">@_form.LastTriggeredAt.Value.LocalDateTime.ToString("g")</dd></div>
+                            }
+                        }
+                    </dl>
+                </div>
+
+                <div class="glass-card rounded-2xl border border-amber-500/30 p-5 space-y-2 text-[11px] text-amber-200 leading-relaxed">
+                    <h3 class="text-sm font-bold text-amber-200 flex items-center gap-2"><i class="bi bi-exclamation-triangle-fill"></i> Bonnes pratiques</h3>
+                    <ul class="list-disc pl-4 space-y-1">
+                        <li>Préférez <strong>Suspendre</strong> plutôt que supprimer une planification déjà utilisée : préserve l'audit.</li>
+                        <li>Un intervalle <strong>≥ 2 heures</strong> est recommandé entre deux planifications du même workflow.</li>
+                        <li>Les jours marqués exclus (calendrier) skippent <em>toutes</em> les planifications automatiquement.</li>
+                        <li>Pour N4, évitez les maintenances entre 10h00 et 16h00 locales (pic activité). 22h00 → 06h00 sont recommandés.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "env")] public Guid? QueryEnvId { get; set; }
+    [SupplyParameterFromQuery(Name = "create")] public string? QueryCreate { get; set; }
+
+    private bool _chargement = true;
+    private bool _enregistrement;
+    private string? _title;
+    private string? _message;
+    private string _messageClass = "border-slate-700 bg-slate-900 text-slate-200";
+    private bool _estNouveau;
+
+    private List<N4Environment> _environnements = [];
+    private List<Workflow> _workflows = [];
+    private Guid _envId;
+
+    private ExecutionSchedule? _form;
+    private TimeOnly? _heureLocale;
+    private DateTime? _validFromLocal;
+    private DateTime? _validUntilLocal;
+    private string _mensuelJoursTexte = string.Empty;
+    private string? _mensuelJoursErreur;
+    private List<DateTimeOffset> _prochainesOccurrences = [];
+
+    private sealed record JourSemaine(DayOfWeek Dow, string Libelle);
+    private readonly List<JourSemaine> _joursSemaine = new()
+    {
+        new(DayOfWeek.Monday, "Lun"),
+        new(DayOfWeek.Tuesday, "Mar"),
+        new(DayOfWeek.Wednesday, "Mer"),
+        new(DayOfWeek.Thursday, "Jeu"),
+        new(DayOfWeek.Friday, "Ven"),
+        new(DayOfWeek.Saturday, "Sam"),
+        new(DayOfWeek.Sunday, "Dim"),
+    };
+
+    private string? TimeZoneIdSelectionne => _environnements.FirstOrDefault(e => e.Id == _envId)?.TimeZoneId;
+
+    private bool PeutEnregistrer =>
+        _form is not null && !_chargement &&
+        _envId != Guid.Empty && _form.WorkflowId != Guid.Empty &&
+        !string.IsNullOrWhiteSpace(_form.Code) &&
+        !string.IsNullOrWhiteSpace(_form.RanAs) &&
+        _heureLocale.HasValue;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _chargement = true;
+        try
+        {
+            _environnements = await Referential.GetEnvironmentsAsync();
+
+            _estNouveau = !Id.HasValue || Id.Value == Guid.Empty || !string.IsNullOrWhiteSpace(QueryCreate);
+            if (_estNouveau)
+            {
+                _title = "Nouvelle planification";
+                _form = new ExecutionSchedule
+                {
+                    Kind = ScheduleKind.JoursOuvres,
+                    TimeOfDay = new TimeSpan(22, 0, 0),
+                    AutoApprove = false,
+                    SkipIfActiveAlready = true,
+                    WeeklyDayOfWeekMask = 0x001F, // lun-ven par défaut
+                    MonthlyDays = new List<int>(),
+                    Status = ScheduleStatus.Actif,
+                };
+                _heureLocale = TimeOnly.FromTimeSpan(_form.TimeOfDay);
+                _mensuelJoursTexte = string.Empty;
+                if (QueryEnvId.HasValue && QueryEnvId.Value != Guid.Empty && _environnements.Any(e => e.Id == QueryEnvId.Value))
+                {
+                    _envId = QueryEnvId.Value;
+                }
+                else if (_environnements.Count == 1)
+                {
+                    _envId = _environnements[0].Id;
+                }
+                if (_envId != Guid.Empty) await ChargerWorkflowsAsync();
+            }
+            else
+            {
+                if (!Id.HasValue) return;
+                _title = "Modifier la planification";
+                _form = await Scheduler.GetByIdAsync(Id.Value);
+                if (_form is null) return;
+                _envId = _form.EnvironmentId;
+                _heureLocale = TimeOnly.FromTimeSpan(_form.TimeOfDay);
+                _validFromLocal = _form.ValidFrom.HasValue ? MaintenanceScheduleService.ToLocal(_form.ValidFrom.Value, TimeZoneIdSelectionne).LocalDateTime : null;
+                _validUntilLocal = _form.ValidUntil.HasValue ? MaintenanceScheduleService.ToLocal(_form.ValidUntil.Value, TimeZoneIdSelectionne).LocalDateTime : null;
+                _mensuelJoursTexte = _form.MonthlyDays is { Count: > 0 } ? string.Join(", ", _form.MonthlyDays.OrderBy(d => d)) : string.Empty;
+                await ChargerWorkflowsAsync();
+            }
+        }
+        finally { _chargement = false; StateHasChanged(); }
+    }
+
+    private async Task ChargerWorkflowsAsync()
+    {
+        _workflows = _envId == Guid.Empty ? [] : (await CatalogueWorkflows.GetForEnvironmentAsync(_envId)).Where(w => w.IsRunnable).OrderBy(w => w.Code).ToList();
+        if (_form is not null && _workflows.Count > 0 && !_workflows.Any(w => w.Id == _form.WorkflowId))
+        {
+            _form.WorkflowId = _workflows[0].Id;
+        }
+    }
+
+    private bool JourDansMask(DayOfWeek dow) => _form is not null && MaintenanceScheduleService.MaskContientJour(_form.WeeklyDayOfWeekMask, dow);
+
+    private void ToggleJourMask(DayOfWeek dow)
+    {
+        if (_form is null) return;
+        int bit = dow switch
+        {
+            DayOfWeek.Monday => 0,
+            DayOfWeek.Tuesday => 1,
+            DayOfWeek.Wednesday => 2,
+            DayOfWeek.Thursday => 3,
+            DayOfWeek.Friday => 4,
+            DayOfWeek.Saturday => 5,
+            DayOfWeek.Sunday => 6,
+            _ => -1
+        };
+        if (bit < 0) return;
+        if ((_form.WeeklyDayOfWeekMask & (1 << bit)) != 0)
+        {
+            _form.WeeklyDayOfWeekMask = (ushort)(_form.WeeklyDayOfWeekMask & ~(1 << bit));
+        }
+        else
+        {
+            _form.WeeklyDayOfWeekMask = (ushort)(_form.WeeklyDayOfWeekMask | (1 << bit));
+        }
+    }
+
+    private void ParserMensuelJours()
+    {
+        _mensuelJoursErreur = null;
+        if (_form is null) return;
+        _form.MonthlyDays = new List<int>();
+        if (string.IsNullOrWhiteSpace(_mensuelJoursTexte)) return;
+        var tokens = _mensuelJoursTexte.Split(new[] { ',', ';', ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+        var result = new HashSet<int>();
+        foreach (var t in tokens)
+        {
+            if (!int.TryParse(t.Trim(), out var j) || j < 1 || j > 31)
+            {
+                _mensuelJoursErreur = $"Valeur « {t} » invalide : attendu entier 1..31.";
+                return;
+            }
+            result.Add(j);
+        }
+        _form.MonthlyDays = result.OrderBy(x => x).ToList();
+    }
+
+    private async Task<string> ActeurAsync()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        return etat.User.Identity?.Name ?? "inconnu";
+    }
+
+    private async Task ApercuProchainesOccurrencesAsync()
+    {
+        _prochainesOccurrences = [];
+        if (_form is null) return;
+        _message = null;
+        // Pour l'aperçu, on pousse une copie temporaire des paramètres dans le service via Create puis
+        // on calcule l'occurrence. On simule simplement en exploitant l'infra persistée si c'est une édition,
+        // sinon on lance une sauvegarde virtuelle en appelant directement CalculerProchaineOccurrenceLocale via
+        // GetNextOccurrences uniquement s'il y a un Id. Pour la création sans Id, on calcule localement 10 fois.
+        if (!_estNouveau && _form.Id != Guid.Empty)
+        {
+            _prochainesOccurrences = await Scheduler.GetNextOccurrencesAsync(_form.Id, 10);
+            if (_prochainesOccurrences.Count == 0)
+            {
+                _message = "Aucune occurrence à venir (statut Suspendu, Expiré, ou ValidUntil déjà dépassé).";
+                _messageClass = "bg-amber-500/10 border-amber-500/40 text-amber-200";
+            }
+        }
+        else
+        {
+            // Simulation hors DB pour la création
+            _form.TimeOfDay = _heureLocale.HasValue ? _heureLocale.Value.ToTimeSpan() : TimeSpan.Zero;
+            ParserMensuelJours();
+            var cursor = DateTimeOffset.UtcNow;
+            var stop = DateTimeOffset.UtcNow.AddYears(2);
+            int maxIter = 2000, iter = 0;
+            while (iter++ < maxIter && _prochainesOccurrences.Count < 10 && cursor < stop)
+            {
+                var next = MaintenanceScheduleService.CalculerProchaineOccurrenceLocale(_form, cursor, null);
+                if (!next.HasValue) break;
+                _prochainesOccurrences.Add(next.Value);
+                cursor = next.Value.AddMinutes(1);
+            }
+            if (_prochainesOccurrences.Count == 0)
+            {
+                _message = "Paramètres de fréquence invalides : aucune occurrence détectée sur les 2 prochaines années.";
+                _messageClass = "bg-rose-500/10 border-rose-500/40 text-rose-200";
+            }
+        }
+    }
+
+    private async Task EnregistrerAsync()
+    {
+        if (_form is null || !PeutEnregistrer) return;
+        _enregistrement = true;
+        _message = null;
+        try
+        {
+            ParserMensuelJours();
+            if (_mensuelJoursErreur is not null)
+            {
+                Signaler(_mensuelJoursErreur, false);
+                return;
+            }
+
+            _form.EnvironmentId = _envId;
+            _form.TimeOfDay = _heureLocale!.Value.ToTimeSpan();
+            _form.ValidFrom = _validFromLocal.HasValue ? new DateTimeOffset(_validFromLocal.Value).UtcDateTime : null;
+            _form.ValidUntil = _validUntilLocal.HasValue ? new DateTimeOffset(_validUntilLocal.Value).UtcDateTime : null;
+
+            if (_form.Kind == ScheduleKind.HebdoJoursChoisis && _form.WeeklyDayOfWeekMask == 0)
+            {
+                Signaler("Fréquence hebdomadaire : au moins un jour doit être sélectionné.", false);
+                return;
+            }
+            if (_form.Kind == ScheduleKind.MensuelJoursPrecis && _form.MonthlyDays.Count == 0)
+            {
+                Signaler("Fréquence mensuelle : au moins un jour numérique doit être listé (1..31).", false);
+                return;
+            }
+            if (_form.Kind == ScheduleKind.CronExpression && string.IsNullOrWhiteSpace(_form.CronExpression))
+            {
+                Signaler("Expression Cron : le champ CronExpression est obligatoire.", false);
+                return;
+            }
+            if (_form.ValidUntil.HasValue && _form.ValidFrom.HasValue && _form.ValidUntil.Value <= _form.ValidFrom.Value)
+            {
+                Signaler("« Valide jusqu'au » doit être strictement postérieur à « Valide à partir du ».", false);
+                return;
+            }
+
+            var acteur = await ActeurAsync();
+
+            if (_estNouveau)
+            {
+                var r = await Scheduler.CreateAsync(_form, acteur);
+                if (r.Error is not null) { Signaler(r.Error, false); return; }
+                Nav.NavigateTo($"/admin/planifications/{r.Schedule!.Id}");
+            }
+            else
+            {
+                var id = Id!.Value;
+                var r = await Scheduler.UpdateAsync(id, s =>
+                {
+                    s.WorkflowId = _form.WorkflowId;
+                    s.Code = _form.Code;
+                    s.Name = _form.Name;
+                    s.Kind = _form.Kind;
+                    s.TimeOfDay = _form.TimeOfDay;
+                    s.WeeklyDayOfWeekMask = _form.WeeklyDayOfWeekMask;
+                    s.MonthlyDays = _form.MonthlyDays;
+                    s.CronExpression = _form.CronExpression;
+                    s.Status = _form.Status;
+                    s.RanAs = _form.RanAs;
+                    s.ReasonTemplate = _form.ReasonTemplate;
+                    s.TicketTemplate = _form.TicketTemplate;
+                    s.AutoApprove = _form.AutoApprove;
+                    s.ValidFrom = _form.ValidFrom;
+                    s.ValidUntil = _form.ValidUntil;
+                    s.SkipIfActiveAlready = _form.SkipIfActiveAlready;
+                }, acteur);
+                if (r.Error is not null) { Signaler(r.Error, false); return; }
+                if (r.Warning is not null)
+                {
+                    Signaler($"Enregistré avec avertissement : {r.Warning}", ok: true, warn: true);
+                    return;
+                }
+                Signaler("Enregistré avec succès.", true);
+            }
+        }
+        finally { _enregistrement = false; }
+    }
+
+    private void Signaler(string msg, bool ok, bool warn = false)
+    {
+        _message = msg;
+        _messageClass = ok
+            ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+            : warn
+                ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
+                : "bg-rose-500/10 border-rose-500/40 text-rose-200";
+    }
+
+    private static string LibelleKind(ScheduleKind k) => k switch
+    {
+        ScheduleKind.Quotidien => "Chaque jour",
+        ScheduleKind.JoursOuvres => "Jours ouvrés",
+        ScheduleKind.HebdoJoursChoisis => "Hebdomadaire (jours sélectionnés)",
+        ScheduleKind.MensuelJoursPrecis => "Mensuel (jours fixes)",
+        ScheduleKind.CronExpression => "Cron",
+        _ => k.ToString()
+    };
+}

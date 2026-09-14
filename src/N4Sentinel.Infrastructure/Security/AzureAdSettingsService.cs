@@ -32,6 +32,9 @@ public sealed class AzureAdSettingsService(
             existants.ClientId = parametres.ClientId;
             existants.Authority = parametres.Authority;
             existants.PostLogoutRedirectUri = parametres.PostLogoutRedirectUri;
+            existants.RequireSignatureValidation = parametres.RequireSignatureValidation;
+            existants.AllowTokenPastedLogin = parametres.AllowTokenPastedLogin;
+            existants.RoleMappings = parametres.RoleMappings ?? new List<AzureAdRoleMapping>();
         }
 
         await db.SaveChangesAsync(ct);
@@ -39,8 +42,10 @@ public sealed class AzureAdSettingsService(
         await auditWriter.WriteAsync(
             AuditAction.Modification, AuditOutcome.Succes, actor,
             entityType: nameof(AzureAdSettings),
-            detail: $"Enabled={parametres.Enabled}, TenantId={parametres.TenantId ?? "—"}. "
-                  + "Rappel : ce paramètre prépare la V2, aucune connexion SSO fonctionnelle n'est active en V1.",
+            detail: $"Enabled={parametres.Enabled}, RequireSig={parametres.RequireSignatureValidation}, AllowPasted={parametres.AllowTokenPastedLogin}, "
+                  + $"TenantId={parametres.TenantId ?? "—"}. "
+                  + $"Nombre de règles de mapping rôles Azure AD → Sentinel : {(parametres.RoleMappings?.Count ?? 0)}. "
+                  + "Rappel : tant que RequireSignatureValidation=true, aucune connexion SSO n'est acceptée — la fonctionnalité reste désactivée, même avec Enabled=true.",
             ct: ct);
     }
 }

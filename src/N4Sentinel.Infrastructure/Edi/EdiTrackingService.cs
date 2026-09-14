@@ -28,6 +28,7 @@ public sealed class EdiTrackingService(
     ConnectorTargetFactory targetFactory,
     IN4Connector connector,
     ILogger<EdiTrackingService> logger)
+    : Domain.Interfaces.IEdiConnector
 {
     public async Task<List<EdiFile>> SyncAsync(N4Component composant, CancellationToken ct = default)
     {
@@ -130,5 +131,51 @@ public sealed class EdiTrackingService(
             .Where(f => f.ComponentId == componentId)
             .OrderByDescending(f => f.LastSeenAt)
             .ToListAsync(ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TestConnectivityAsync(N4Component composant, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(composant);
+        var profil = composant.SharedFolder;
+        if (!profil.IsConfigured || composant.Server is null) return false;
+        try
+        {
+            var resolution = await targetFactory.CreateAsync(composant.Server, ct).ConfigureAwait(false);
+            if (!resolution.Succeeded || resolution.Target is null) return false;
+            var target = resolution.Target;
+            var chemin = Path.Combine(profil.RootPath!, profil.PendingSubfolder ?? string.Empty);
+            var snapshot = await connector.ListFilesAsync(target, chemin, ct).ConfigureAwait(false);
+            return snapshot is not null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Test connectivité EDI KO pour composant {Name}", composant.LogicalName);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> ResendFailedAsync(IEnumerable<Guid> fileIds, string actor, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(fileIds);
+        if (string.IsNullOrWhiteSpace(actor)) return 0;
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var ids = fileIds.Distinct().ToList();
+        var fichiers = await db.EdiFiles
+            .Where(f => ids.Contains(f.Id) && f.Status == EdiFileStatus.Rejete)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var maintenant = DateTimeOffset.UtcNow;
+        foreach (var f in fichiers)
+        {
+            f.Status = EdiFileStatus.EnAttente;
+            f.ResendRequestedAt = maintenant;
+            f.ResendRequestedBy = actor;
+        }
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return fichiers.Count;
     }
 }

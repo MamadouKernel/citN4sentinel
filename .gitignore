@@ -75,3 +75,15 @@ node_modules/
 # a la demande, volumineux : ne doit pas etre versionne.
 graphify-out/
 **/graphify-out/
+
+# --- Outillage local et temporaires ---
+# Outillage d'assistant (spec-kit, agents), libs Python embarquees et dossier
+# temporaire : reconstructibles ou propres au poste, hors perimetre du produit.
+tmp/
+_pylibs/
+.specify/
+.agents/
+# Fichiers de verrouillage Office (~$Document.xlsx) crees a l'ouverture.
+~$*
+# Resultats de tests (.trx) : sortie de run, non versionnee.
+**/TestResults/

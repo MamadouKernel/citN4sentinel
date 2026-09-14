@@ -21,6 +21,14 @@ public sealed class SignatureCatalogue(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
     ILogger<SignatureCatalogue> logger)
 {
+    /// <summary>
+    /// P4.6 — Version de référence du catalogue livré avec le produit.
+    /// Incrémentée à chaque livraison d'un jeu de signatures éditeur nouveau
+    /// ou corrigé. Persisté au moment de ConcludeAsync sur la session, pour que
+    /// la capitalisation sache quelle version du catalogue a produit tel
+    /// diagnostic.
+    /// </summary>
+    public const string VersionActuelleReference = "2026-09-13.1";
     public async Task<List<DiagnosticSignature>> GetAllAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -565,6 +573,305 @@ public sealed class SignatureCatalogue(
             ConfidenceWeight = 45,
             Meaning = "Une erreur a échappé au traitement prévu. Trop générique pour désigner une cause.",
             Remediation = "Regarder le type d'exception et la pile : c'est là qu'est l'information utile."
+        },
+
+        // -------------------------------------------------------------------
+        // P4.7 — 15+ signatures Navis TOP P1 complémentaires (éditeur)
+        // -------------------------------------------------------------------
+        new()
+        {
+            Code = "DB-INDEX-FRAG",
+            Name = "Fragmentation élevée des index SQL",
+            Pattern = @"(?:(?:avg_fragmentation_in_percent|index.*fragment|REORGANIZE|REBUILD).{0,60}(?:>[3-9][0-9]|forte|elev[eé]e|high)|"
+                    + @"page.*split.*occurred|PageLatch_.*Wait|IO_COMPLETION.{0,80}ms)",
+            Domain = DiagnosticDomain.BaseDeDonnees,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 72,
+            Meaning = "Les index de la base N4 présentent une fragmentation > 30 %. Typiquement observée après "
+                    + "quelques semaines sans maintenance planifiée, elle se traduit par des requêtes ERMA, GOS, "
+                    + "SPC qui mettent plusieurs secondes, et des files ActiveMQ qui grossissent en aval.",
+            Remediation = "Lancer le plan de maintenance SQL standard Navis : UPDATE STATISTICS FULLSCAN sur les "
+                        + "tables critiquées, puis REORGANIZE si fragmentation < 30 % et REBUILD si > 30 %, en "
+                        + "dehors des pics d'activité.",
+            DocumentReference = "N4 IT Administrator Day 1 — Top 10 P1 Causes : Index frag + DB réglages"
+        },
+        new()
+        {
+            Code = "NET-DNS-INTERMITTENT",
+            Name = "Défaillance DNS intermittente",
+            Pattern = @"(?:(?:DNS|resolv).{0,80}(?:fail|timeout|unreachable|unable to resolve|no such host|nxdomain)|"
+                    + @"SocketException.{0,80}(?:host|DNS|name)|No such host is known)",
+            Domain = DiagnosticDomain.Reseau,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 78,
+            Meaning = "La résolution de nom DNS échappe par intermittence. Sur un cluster N4, c'est l'une des "
+                    + "premières causes d'apparition de Split-Brain : Center et Standby ne parviennent plus à "
+                    + "se joindre par leurs noms DNS respectifs.",
+            Remediation = "Vérifier que les deux serveurs DNS primaire et secondaire de l'établissement répondent "
+                        + "sur tous les nœuds du cluster. Sur Windows : ipconfig /flushdns puis Test-NetConnection "
+                        + "sur chaque partenaire. S'il y a une carte iDRAC/ILO, vérifier qu'elle n'emprunte pas "
+                        + "le même domaine réseau pour le management.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.2 — Network prerequisites"
+        },
+        new()
+        {
+            Code = "AMQ-FAILOVER-STALE",
+            Name = "Passage failover ActiveMQ bloqué sur broker obsolète",
+            Pattern = @"(?:failover.{0,80}(?:stale|broken|not active|failed to switch|transport.*disconnected)|"
+                    + @"FailoverTransport.*(?:reconnect|interrupted)|broker.*URL.*(?:dead|down|unreachable))",
+            Domain = DiagnosticDomain.ActiveMqKahaDb,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 77,
+            Meaning = "L'un des brokers master/slave AMQ déclaré dans la chaîne failover:// n'est plus joignable "
+                    + "ou a perdu l'élection. Le client tourne sans véritable redondance : un nouveau plantage "
+                    + "secondaire perdra les messages en mémoire.",
+            Remediation = "S'assurer que la chaîne failover déclare toujours les DEUX brokers actif + secours et "
+                        + "que l'élection master/slave ne se termine pas en double master. Sur KahaDB partagé, "
+                        + "un seul processus peut détenir le verrou db.lock à un instant T.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.6 — High availability ActiveMQ"
+        },
+        new()
+        {
+            Code = "XPS-EVENTS-LOST",
+            Name = "Événements XPS perdus (XPS désynchronisé)",
+            Pattern = @"(?:(?:XP[SC].{0,30}(?:drop|lost|skip|out of order|missed|stale))|XPS.{0,30}(?:disconnect|failover|unreachable)|"
+                    + @"(?:Event|Position).{0,40}(?:not.{0,20}(?:received|applied|consumed)))",
+            Domain = DiagnosticDomain.BridgeXps,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 74,
+            Meaning = "XPS (XML Positioning Server) a perdu une partie du flux équipement. Le SPC va réceptionner "
+                    + "des positions en retard, dans le désordre ou plus du tout, ce qui se manifeste côté portail "
+                    + "par des camions qui sautent sur les RTG/RMG et des TOS qui semblent figés 2 à 5 s.",
+            Remediation = "Repérer la source d'événements (RMG/RTG/STS) côté instrumentation, redémarrer le canal "
+                        + "en question côté XPS, puis confirmer le compteur d'échanges appliqués vs. reçus sur "
+                        + "chaque connecteur. Si problème récurrent, dimensionner les buffers côté instrumentation.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.7 — XPS / Bridge operations"
+        },
+        new()
+        {
+            Code = "BRIDGE-ERROR-ORDER",
+            Name = "Ordre erreur signalé par Bridge",
+            Pattern = @"(?:BRIDGE.{0,40}(?:ERROR|FAILED|order.{0,30}(?:fail|reject|timeout|cancel|abend))|"
+                    + @"(?:Equipment).{0,30}(?:OrderEndedAbnormally|OrderRejected|OrderTimeout))",
+            Domain = DiagnosticDomain.BridgeXps,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 70,
+            Meaning = "Le N4 Bridge a transmis un ordre à un équipement, et la réponse signalée n'est pas OK "
+                    + "(abnormal end, ordre rejeté, timeout de fin). Ce n'est pas une panne du composant lui-même : "
+                    + "c'est une réaction à un ordre invalide ou à un obstacle côté équipement physique.",
+            Remediation = "Extraire l'identifiant de l'ordre et du mouvement dans le journal Bridge, puis croiser "
+                        + "avec SPCView pour retrouver le chef d'équipe qui annulait le Mouvement, et avec le journal "
+                        + "équipement (STS/RTG) pour voir le motif exact du rejet.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.7 — XPS / Bridge operations"
+        },
+        new()
+        {
+            Code = "VM-SNAPSHOT-ROLLBACK",
+            Name = "Snapshot VM restauré / rollback horloge détecté",
+            Pattern = @"(?:(?:snapshot|restor|revert).{0,60}(?:VM|virtual|vSphere|Hyper-V|vMotion))|"
+                    + @"(?:clock went backward|NTP.{0,60}(?:step|adjust).{0,60}[+-]?\d{2,}\s*(?:s|sec|ms))",
+            Domain = DiagnosticDomain.Systeme,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 82,
+            Meaning = "Une machine virtuelle du cluster N4 a subi un snapshot + rollback. Cette signature est la "
+                    + "plus explosive des top 10 P1 : ActiveMQ (KahaDB), SQL Server (LSN), N4 cluster state et "
+                    + "toutes les files se retrouvent dans le passé sur un nœud, causant des incohérences "
+                    + "irréversibles avec ses pairs.",
+            Remediation = "INTERDIRE formellement les snapshots/rollback sur VMs d'un cluster N4 en production : "
+                        + "c'est dans la check-list pré-déploiement Kaleris. Si déjà fait : basculer TOUS les "
+                        + "services sur le site sain, supprimer le snapshot, puis réinjecter la VM proprement "
+                        + "après réalignement horloge + vider KahaDB/journal sur le nœud restauré.",
+            DocumentReference = "N4 IT Administrator Day 1 — Top 10 P1 Causes : VM rollback"
+        },
+        new()
+        {
+            Code = "ECN4-APP-POOL-CRASH",
+            Name = "Crash AppPool IIS ECN4 Web",
+            Pattern = @"(?:(?:Application pool|W3SVC|WAS).{0,60}(?:rapid.{0,20}fail|shutdown|terminat|stop|recycle))|"
+                    + @"(?:ECN4.{0,20}(?:Web|Portal|API).{0,40}(?:crash|failover|down))",
+            Domain = DiagnosticDomain.Applicatif,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 68,
+            Meaning = "Le pool d'applications IIS hébergeant ECN4 Web / Portail a été recyclé par Rapid-Fail "
+                    + "Protection ou planté sans reprise. Les utilisateurs voient une page 503 Service Unavailable.",
+            Remediation = "Identifier l'exception de démarrage (Event Viewer Applications + logs ECN4Web.*.log) "
+                        + "avant de simplement relancer : ce n'est pas IIS la cause le plus souvent, c'est une "
+                        + "défaillance de connexion DB ou de fichiers config (connectionStrings / n4.security) "
+                        + "lues au démarrage du pool.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.4 — Web Frontend troubleshooting"
+        },
+        new()
+        {
+            Code = "SHARED-FOLDER-SMB-TIMEOUT",
+            Name = "Dossier partagé SMB / N4 share indisponible",
+            Pattern = @"(?:(?:shared|network|SMB|share|UNC|\\\\).{0,80}(?:timeout|disconnect|unreachable|access.{0,20}denied|no .* handle))|"
+                    + @"The network name is no longer available|ERROR_BAD_NETPATH|ERROR_NETWORK_UNREACHABLE)",
+            Domain = DiagnosticDomain.SharedFolders,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 76,
+            Meaning = "Le dossier partagé (ActiveMQ KahaDB, Watch Folder pour GOS/XML) n'est plus joignable depuis "
+                    + "un membre du cluster. C'est une cause première de Split-Brain : deux nœuds pensent être "
+                    + "seuls propriétaires de l'élection parce que le stockage partagé est mort par intermittence.",
+            Remediation = "Pinger le file server depuis CHAQUE nœud du cluster à intervalles de 5 s sur 10 minutes. "
+                        + "Si un seul nœud échoue, vérifier la carte réseau, les VLAN, les DNS, puis la session "
+                        + "SMB ouverte (net use / delete puis recréer). Vérifier quotas disque atteints.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.2 — Storage shares prerequisites"
+        },
+        new()
+        {
+            Code = "SQL-DEADLOCK-REPEATED",
+            Name = "Deadlocks SQL répétés sur mêmes tables",
+            Pattern = @"(?:(?:SQLServer deadlock|deadlock victim|DEADLOCK|sp_xml_removedeadlock|lock request time.{0,40}out period))|"
+                    + @"(?:was deadlocked on lock resources with another process)",
+            Domain = DiagnosticDomain.BaseDeDonnees,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 73,
+            Meaning = "Plusieurs deadlocks sur la même période (> 3 en 10 min). Typiquement rencontrés sur les "
+                    + "tables de mouvements / containers ERMA/CY, ou lors de batchs d'import GOS massifs en "
+                    + "parallèle des opérations TERMINAL en ligne.",
+            Remediation = "Activer l'Extended Event sql_deadlock_event_file sur l'instance SQL, identifier le "
+                        + "gagnant/perdant, puis préconiser le bon ordre de verrouillage dans le batch appelant. "
+                        + "Si c'est un batch interne N4 : escalader vers Kaleris avec le xel capturé.",
+            DocumentReference = "N4 IT Administrator Day 1 — Top 10 P1 Causes : DB deadlocks + contention"
+        },
+        new()
+        {
+            Code = "HAZELCAST-SOCKET-CLOSED",
+            Name = "Rupture socket Hazelcast / cache distribué",
+            Pattern = @"(?:(?:Hazelcast|hz-).{0,80}(?:SocketException|connection reset by peer|Connection closed|Member.*left|"
+                    + @"Member.*(?:disconnected|failed|heartbeat).{0,40}(?:timeout|missed)))",
+            Domain = DiagnosticDomain.N4Cluster,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 71,
+            Meaning = "Hazelcast, la couche de cache distribué et de coordination entre nœuds N4, a vu une "
+                    + "connexion socket se fermer ou un heartbeat manquer. Un cluster de 2 nœuds ne tolère "
+                    + "qu'une seule perte de membre ; au-delà, l'état converge mal.",
+            Remediation = "Sur chaque nœud du cluster : vérifier le port réseau Hazelcast (souvent 5701-5703), "
+                        + "que la MTU 9000 (Jumbo Frames) est bien désactivée s'il y a un routeur L3, et que "
+                        + "les threads de heartbeat ne sont pas en famine CPU.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.3 — Cluster formation & cache"
+        },
+        new()
+        {
+            Code = "LIC-SERVER-UNREACHABLE",
+            Name = "Serveur de licences Navis inaccessible",
+            Pattern = @"(?:(?:licen[cs]e|FLEX|lmgrd|vendor daemon).{0,100}(?:fail|timeout|unreachable|expir|invalid|not found))|"
+                    + @"No valid license|License server.*down|Cannot connect to license server)",
+            Domain = DiagnosticDomain.Licence,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 85,
+            Meaning = "Le serveur de licences Kaleris/FLEXlm dédié est injoignable ou une licence expire. Selon le "
+                    + "composant, un délai de grâce de quelques heures existe, mais XPS et Bridge rentrent en "
+                    + "mode dégradé, puis refusent systématiquement de démarrer.",
+            Remediation = "Tester le socket du serveur de licences (généralement 27000 + port vendor) depuis "
+                        + "chaque nœud. Si la licence a expiré, installer le nouveau fichier .lic SANS redémarrer "
+                        + "tous les services si possible : lmutil lmreread sur le serveur de licences suffit en général.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.1 — License management"
+        },
+        new()
+        {
+            Code = "CFG-CRYPT-KEY-MISMATCH",
+            Name = "Clé de chiffrement config N4 incohérente entre nœuds",
+            Pattern = @"(?:(?:encrypt|decrypt|Cryptograph).{0,80}(?:fail|invalid|mismatch|bad data|Key not valid))|"
+                    + @"(?:n4\.security|machine\.key|DPAPI).{0,60}(?:error|fail))",
+            Domain = DiagnosticDomain.Configuration,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 79,
+            Meaning = "Le fichier n4.security.xml (ou la clé DPAPI utilisée) diffère d'un nœud à l'autre du cluster. "
+                    + "Les connexions DB ou les credentials chiffrés dans Web.config sont alors illisibles d'un "
+                    + "membre, qui tombe en échec de démarrage ou affiche des connexions qui passent en coup de "
+                    + "vent selon quel membre a traité la requête.",
+            Remediation = "Comparer le hash SHA-256 de n4.security sur TOUS les nœuds Center + Standby + nœuds "
+                        + "Web. Ils doivent être identiques. En cas de divergence : reprendre le fichier de "
+                        + "référence qui permet de déchiffrer la base de connectionStrings, et le propager.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.4 — Configuration file secrets"
+        },
+        new()
+        {
+            Code = "BRIDGE-INBOUND-ORDER",
+            Name = "Ordre entrant Bridge hors séquence / refus équipement",
+            Pattern = @"(?:(?:INBOUND|RECEIVE).{0,40}ORDER.{0,60}(?:reject|invalid|out of sequence|sequence number)|"
+                    + @"Bridge.{0,40}(?:Chef|CRC|SequenceID|seq).{0,40}(?:mismatch|missing|expected))",
+            Domain = DiagnosticDomain.BridgeXps,
+            Severity = SignatureSeverity.Avertissement,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 62,
+            Meaning = "L'équipement STS/RTG renvoie un numéro de séquence inattendu par rapport à ce que Bridge "
+                    + "attendait. Fréquent après redémarrage Bridge à chaud : le compteur a été réinitialisé côté "
+                    + "N4 mais pas côté équipement, ou l'inverse.",
+            Remediation = "Réaligner manuellement le compteur d'ordres (SequenceID) côté Bridge via son API de "
+                        + "diagnostic, ou procéder à un reset orchestré des deux côtés pendant une fenêtre "
+                        + "d'exploitation sans mouvement.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.7 — XPS / Bridge operations"
+        },
+        new()
+        {
+            Code = "KAHADB-JOURNAL-FULL",
+            Name = "Journal KahaDB saturé (rotation db-*.log bloquée)",
+            Pattern = @"(?:(?:KahaDB|kahadb).{0,80}(?:journal.*(?:full|no space|rotation)|checkpoint.*fail|cleanup.*stop))|"
+                    + @"(?:db-[0-9]+\.log.*(?:cannot|unable|failed).{0,40}(?:delete|remove|clean))",
+            Domain = DiagnosticDomain.ActiveMqKahaDb,
+            Severity = SignatureSeverity.Critique,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 81,
+            Meaning = "Le journal à écriture seule de KahaDB (db-XXXX.log) accumule les rotations sans en rien "
+                    + "supprimer. Deux causes classées top 10 : messages non acquittés en file, ou checkpoint "
+                    + "régulier qui ne passe plus parce qu'il y a un producteur trop lent ou une référence "
+                    + "subscriber durable morte.",
+            Remediation = "Vérifier avec `bin/activemq browse --amqurl tcp://...` les files et durables subscribers "
+                        + "qui retiennent le checkpoint. S'il y a un subscriber durable orphelin, le supprimer "
+                        + "proprement : ne pas faire un rm des db-*.log à la main, le checkpoint passe ensuite "
+                        + "tout seul et nettoie les rotations.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.6 — Kahadb journal cleanup"
+        },
+        new()
+        {
+            Code = "AMQ-NETWORK-BRIDGE-DOWN",
+            Name = "Pont réseau ActiveMQ down (broker ↔ broker)",
+            Pattern = @"(?:(?:network bridge|networkConnector).{0,60}(?:down|fail|stop|broken|disconnect))|"
+                    + @"(?:NetworkBridge.*(?:Failed|Stopped|Not running)|Duplex network connector failed)",
+            Domain = DiagnosticDomain.ActiveMqKahaDb,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 74,
+            Meaning = "Le connecteur réseau ActiveMQ entre le broker local et le broker pair (Center / Standby) "
+                    + "est tombé. Les messages sont toujours acceptés en entrée localement mais plus distribués "
+                    + "aux consommateurs connectés sur l'autre membre.",
+            Remediation = "S'assurer que le broker distant est joignable (telnet host 61616 / 61617). Vérifier "
+                        + "les paramètres user/pass du networkConnector s'il y a une authentification JAAS AMQ. "
+                        + "Si le problème est récurrent : faire baisser prefetch sur le pont et augmenter "
+                        + "maxReconnectAttempts.",
+            DocumentReference = "N4 IT Administrator Day 1, module 1.6 — ActiveMQ network of brokers"
+        },
+        new()
+        {
+            Code = "CFG-RECYCLER-MEMORY",
+            Name = "Mémoire .NET IIS / ECN4 — GC pressure élevée",
+            Pattern = @"(?:(?:OutOfMemoryException|memory pressure|GC.{0,30}(?:Full|Gen2).{0,40}time)|"
+                    + @"(?:IIS|w3wp\.exe).{0,60}(?:memory|RAM).{0,40}(?:exceed|limit|9\d%|high))",
+            Domain = DiagnosticDomain.Memoire,
+            Severity = SignatureSeverity.Erreur,
+            Origin = SignatureOrigin.Editeur,
+            ConfidenceWeight = 66,
+            Meaning = "Le pool IIS ECN4 ou le service Windows ECN4 a une pression GC Gen 2 qui dépasse les seuils. "
+                    + "Les requêtes sont alors mises en file d'attente et on voit des pages mettent 10 à 30 s "
+                    + "à répondre.",
+            Remediation = "Capturer un .dmp (procdump -ma w3wp.exe quand mémoire > 80 %) et l'ouvrir dans "
+                        + "dotMemory / PerfView pour identifier l'objet qui s'accumule (typiquement sessions "
+                        + "portail, ou DataReader SQL non disposés).",
+            DocumentReference = "N4 IT Administrator Day 1 — Top 10 P1 Causes : CPU/RAM sous-dimensionné"
         }
     ];
 }

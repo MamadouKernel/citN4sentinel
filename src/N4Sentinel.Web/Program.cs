@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
+using System.Text.Json.Nodes;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure;
 using N4Sentinel.Infrastructure.Identity;
@@ -355,6 +356,7 @@ app.Use(async (context, next) =>
             + "style-src 'self' 'unsafe-inline'; "
             + "img-src 'self' data:; "
             + "font-src 'self'; "
+            + "media-src 'self' blob:; "
             + "connect-src 'self' ws: wss:; "      // circuit Blazor Server
             + "object-src 'none'; "
             + "base-uri 'self'; "
@@ -411,6 +413,54 @@ app.MapHealthChecks("/health/detail", new HealthCheckOptions
             N4Sentinel.Web.Security.HealthReportFormatter.Formater(rapport));
     }
 }).RequireAuthorization(N4Policies.PeutConsulter);
+
+// PB-25 · Ticketing BIDIRECTIONNEL flux entrant : endpoint webhook générique.
+// SÉCURITÉ (SEC-001 · double-garde).
+//   • AllowAnonymous() est CORRECT ici : les outils DSI (ServiceNow / Jira / GLPI)
+//     ne peuvent pas porter de cookie ASP.NET Core Identity.
+//   • L'authentification est assurée PAR SIGNATURE HMAC SHA256, vérifiée de façon
+//     time-safe dans TicketingSyncService.TraiterWebhookEntrantAsync.
+//   • Comportement FAIL-CLOSED :
+//       WebhookSecret configuré  →  signature HMAC OBLIGATOIRE (401 si absente/invalide)
+//       WebhookSecret absent     →  mode STRICT = 401 SAUF AllowUnsignedWebhooksForDebug=true (DEV SEUL)
+app.MapPost("/api/tickets/webhook/{system?}", async (
+    HttpContext ctx,
+    N4Sentinel.Infrastructure.Ticketing.TicketingSyncService sync,
+    string? system,
+    CancellationToken ct) =>
+{
+    system ??= ctx.Request.Query["system"].FirstOrDefault() ?? "generic";
+    var hmac = ctx.Request.Headers["X-Hmac-Sha256"].FirstOrDefault()
+               ?? ctx.Request.Headers["x-ticketing-signature"].FirstOrDefault();
+    using var reader = new StreamReader(ctx.Request.Body, leaveOpen: false);
+    var brut = await reader.ReadToEndAsync(ct);
+    var json = string.IsNullOrWhiteSpace(brut) ? new JsonObject() : JsonNode.Parse(brut) ?? new JsonObject();
+
+    var (ok, raison, ticket) = await sync.TraiterWebhookEntrantAsync(system, json, hmac, ct);
+    if (!ok)
+    {
+        // Distinguer les échecs d'authentification (401) des erreurs de format (400)
+        // pour les logs DSI (facilite la distinction problème de sécu / problème de payload).
+        int statusCode =
+            raison is not null && (
+                raison.Contains("HMAC", StringComparison.Ordinal)
+                || raison.Contains("secret", StringComparison.OrdinalIgnoreCase)
+                || raison.Contains("requise", StringComparison.Ordinal)
+                || raison.Contains("stric", StringComparison.Ordinal))
+                ? StatusCodes.Status401Unauthorized
+                : StatusCodes.Status400BadRequest;
+
+        return Results.Problem(title: "Webhook refusé", detail: raison, statusCode: statusCode);
+    }
+    return Results.Ok(new
+    {
+        accepted = true,
+        system,
+        code = ticket?.Code,
+        externalId = ticket?.ExternalTicketId,
+        statut = ticket?.Status.ToString()
+    });
+}).AllowAnonymous().WithName("TicketingWebhookEntrant").WithDisplayName("PB-25 Ticketing webhook entrant (SEC-001 HMAC fail-closed)");
 
 // NFR-008 : métriques d'exploitation exposées au format texte (compatible
 // scrape Prometheus), pour un outil d'APM externe — au-delà des logs.

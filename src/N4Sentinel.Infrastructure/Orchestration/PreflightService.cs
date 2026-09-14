@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Persistence;
+using N4Sentinel.Infrastructure.Supervision;
 
 namespace N4Sentinel.Infrastructure.Orchestration;
 
@@ -32,6 +33,9 @@ public sealed class PreflightService(
     Supervision.SupervisionService supervision,
     CenterContinuityService continuity,
     Security.EnvironmentAccessService acces,
+    SupervisionStateCache supervisionCache,
+    MeriseBusinessPolicyService merisePolicies,
+    Palier2ApprovalService palier2Approval,
     ILogger<PreflightService> logger)
 {
     /// <summary>
@@ -162,7 +166,9 @@ public sealed class PreflightService(
         await ControlerEtatInitialDemarrageCompletAsync(execution, composants, controles, ct);
         await ControlerContinuiteCenterAsync(execution, controles, ct);
         await ControlerContinuiteBridgeAsync(execution, composants, controles, ct);
+        await ControlerApprobationPalier2Async(execution, controles, ct);
         ControlerImpact(execution, composants, controles);
+        await ControlerSignauxFaiblesMeriseAsync(execution, composants, controles, ct);
 
         var rapport = new PreflightReport
         {
@@ -779,6 +785,184 @@ public sealed class PreflightService(
         controles.Add(PreflightCheck.Avertissement("Impact de l'arrêt", detail,
             "Les étapes déjà exécutées ne sont pas défaites en cas d'annulation : "
             + "une séquence d'arrêt interrompue laisse l'écosystème à moitié éteint."));
+    }
+
+    // -----------------------------------------------------------------------
+    // Contrôle Palier 2 (S3-07 · RG-039) : AutomatiqueBoutEnBout n'est autorisé
+    // que si l'environnement a été explicitement approuvé par un AdminN4.
+    // -----------------------------------------------------------------------
+    private async Task ControlerApprobationPalier2Async(
+        WorkflowExecution execution, List<PreflightCheck> controles, CancellationToken ct)
+    {
+        const string controle = "Approbation Palier 2 (AutomatiqueBoutEnBout)";
+
+        if (execution.AutomationLevel != AutomationLevel.AutomatiqueBoutEnBout)
+        {
+            controles.Add(PreflightCheck.Reussi(controle,
+                $"Niveau d'automatisme : {execution.AutomationLevel}. "
+                + "Le Palier 2 n'est pas activé pour cette exécution."));
+            return;
+        }
+
+        var approved = await palier2Approval.IsApprovedForEnv(execution.EnvironmentId, ct);
+        if (approved)
+        {
+            var etat = await palier2Approval.GetStateAsync(execution.EnvironmentId, ct);
+            controles.Add(PreflightCheck.Reussi(controle,
+                $"Environnement « {execution.EnvironmentCode} » approuvé pour le Palier 2 "
+                + (etat?.ApprovedBy is not null && etat.ApprovedAt is not null
+                    ? $"par {etat.ApprovedBy} le {etat.ApprovedAt.Value:dd/MM/yyyy HH:mm} UTC."
+                    : ".")));
+            logger.LogInformation(
+                "[Palier 2] Pré-check OK — exécution {Correlation} autorisée en AutomatiqueBoutEnBout sur l'environnement {Env}.",
+                execution.CorrelationId, execution.EnvironmentCode);
+            return;
+        }
+
+        logger.LogWarning(
+            "[BLOCAGE PALIER2 NON APPROUVÉ] Exécution {Correlation} déclare AutomatiqueBoutEnBout mais l'environnement {Env} n'a pas d'approbation Palier 2.",
+            execution.CorrelationId, execution.EnvironmentCode);
+
+        controles.Add(PreflightCheck.Echec(
+            controle,
+            $"L'exécution est positionnée en {nameof(AutomationLevel.AutomatiqueBoutEnBout)} "
+            + $"(Palier 2), mais l'environnement « {execution.EnvironmentCode} » n'a pas été approuvé "
+            + "pour ce niveau d'automatisme.",
+            "Deux options : (1) demander à un AdminN4 d'approuver le Palier 2 sur cet environnement "
+            + "depuis la page Environnements, ou (2) basculer l'exécution en Palier 1 "
+            + $"({nameof(AutomationLevel.SemiAutomatique)} avec validation humaine étape par étape). "
+            + "Aucun contournement n'est possible : la dégradation en Palier 1 est le seul chemin autorisé.",
+            bloquant: true));
+    }
+
+    // -----------------------------------------------------------------------
+    // Contrôles MERISE P1 : signaux faibles, horloge stricte, bridge queue.
+    // -----------------------------------------------------------------------
+    private async Task ControlerSignauxFaiblesMeriseAsync(
+        WorkflowExecution execution, Dictionary<Guid, N4Component> composants,
+        List<PreflightCheck> controles, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        // --- RG-0204 : horloge stricte (<= 0.8 s avertissement, > 1.0 s bloquant)
+        // On réutilise GetSystemAsync comme ControlerServeursAsync, mais on
+        // applique les seuils MERISE progressifs plus stricts que la réserve
+        // historique à 5s.
+        double? horlogeMaxAbs = null;
+        var composantsAvecServeur = composants.Values
+            .Where(c => c.Server is not null)
+            .ToList();
+
+        foreach (var groupe in composantsAvecServeur.GroupBy(c => c.Server!.Id))
+        {
+            ct.ThrowIfCancellationRequested();
+            var serveur = groupe.First().Server!;
+
+            var resolution = await targetFactory.CreateAsync(serveur, ct);
+            if (!resolution.Succeeded) continue;
+
+            var systeme = await connector.GetSystemAsync(resolution.Target!, ct);
+            if (!systeme.Succeeded || systeme.Value is null) continue;
+
+            if (systeme.Value.ClockSkewSeconds is { } ecart)
+            {
+                var abs = Math.Abs(ecart);
+                if (!horlogeMaxAbs.HasValue || abs > horlogeMaxAbs.Value) horlogeMaxAbs = abs;
+            }
+        }
+
+        var (ctrlHorloge, _) = merisePolicies.EvaluateClockSkewPreCheck(horlogeMaxAbs);
+        if (ctrlHorloge is not null) controles.Add(ctrlHorloge);
+
+        // --- RG-0506 : restart Bridge si queue > seuil
+        // Règle métier Navis : une grosse queue en vol ne doit pas être
+        // interrompue par un restart Bridge (perte de messages).
+        var bridgesARedemarrer = execution.Steps
+            .Where(s => s.Action is StepAction.Redemarrer or StepAction.Arreter or StepAction.Demarrer
+                && s.ComponentId is { } bid && composants.TryGetValue(bid, out var bc)
+                && bc.Role == ComponentRole.BridgeDaemon)
+            .ToList();
+
+        if (bridgesARedemarrer.Count == 0)
+        {
+            controles.Add(PreflightCheck.NonApplicable(
+                "RG-0506 · Taille de queue Bridge",
+                "Aucun Bridge Daemon n'est arrêté ou redémarré par cette séquence."));
+        }
+        else
+        {
+            foreach (var etape in bridgesARedemarrer)
+            {
+                var compId = etape.ComponentId!.Value;
+                var bridge = composants[compId];
+
+                int? compteur = null;
+                var dernierSignal = await db.ComponentSignals
+                    .AsNoTracking()
+                    .Where(s => s.ComponentId == compId
+                             && (EF.Functions.Like(s.SignalType, "%Queue%")
+                                 || EF.Functions.Like(s.SignalType, "%queue%")
+                                 || EF.Functions.Like(s.Target, "%KahaDB%")
+                                 || EF.Functions.Like(s.Target, "%ActiveMQ%")))
+                    .OrderByDescending(s => s.CapturedAt)
+                    .FirstOrDefaultAsync(ct);
+
+                if (dernierSignal is not null
+                    && int.TryParse(dernierSignal.Value, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    compteur = parsed;
+                }
+
+                // Sinon : fallback sur le dernier snapshot de supervision
+                // (meilleur que rien — une supervision peut ne pas avoir
+                // encore persisté son ComponentSignal).
+                if (!compteur.HasValue)
+                {
+                    var snap = supervisionCache.GetSnapshot(compId);
+                    if (snap is not null)
+                    {
+                        // On cherche "Queue" dans Verdict et on essaie d'extraire un int.
+                        var m = System.Text.RegularExpressions.Regex.Match(
+                            snap.Verdict ?? string.Empty, @"(\d{3,})\s*(msg|messages|queue)",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (m.Success && int.TryParse(m.Groups[1].Value, out var regexd))
+                            compteur = regexd;
+                    }
+                }
+
+                var (errQueue, warnQueue) = merisePolicies.EvaluateBridgeQueueHealth(
+                    compteur,
+                    restartingBridge: etape.Action is StepAction.Redemarrer or StepAction.Arreter);
+
+                if (errQueue is not null)
+                {
+                    controles.Add(PreflightCheck.Echec(
+                        "RG-0506 · Taille de queue Bridge",
+                        errQueue,
+                        "Bouton Redémarrer Bridge grisé. Recommandation Navis : vider la queue via "
+                        + "un redémarrage sélectif des Cluster Nodes, puis relancer. Ne jamais redémarrer "
+                        + "Bridge pendant que des consommateurs N4 traitent des lots XML en masse.",
+                        bloquant: true));
+                }
+                else if (warnQueue is not null)
+                {
+                    controles.Add(PreflightCheck.Avertissement(
+                        "RG-0506 · Taille de queue Bridge",
+                        warnQueue,
+                        "Surveiller navis-bridged.log · amq-enqueue-count pendant 2 premières minutes après redémarrage."));
+                }
+                else
+                {
+                    controles.Add(PreflightCheck.Reussi(
+                        "RG-0506 · Taille de queue Bridge",
+                        $"Bridge « {bridge.LogicalName} » : "
+                        + (compteur.HasValue
+                            ? $"{compteur.Value} messages en file, sous les seuils RG-0506 (alerte {MeriseBusinessPolicyService.DefaultBridgeQueueWarningThreshold} / blocage {MeriseBusinessPolicyService.DefaultBridgeQueueBlockingThreshold})."
+                            : "compteur indisponible — le contrôle ne peut pas statuer. Consultez navis-bridged.log avant redémarrage.")));
+                }
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

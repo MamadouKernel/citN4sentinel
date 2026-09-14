@@ -20,7 +20,8 @@ namespace N4Sentinel.Infrastructure.Orchestration;
 public sealed class WorkflowService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
     ILogger<WorkflowService> logger,
-    IAuditWriter auditWriter)
+    IAuditWriter auditWriter,
+    Palier2ApprovalService? palier2Approval = null)
 {
     // -----------------------------------------------------------------------
     // Lecture
@@ -108,6 +109,30 @@ public sealed class WorkflowService(
 
         var erreur = Valider(steps);
         if (erreur is not null) return SaveWorkflowResult.Failed(erreur);
+
+        if (existant.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout
+            && palier2Approval is not null
+            && !await palier2Approval.IsApprovedForEnv(existant.EnvironmentId, ct))
+        {
+            await auditWriter.WriteAsync(
+                AuditAction.TentativeNonAutorisee, AuditOutcome.Refuse,
+                actor: "systeme",
+                entityType: nameof(Workflow), entityId: existant.Id.ToString(),
+                entityLabel: $"{existant.Code} v{existant.Version} — {existant.Name}",
+                environmentId: existant.EnvironmentId,
+                reason: "[BLOCAGE PALIER2 NON APPROUVÉ] Sauvegarde d'un workflow en AutomatiqueBoutEnBout sur un environnement non approuvé.",
+                ct: ct);
+
+            logger.LogWarning(
+                "[BLOCAGE PALIER2 NON APPROUVÉ] Workflow {Code} v{Version} sauvegardé en AutomatiqueBoutEnBout sur Env {EnvId} : refusé.",
+                existant.Code, existant.Version, existant.EnvironmentId);
+
+            return SaveWorkflowResult.Failed(
+                "Ce workflow est positionné en Palier 2 (AutomatiqueBoutEnBout), mais l'environnement "
+                + $"associé n'a pas reçu d'approbation Palier 2. Basculez le workflow en Palier 1 "
+                + $"({nameof(AutomationLevel.SemiAutomatique)}) ou demandez à un AdminN4 d'approuver "
+                + "l'environnement pour le Palier 2.");
+        }
 
         // Une double approbation sans approbation simple n'aurait pas de sens.
         if (requiresDoubleApproval) requiresApproval = true;
@@ -302,6 +327,45 @@ public sealed class WorkflowService(
                     "Bascule du Center (Standby devient Primaire)", standby, center, ct);
                 crees.Add("Bascule Center");
             }
+        }
+
+        // P6 — REDEMARRAGE-COMPLET §3.10.2 (ordre arrêt Kaleris PUIS ordre démarrage exact)
+        if (!existants.Contains("REDEMARRAGE-COMPLET"))
+        {
+            var ordresArret = composants
+                .OrderBy(c => RangArret(c.Role))
+                .ThenBy(c => c.LogicalName)
+                .ToList();
+            var ordresDemarrage = composants
+                .OrderBy(c => RangDemarrage(c.Role))
+                .ThenBy(c => c.LogicalName)
+                .ToList();
+
+            if (ordresArret.Count > 0)
+            {
+                await CreerRedemarrageCompletN4Async(db, environmentId, "REDEMARRAGE-COMPLET",
+                    "Redémarrage complet N4 §3.10.2 — arrêt Kaleris précis PUIS démarrage (Cluster → Center → Standby → Bridge → XPS → ECN4)",
+                    WorkflowKind.RedemarrageComplet, ordresArret, ordresDemarrage, ct);
+                crees.Add("Redémarrage complet §3.10.2");
+            }
+        }
+
+        // P6 — CONTRÔLE HEBDOMADAIRE (état de santé complet + alertes ouvertes revue + DB + EDI sync)
+        if (!existants.Contains("CONTROLE-HEBDOMADAIRE"))
+        {
+            var controles = composants.OrderBy(c => RangDemarrage(c.Role)).ThenBy(c => c.LogicalName).ToList();
+            await CreerControleHebdomadaireAsync(db, environmentId, controles, ct);
+            crees.Add("Contrôle hebdomadaire");
+        }
+
+        // P6 — MAINTENANCE MENSUELLE N4 (snapshots, purge logs, redémarrage interfaces si > 15j uptime)
+        if (!existants.Contains("MAINTENANCE-MENSUELLE-N4"))
+        {
+            var interfaces = composants
+                .Where(c => c.Role is ComponentRole.BridgeDaemon or ComponentRole.Xps or ComponentRole.InterfaceEdi)
+                .OrderBy(c => RangArret(c.Role)).ThenBy(c => c.LogicalName).ToList();
+            await CreerMaintenanceMensuelleN4Async(db, environmentId, interfaces, ct);
+            crees.Add("Maintenance mensuelle N4");
         }
 
         if (crees.Count == 0)
@@ -523,6 +587,290 @@ public sealed class WorkflowService(
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Séquence « {Nom} » générée pour l'environnement {Env}.", nom, environmentId);
+    }
+
+    private async Task CreerRedemarrageCompletN4Async(
+        N4SentinelDbContext db, Guid environmentId, string code, string nom, WorkflowKind nature,
+        List<N4Component> composantsArret, List<N4Component> composantsDemarrage, CancellationToken ct)
+    {
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId, Code = code, Name = nom, Kind = nature,
+            Version = 1, Status = LifecycleStatus.Brouillon, RequiresApproval = true,
+            Description = "Redémarrage complet N4 conforme §3.10.2 guide Kaleris N4 IT Admin Day 1 : ordre arrêt Standby/Clusters/Center exact PUIS ordre démarrage BDD → AMQ → Cluster → Center → Standby → Bridge → XPS → ECN4 → Web. À RELIRE ET AJUSTER."
+        };
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync(ct);
+        var ordre = 1;
+
+        // Pré-confirmations client (avant arrêt complet, comme Démarrage)
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Confirmation client 1 — entente redémarrage complet N4",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Obtenir la confirmation écrite du client avant tout arrêt de service N4.",
+            ExpectedSeconds = 60, TimeoutSeconds = 3600, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Confirmation client 2 — double vérification impact",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Double validation : plus aucun mouvement EN COURS de chargement/déchargement, pics métier terminés.",
+            ExpectedSeconds = 60, TimeoutSeconds = 3600, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+
+        // Phase 1 : Arrêt complet ordre Kaleris §3.10.2
+        foreach (var c in composantsArret)
+        {
+            var act = c.CanBeControlled ? StepAction.Arreter : StepAction.Verifier;
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id, Order = ordre++,
+                Name = $"[ARRÊT §3.10.2] {Verbe(act)} {c.LogicalName}",
+                Action = act, ComponentId = c.Id,
+                ExpectedSeconds = act == StepAction.Arreter ? 60 : 15,
+                TimeoutSeconds = c.Readiness.StopTimeoutSeconds,
+                FailurePolicy = StepFailurePolicy.Bloquer
+            });
+        }
+
+        // Temporisation entre arrêt et démarrage pour que les connexions TCP se ferment proprement
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Temporisation post-arrêt (2 min pour fermeture connexions TCP/AMQ)",
+            Action = StepAction.Attendre,
+            Instruction = "Attendre 2 minutes complètes entre la fin de l'arrêt et le début du démarrage. Nécessaire pour fermer KahaDB locks et éviter split-brain BDD.",
+            ExpectedSeconds = 120, TimeoutSeconds = 180, FailurePolicy = StepFailurePolicy.Continuer
+        });
+
+        // Phase 2 : Démarrage ordre exact
+        foreach (var c in composantsDemarrage)
+        {
+            var act = c.CanBeControlled ? StepAction.Demarrer : StepAction.Verifier;
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id, Order = ordre++,
+                Name = $"[DÉMARRAGE §3.10.2] {Verbe(act)} {c.LogicalName}",
+                Action = act, ComponentId = c.Id,
+                ExpectedSeconds = act == StepAction.Demarrer ? 180 : 30,
+                TimeoutSeconds = c.Readiness.LogReadyTimeoutSeconds,
+                FailurePolicy = StepFailurePolicy.Bloquer
+            });
+        }
+
+        // Contrôles post-démarrage (Contrôle 10 + validation métier + recette technique)
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Contrôle 10 (Post-Redémarrage) : état des composants & connectivité",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Effectuer les 10 points de contrôle standard Kaleris : services Running, logs sans FATAL, connecteurs EDI OK, XPS Bridge messages en transit, Heartbeat OK.",
+            ExpectedSeconds = 300, TimeoutSeconds = 7200, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Validation fonctionnelle finale (FR-035)",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Confirmer avec les équipes métier : affichage ECRAN principal OK, chargement/déchargement repris, interfaces portail client OK.",
+            ExpectedSeconds = 300, TimeoutSeconds = 7200, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Recette technique consolidée (FR-037) après redémarrage",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Joindre la recette technique : captures d'écran services Running, 0 erreur FATAL sur 10 min rolling, latence DB <50ms, latence AMQ <10ms, NTP synchro OK.",
+            ExpectedSeconds = 300, TimeoutSeconds = 7200, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Séquence « {Nom} » REDÉMARRAGE COMPLET §3.10.2 générée pour l'environnement {Env} : {N} étapes.",
+            nom, environmentId, ordre - 1);
+    }
+
+    private async Task CreerControleHebdomadaireAsync(
+        N4SentinelDbContext db, Guid environmentId, List<N4Component> composants, CancellationToken ct)
+    {
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId, Code = "CONTROLE-HEBDOMADAIRE",
+            Name = "Contrôle hebdomadaire global & revue alertes N4",
+            Kind = WorkflowKind.MaintenanceHebdomadaire,
+            Version = 1, Status = LifecycleStatus.Brouillon,
+            Description = "Contrôle hebdomadaire planifié : revue chaque composant, santé DB, synchronisation EDI/N4-XPS, disques libres, alertes ouvertes, horloges NTP. Idéalement exécuté vendredi matin ou lundi midi."
+        };
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync(ct);
+        var ordre = 1;
+
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Rappel : prendre screenshot de départ page d'accueil Sentinel",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Prendre une capture d'écran de la page d'accueil Dashboard N4 Sentinel AVANT toute intervention : historique comparatif hebdo.",
+            ExpectedSeconds = 60, TimeoutSeconds = 300, FailurePolicy = StepFailurePolicy.Continuer
+        });
+
+        foreach (var c in composants)
+        {
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id, Order = ordre++,
+                Name = $"Contrôler état {c.LogicalName} (Running, logs sans FATAL)",
+                Action = StepAction.Verifier, ComponentId = c.Id,
+                ExpectedSeconds = 30, TimeoutSeconds = 120, FailurePolicy = StepFailurePolicy.DemanderALOperateur
+            });
+        }
+
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Santé Base de données N4 (FR-057) : latence, locks, slow queries",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Vérifier : requêtes lentes (>5s dernière heure) < 10, locks bloquants = 0, tables Fragmentation < 30%, Backup last successful < 24h old. Cocher si OK.",
+            ExpectedSeconds = 300, TimeoutSeconds = 1200, FailurePolicy = StepFailurePolicy.DemanderALOperateur
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Synchro N4-XPS FR-056 : dernier échange normal confirmé récemment",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Contrôler les marqueurs d'échanges sains : timestamp dernière intégration réussie N4 ↔ XPS < 60 minutes. Sinon escalader.",
+            ExpectedSeconds = 120, TimeoutSeconds = 600, FailurePolicy = StepFailurePolicy.DemanderALOperateur
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Espace disque FR-054 & vérifications Alertes ouvertes",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Vérifier disques > 20% libres sur TOUS les serveurs référencés. Revue Alertes Sentinel ouvertes : fermer les résolues ou faire une APR si signal faible répété.",
+            ExpectedSeconds = 300, TimeoutSeconds = 1800, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Contrôle NTP & horloges (TOP cause P1 n°5 Navis)",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Vérifier écart NTP < ±2s sur TOUS les serveurs (BDD, Center, Standby, XPS, Bridge, ECN4). Si > ±5s → planifier une resynchronisation graduelle.",
+            ExpectedSeconds = 180, TimeoutSeconds = 900, FailurePolicy = StepFailurePolicy.DemanderALOperateur
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "Recette hebdomadaire consolidée & envoi équipe référent",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Rédiger rapport hebdomadaire 1 page : état global / anomalies détectées / actions faites / alertes toujours ouvertes. Envoyer à l'équipe référent N4 + mailing exploitation.",
+            ExpectedSeconds = 300, TimeoutSeconds = 3600, FailurePolicy = StepFailurePolicy.Continuer
+        });
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Contrôle hebdomadaire généré pour Env {Env} : {N} étapes.", environmentId, ordre - 1);
+    }
+
+    private async Task CreerMaintenanceMensuelleN4Async(
+        N4SentinelDbContext db, Guid environmentId, List<N4Component> interfacesN4, CancellationToken ct)
+    {
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId, Code = "MAINTENANCE-MENSUELLE-N4",
+            Name = "Maintenance mensuelle N4 : snapshots, purge logs, redémarrage sélectif interfaces",
+            Kind = WorkflowKind.MaintenanceMensuelle,
+            Version = 1, Status = LifecycleStatus.Brouillon, RequiresApproval = true, RequiresDoubleApproval = true,
+            Description = "Maintenance mensuelle lourde : snapshot AVANT (tous VMs), revue & application Windows Updates si applicable, purge logs/archive KahaDB/edi/archive, redémarrage sélectif Bridge+XPS si uptime > 15 jours, Contrôle 10 final."
+        };
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync(ct);
+        var ordre = 1;
+
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "P1 — Snapshots VM AVANT TOUTE INTERVENTION",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Prendre un snapshot/backup applicatif ET système sur TOUTES les VMs N4 (hyperscaler ou hyperviseur). Noter les IDs de snapshot en commentaire. NE PAS commencer tant que les snapshots ne sont pas confirmés par l'équipe infra.",
+            ExpectedSeconds = 1800, TimeoutSeconds = 7200, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "P2 — Revue & planification Windows Updates / patches OS",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Vérifier la stratégie correctives : patches du mois appliqués hors fenêtre métier ou a minima les patches critique de sécurité. Si nécessaire basculer en fenêtre de maintenance prévue pour application, PAS pendant cette maintenance sans approbation écrite.",
+            ExpectedSeconds = 600, TimeoutSeconds = 1800, FailurePolicy = StepFailurePolicy.DemanderALOperateur
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "P3 — Purge fichiers logs archivés (> 90 jours) + nettoyage dossiers temporaires Bridge",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Nettoyer les répertoires de logs archivés, fichiers tmp, répertoires Bridge temp (> 90j). Vérifier taille répertoire KahaDB journal & data. Si CRITICAL (>80% sur disque), planifier compactage.",
+            ExpectedSeconds = 600, TimeoutSeconds = 1800, FailurePolicy = StepFailurePolicy.Continuer
+        });
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "P4 — Vérification uptime des interfaces Bridge + XPS (redémarrer si > 15 jours)",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Lire l'uptime des services Windows BridgeDaemon + XPS. Si > 15 jours continus, procéder au redémarrage sélectif via le sous-ordre arrêt/démarrage. (Cette étape guide, les sous-étapes techniques existent déjà via sous-workflow Redémarrage interfaces.)",
+            ExpectedSeconds = 600, TimeoutSeconds = 3600, FailurePolicy = StepFailurePolicy.DemanderALOperateur
+        });
+
+        // Si des interfaces sont connues, les redémarrer (sélectif via pattern partiel)
+        if (interfacesN4.Count > 0)
+        {
+            // Arrêt
+            foreach (var i in interfacesN4)
+            {
+                var act = i.CanBeControlled ? StepAction.Arreter : StepAction.Verifier;
+                db.WorkflowSteps.Add(new WorkflowStep
+                {
+                    WorkflowId = workflow.Id, Order = ordre++,
+                    Name = $"[Interfaces - arrêt pré-redémarrage] {Verbe(act)} {i.LogicalName}",
+                    Action = act, ComponentId = i.Id,
+                    ExpectedSeconds = 60, TimeoutSeconds = i.Readiness.StopTimeoutSeconds,
+                    FailurePolicy = StepFailurePolicy.DemanderALOperateur
+                });
+            }
+            // Temporisation
+            db.WorkflowSteps.Add(new WorkflowStep
+            {
+                WorkflowId = workflow.Id, Order = ordre++,
+                Name = "Temporisation entre arrêt et démarrage interfaces (60s)",
+                Action = StepAction.Attendre,
+                Instruction = "Attendre 60 secondes pour fermeture propre fichiers EDI lock.",
+                ExpectedSeconds = 60, TimeoutSeconds = 90, FailurePolicy = StepFailurePolicy.Continuer
+            });
+            // Démarrage
+            foreach (var i in interfacesN4.OrderBy(c => RangDemarrage(c.Role)).ThenBy(c => c.LogicalName).ToList())
+            {
+                var act = i.CanBeControlled ? StepAction.Demarrer : StepAction.Verifier;
+                db.WorkflowSteps.Add(new WorkflowStep
+                {
+                    WorkflowId = workflow.Id, Order = ordre++,
+                    Name = $"[Interfaces - démarrage] {Verbe(act)} {i.LogicalName}",
+                    Action = act, ComponentId = i.Id,
+                    ExpectedSeconds = 180, TimeoutSeconds = i.Readiness.LogReadyTimeoutSeconds,
+                    FailurePolicy = StepFailurePolicy.Bloquer
+                });
+            }
+        }
+
+        db.WorkflowSteps.Add(new WorkflowStep
+        {
+            WorkflowId = workflow.Id, Order = ordre++,
+            Name = "P5 — Contrôle 10 final et recette mensuelle FR-037",
+            Action = StepAction.InterventionManuelle,
+            Instruction = "Lancer les 10 points Contrôle N4, joindre captures services Running, intégrations OK, pas FATAL 10min rolling. Rapport mensuel signé envoyé au client/RACI. Nettoyage snapshots APRES validation métier.",
+            ExpectedSeconds = 600, TimeoutSeconds = 3600, FailurePolicy = StepFailurePolicy.Bloquer
+        });
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Maintenance mensuelle générée Env {Env} : {N} étapes.", environmentId, ordre - 1);
     }
 
     /// <summary>

@@ -14,6 +14,7 @@ namespace N4Sentinel.Infrastructure.Referential;
 /// </summary>
 public sealed class ReferentialService(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
+    Orchestration.MeriseBusinessPolicyService merisePolicies,
     ILogger<ReferentialService> logger)
 {
     // -----------------------------------------------------------------------
@@ -246,8 +247,17 @@ public sealed class ReferentialService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task SaveComponentAsync(N4Component component, CancellationToken ct = default)
+    public async Task<string?> SaveComponentAsync(N4Component component, CancellationToken ct = default)
     {
+        // --- RG MERISE sur enregistrement composant ------------------------
+        var rgRoles = await merisePolicies.ValidateComponentRolesAsync(
+            component.EnvironmentId, component.Id, ct);
+        if (rgRoles.Count > 0) return string.Join(" ", rgRoles);
+
+        var rgNom = await merisePolicies.ValidateComponentLogicalNameAsync(
+            component.EnvironmentId, component.Id, component.LogicalName, ct);
+        if (rgNom is not null) return rgNom;
+
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var existing = await db.Components.FirstOrDefaultAsync(c => c.Id == component.Id, ct);
 
@@ -274,6 +284,7 @@ public sealed class ReferentialService(
         }
 
         await db.SaveChangesAsync(ct);
+        return null;
     }
 
     /// <summary>

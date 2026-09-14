@@ -1,0 +1,294 @@
+@page "/admin/planifications"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using N4Sentinel.Domain
+@using N4Sentinel.Domain.Scheduling
+@using N4Sentinel.Infrastructure.Scheduling
+@using N4Sentinel.Infrastructure.Referential
+@attribute [Authorize(Policy = N4Policies.PeutAdministrerReferentiel)]
+@rendermode InteractiveServer
+@inject MaintenanceScheduleService Scheduler
+@inject MaintenanceCalendarService Calendar
+@inject ReferentialService Referential
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Planifications — N4 Sentinel</PageTitle>
+
+<div class="space-y-6">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Planifications récurrentes</h1>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                Une planification crée une <strong class="text-white">exécution</strong> à l'heure programmée,
+                optionnellement l'approuve automatiquement. Jours fériés, pics d'activité ou semaines fermées
+                peuvent être exclus dans le <a href="/admin/maintenance-calendrier" class="text-theme-primary hover:underline underline-offset-2">calendrier de maintenance</a>.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-3 flex-wrap">
+            <select class="bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    @bind="_envId" @bind:after="RechargerAsync">
+                <option value="@Guid.Empty">Choisir un environnement…</option>
+                @foreach (var e in _environnements)
+                {
+                    <option value="@e.Id">@e.Code — @e.Name</option>
+                }
+            </select>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="AllerAuCalendrier">
+                <i class="bi bi-calendar-x"></i> Calendrier des exclus
+            </button>
+
+            <button class="inline-flex items-center gap-2 px-4 py-2 rounded-xl btn-theme-primary text-white font-bold text-xs transition disabled:opacity-40"
+                    disabled="@(_envId == Guid.Empty)" @onclick="Nouvelle">
+                <i class="bi bi-plus-lg"></i> Nouvelle planification
+            </button>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="p-3.5 rounded-xl text-xs font-semibold border @_messageClass">@_message</div>
+    }
+
+    @if (_envId == Guid.Empty)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs">
+            Choisissez un environnement pour voir ses planifications récurrentes.
+        </div>
+    }
+    else if (_schedules.Count == 0)
+    {
+        <div class="glass-card p-8 rounded-2xl border border-slate-800 text-center text-slate-400 text-xs space-y-2">
+            <i class="bi bi-calendar-event text-2xl text-slate-600"></i>
+            <p>Aucune planification n'est définie sur cet environnement.</p>
+            <p class="text-slate-500">
+                Les planifications standard (redémarrage nocturne, contrôle hebdo, maintenance mensuelle N4)
+                se créent en 1 clic depuis le bouton « Nouvelle planification ».
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="glass-card rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <tr>
+                            <th class="text-left p-3">Code</th>
+                            <th class="text-left p-3">Nom</th>
+                            <th class="text-left p-3">Fréquence</th>
+                            <th class="text-left p-3">Heure</th>
+                            <th class="text-left p-3">Workflow cible</th>
+                            <th class="text-left p-3">Statut</th>
+                            <th class="text-left p-3">Dernier déclenchement</th>
+                            <th class="text-left p-3">Prochaine occurrence</th>
+                            <th class="text-right p-3 pr-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/70">
+                        @foreach (var s in _schedules)
+                        {
+                            <tr class="hover:bg-slate-900/30 transition">
+                                <td class="p-3 font-mono text-sky-300 whitespace-nowrap">@s.Code</td>
+                                <td class="p-3 text-slate-200 whitespace-nowrap">@s.Name</td>
+                                <td class="p-3 text-slate-300 whitespace-nowrap">@LibelleKind(s.Kind)</td>
+                                <td class="p-3 font-mono text-slate-300 whitespace-nowrap">@s.TimeOfDay.ToString(@"hh\:mm")</td>
+                                <td class="p-3 text-slate-200 whitespace-nowrap">
+                                    @if (s.Workflow is not null)
+                                    {
+                                        <span class="font-mono text-sky-400">@s.Workflow.Code</span>
+                                        <span class="text-slate-500 mx-1">·</span>
+                                        <span class="text-slate-300">@s.Workflow.Name</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-rose-400">⚠ workflow introuvable</span>
+                                    }
+                                </td>
+                                <td class="p-3 whitespace-nowrap">
+                                    @switch (s.Status)
+                                    {
+                                        case ScheduleStatus.Actif:
+                                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider">
+                                                <i class="bi bi-check-circle-fill"></i> Actif
+                                            </span>
+                                            break;
+                                        case ScheduleStatus.Suspendu:
+                                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold uppercase tracking-wider">
+                                                <i class="bi bi-pause-circle-fill"></i> Suspendu
+                                            </span>
+                                            break;
+                                        case ScheduleStatus.Expire:
+                                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-500/15 text-slate-300 border border-slate-500/30 text-[10px] font-bold uppercase tracking-wider">
+                                                <i class="bi bi-clock-history"></i> Expiré
+                                            </span>
+                                            break;
+                                    }
+                                    @if (s.AutoApprove)
+                                    {
+                                        <span class="inline-block ml-2 text-[10px] text-sky-400 font-bold uppercase tracking-wider" title="Approbation automatique après préparation">
+                                            ✓ AutoApprove
+                                        </span>
+                                    }
+                                </td>
+                                <td class="p-3 text-slate-400 whitespace-nowrap">
+                                    @if (s.LastTriggeredAt.HasValue)
+                                    {
+                                        @s.LastTriggeredAt.Value.LocalDateTime.ToString("g")
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-600">— jamais</span>
+                                    }
+                                </td>
+                                <td class="p-3 text-slate-300 whitespace-nowrap">
+                                    @if (s.NextPlannedAt.HasValue && s.Status == ScheduleStatus.Actif)
+                                    {
+                                        @MaintenanceScheduleService.ToLocal(s.NextPlannedAt.Value, _environnements.FirstOrDefault(e => e.Id == s.EnvironmentId)?.TimeZoneId).LocalDateTime.ToString("g")
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-600">—</span>
+                                    }
+                                </td>
+                                <td class="p-3 pr-4 whitespace-nowrap text-right">
+                                    @if (s.Status == ScheduleStatus.Actif)
+                                    {
+                                        <button class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] transition disabled:opacity-40 mr-1"
+                                                disabled="@_busy" @onclick="@(async () => await SuspendreAsync(s.Id))" title="Suspendre la planification">
+                                            <i class="bi bi-pause"></i> Suspendre
+                                        </button>
+                                    }
+                                    else if (s.Status == ScheduleStatus.Suspendu)
+                                    {
+                                        <button class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition disabled:opacity-40 mr-1"
+                                                disabled="@_busy" @onclick="@(async () => await ActiverAsync(s.Id))" title="Réactiver la planification">
+                                            <i class="bi bi-play"></i> Activer
+                                        </button>
+                                    }
+                                    <button class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] transition disabled:opacity-40 mr-1"
+                                            disabled="@_busy" @onclick="@(() => Nav.NavigateTo($"/admin/planifications/{s.Id}"))" title="Éditer">
+                                        <i class="bi bi-pencil"></i> Éditer
+                                    </button>
+                                    <button class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition disabled:opacity-40"
+                                            disabled="@_busy" @onclick="@(async () => await SupprimerAsync(s))" title="Supprimer (seulement si jamais déclenchée)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<N4Environment> _environnements = [];
+    private List<ExecutionSchedule> _schedules = [];
+    private Guid _envId;
+    private string? _message;
+    private string _messageClass = "border-slate-700 bg-slate-900 text-slate-200";
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environnements = await Referential.GetEnvironmentsAsync();
+        if (_environnements.Count == 1)
+        {
+            _envId = _environnements[0].Id;
+            await RechargerAsync();
+        }
+    }
+
+    private async Task RechargerAsync()
+    {
+        _schedules = _envId == Guid.Empty ? [] : await Scheduler.ListAsync(_envId);
+    }
+
+    private void Nouvelle()
+    {
+        Nav.NavigateTo($"/admin/planifications/{Guid.Empty}?env={_envId}&create=1");
+    }
+
+    private void AllerAuCalendrier()
+    {
+        Nav.NavigateTo($"/admin/maintenance-calendrier?env={_envId}");
+    }
+
+    private async Task<string> ActeurAsync()
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        return etat.User.Identity?.Name ?? "inconnu";
+    }
+
+    private async Task ActiverAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            var err = await Scheduler.EnableAsync(id, await ActeurAsync());
+            Signaler(err, $"Planification activée.", "bg-emerald-500/10 border-emerald-500/40 text-emerald-200");
+            await RechargerAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SuspendreAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            var err = await Scheduler.DisableAsync(id, await ActeurAsync());
+            Signaler(err, $"Planification suspendue.", "bg-amber-500/10 border-amber-500/40 text-amber-200");
+            await RechargerAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SupprimerAsync(ExecutionSchedule s)
+    {
+        var msg = s.LastTriggeredAt.HasValue
+            ? $"Supprimer « {s.Code} » ? Attention : cette planification a déjà servi, la suppression risque d'être refusée au profit d'une suspension."
+            : $"Supprimer « {s.Code} » ? Cette opération est irréversible.";
+        if (!await JS.InvokeAsync<bool>("confirm", msg)) return;
+        _busy = true;
+        try
+        {
+            var err = await Scheduler.DeleteAsync(s.Id, await ActeurAsync());
+            Signaler(err, $"Planification « {s.Code} » supprimée.", "bg-emerald-500/10 border-emerald-500/40 text-emerald-200");
+            await RechargerAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void Signaler(string? err, string ok, string clsOk)
+    {
+        if (err is not null)
+        {
+            _message = err;
+            _messageClass = "bg-rose-500/10 border-rose-500/40 text-rose-200";
+        }
+        else
+        {
+            _message = ok;
+            _messageClass = clsOk;
+        }
+    }
+
+    private static string LibelleKind(ScheduleKind k) => k switch
+    {
+        ScheduleKind.Quotidien => "Chaque jour",
+        ScheduleKind.JoursOuvres => "Jours ouvrés (lun→ven)",
+        ScheduleKind.HebdoJoursChoisis => "Hebdomadaire (jours sélectionnés)",
+        ScheduleKind.MensuelJoursPrecis => "Mensuel (jours fixes)",
+        ScheduleKind.CronExpression => "Expression Cron",
+        _ => k.ToString()
+    };
+}

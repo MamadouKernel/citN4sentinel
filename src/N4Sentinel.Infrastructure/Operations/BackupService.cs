@@ -83,9 +83,31 @@ public sealed class BackupService(
         if (string.IsNullOrWhiteSpace(destination))
             return BackupResult.Failed("Aucun dossier de destination indiqué.");
 
+        // ── VALIDATION DU CHEMIN D'ENTRÉE (contre Path Traversal) ─────────
+        string destinationNormalise;
+        try
+        {
+            destinationNormalise = Path.GetFullPath(destination.Trim());
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return BackupResult.Failed($"Chemin de destination invalide : {ex.Message}");
+        }
+
+        var invalides = Path.GetInvalidPathChars();
+        if (destinationNormalise.Any(c => invalides.Contains(c))
+            || destinationNormalise.IndexOf('\'') >= 0
+            || destinationNormalise.IndexOf('\"') >= 0)
+        {
+            return BackupResult.Failed(
+                "Le chemin de destination contient des caractères interdits " +
+                "(quotes ou caractères de contrôle non autorisés).");
+        }
+        // ── FIN VALIDATION ─────────────────────────────────────────────────
+
         var etat = await GetStatusAsync(ct);
         var horodatage = DateTimeOffset.Now;
-        var dossier = Path.Combine(destination, $"n4sentinel-{horodatage:yyyyMMdd-HHmmss}");
+        var dossier = Path.Combine(destinationNormalise, $"n4sentinel-{horodatage:yyyyMMdd-HHmmss}");
 
         try
         {
@@ -228,18 +250,67 @@ public sealed class BackupService(
     /// COHÉRENTE dans un fichier neuf, sans interrompre le service. C'est
     /// l'équivalent SQLite du <c>BACKUP DATABASE</c> ci-dessus : la garantie
     /// vient du moteur, pas du système de fichiers.
+    ///
+    /// SÉCURITÉ (correctif pentest 2026-09-13) :
+    ///   • VACUUM INTO n'admet PAS de paramètres liés en SQL.
+    ///   • Le chemin est normalisé par <c>Path.GetFullPath</c>.
+    ///   • Validation par whitelist d'extensions (pas de .exe / .aspx).
+    ///   • Interdiction des quotes + caractères invalides (défense en profondeur).
     /// </summary>
     private static async Task SauvegarderSqliteAsync(
         N4SentinelDbContext db, string chemin, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(chemin))
+            throw new ArgumentException("Chemin de sauvegarde vide.", nameof(chemin));
+
+        string cheminNormalise;
+        try
+        {
+            cheminNormalise = Path.GetFullPath(chemin);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Chemin de sauvegarde invalide.", ex);
+        }
+
+        // Whitelist d'extensions — interdire .exe / .aspx / .ps1 / .dll
+        var extensionsAutorisees = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".db", ".bak", ".sqlite", ".sqlite3", ".db3", ".s3db", ".bin"
+        };
+        var ext = Path.GetExtension(cheminNormalise);
+        if (!extensionsAutorisees.Contains(ext))
+        {
+            throw new InvalidOperationException(
+                $"Extension de fichier « {ext} » interdite pour une sauvegarde SQLite. " +
+                $"Extensions autorisées : {string.Join(", ", extensionsAutorisees.OrderBy(e => e))}.");
+        }
+
+        var invalidesChemin = Path.GetInvalidPathChars();
+        var invalidesNom = Path.GetInvalidFileNameChars();
+        if (cheminNormalise.Any(c => invalidesChemin.Contains(c) || invalidesNom.Contains(c))
+            || cheminNormalise.IndexOf('\'') >= 0
+            || cheminNormalise.IndexOf('\"') >= 0)
+        {
+            throw new InvalidOperationException(
+                "Caractères interdits détectés dans le chemin de sauvegarde " +
+                "(quotes ou caractères de contrôle).");
+        }
+
         // VACUUM INTO refuse d'écraser : le fichier ne doit pas exister.
-        if (File.Exists(chemin)) File.Delete(chemin);
+        if (File.Exists(cheminNormalise)) File.Delete(cheminNormalise);
 
-        // Le chemin ne peut pas être paramétré dans VACUUM INTO ; on l'échappe
-        // à la façon SQL. Il est construit par l'application, jamais saisi.
-        var echappe = chemin.Replace("'", "''");
+        // VACUUM INTO n'admet pas de paramètres SQL. Malgré la validation
+        // stricte en entrée (normalisation, whitelist extensions, interdiction
+        // quotes), échappement défensif supplémentaire des quotes.
+        // pragma justification EF1002 : ce SQL est construit à partir d'un
+        // chemin entièrement validé et normalisé. VACUUM INTO ne supporte pas
+        // la syntaxe ExecuteSqlInterpolated / paramètres liés.
+        var echappe = cheminNormalise.Replace("'", "''");
 
+#pragma warning disable EF1002 // Risk of vulnerability to SQL injection.
         await db.Database.ExecuteSqlRawAsync($"VACUUM INTO '{echappe}';", ct);
+#pragma warning restore EF1002
     }
 
     // -----------------------------------------------------------------------

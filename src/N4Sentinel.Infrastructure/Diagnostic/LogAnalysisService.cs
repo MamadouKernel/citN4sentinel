@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectors;
 using N4Sentinel.Infrastructure.Persistence;
+using N4Sentinel.Infrastructure.Security;
 
 namespace N4Sentinel.Infrastructure.Diagnostic;
 
@@ -28,7 +29,8 @@ public sealed class LogAnalysisService(
     IN4Connector connector,
     SignatureCatalogue catalogue,
     Observability.MetricsService metrics,
-    ILogger<LogAnalysisService> logger)
+    ILogger<LogAnalysisService> logger,
+    DocumentAntivirusScanner? antivirus = null)
 {
     /// <summary>
     /// Volume lu par journal. Au-delà, seule la fin du fichier est analysée :
@@ -126,6 +128,11 @@ public sealed class LogAnalysisService(
     /// <summary>
     /// Import manuel (FR-079B). Le chemin de repli quand le serveur est
     /// inaccessible — c'est-à-dire souvent, en situation d'incident grave.
+    ///
+    /// P4.2 / SEC-007 : un fichier versé par un opérateur est analysé par
+    /// Windows Defender AVANT toute écriture en base. Une menace détectée
+    /// bloque l'import ; une indisponibilité du moteur est signalée sans
+    /// bloquer mais enregistrée (même politique que la base documentaire).
     /// </summary>
     public async Task<SourceResult> ImportAsync(
         Guid sessionId, string fileName, string contenu, Guid? componentId = null,
@@ -146,6 +153,32 @@ public sealed class LogAnalysisService(
 
         if (string.IsNullOrWhiteSpace(contenu))
             return SourceResult.Failed("Le fichier versé est vide.");
+
+        // --- SEC-007 : analyse antivirus avant tout traitement -------------
+        if (antivirus is not null)
+        {
+            var octets = System.Text.Encoding.UTF8.GetBytes(contenu);
+            var scan = await antivirus.ScanAsync(octets, ct);
+            if (scan.Verdict == ScanVerdict.Infecte)
+            {
+                var menace = scan.ThreatName ?? "menace non identifiée";
+                logger.LogCritical(
+                    "Import journal refusé — menace détectée par antivirus : {Menace} — fichier {Fichier}.",
+                    menace, fileName);
+                return SourceResult.Failed(
+                    $"Analyse SEC-007 : le fichier « {fileName} » a été détecté infecté ({menace}). "
+                    + "Import refusé, aucun contenu n'a été conservé.");
+            }
+            if (scan.Verdict == ScanVerdict.Indisponible)
+            {
+                // NotScanned est notoire : on le journalise. On ne bloque pas
+                // la collecte (un P1 a souvent lieu sur un serveur où Defender
+                // a été arrêté), mais on garde une trace explicite.
+                logger.LogWarning(
+                    "Import journal — moteur antivirus indisponible : {Raison} — fichier {Fichier}.",
+                    scan.UnavailableReason, fileName);
+            }
+        }
 
         N4Component? composant = null;
         var detecteAutomatiquement = false;
@@ -176,7 +209,12 @@ public sealed class LogAnalysisService(
             HostName = composant?.Server?.HostName,
             Origin = LogOriginKind.ImportManuel,
             FileName = fileName,
-            SizeBytes = System.Text.Encoding.UTF8.GetByteCount(contenu)
+            SizeBytes = System.Text.Encoding.UTF8.GetByteCount(contenu),
+            // SEC-007 : trace du résultat AV sur la source
+            AntivirusChecked = antivirus is not null,
+            AntivirusNote = antivirus is null
+                ? "SEC-007 : scanner non injecté — contrôle antivirus non effectué."
+                : "Analyse antivirus effectuée avant enregistrement."
         };
 
         var texte = contenu;
@@ -572,6 +610,18 @@ public sealed class LogAnalysisService(
 
         db.Hypotheses.AddRange(hypotheses);
 
+        // P4.6 : figer la version du catalogue au moment de l'analyse.
+        // Identique à ce que CompareToReference utilise pour l'avertissement
+        // de référentiel périmé, mais persisté au niveau session pour
+        // capitalisation post-incident.
+        var sigsActives = signatures.Count(s => s.IsEnabled
+            && (s.ValidationStatus == LifecycleStatus.Valide || s.ValidationStatus == LifecycleStatus.Actif));
+        session.ActiveSignaturesCountAtAnalysis = sigsActives;
+        session.SignatureCatalogueVersionAtAnalysis = sigsActives == 0
+            ? $"v{SignatureCatalogue.VersionActuelleReference} — 0 sig active"
+            : $"v{SignatureCatalogue.VersionActuelleReference} — {sigsActives} sig(s) active(s), "
+            + $"max version={signatures.Max(s => s.Version)}";
+
         // --- Verdict ------------------------------------------------------
         var concluantes = constats
             .Where(f => f.SignatureId is not null
@@ -920,6 +970,289 @@ public sealed class LogAnalysisService(
 
     private static string Tronquer(string texte, int max) =>
         texte.Length <= max ? texte : texte[..(max - 1)] + "…";
+
+    // -----------------------------------------------------------------------
+    // P4.6 — Clôture & Capitalisation (ENT_INC lié DiagnosticSession)
+    // -----------------------------------------------------------------------
+    /// <summary>
+    /// P4.6 — Clôture d'une session analysée et création de la fiche incident
+    /// capitalisée ENT_INC, liée par FK LinkedDiagnosticSessionId.
+    ///
+    /// Produit automatiquement :
+    ///   1. Une <see cref="CapitalizedIncident"/> à l'état Brouillon/AttenteRevue
+    ///      (MTTR calculé si fenêtre incidente renseignée).
+    ///   2. Un <see cref="Sop"/> Brouillon (FR-088) alimenté du motif, du
+    ///      diagnostic et des remédiations identifiées.
+    ///   3. Les métriques : résolution N1 / N2 / Expert selon la complexité
+    ///      de la cause et la gravité.
+    ///
+    /// Ne remplace pas l'appel à <see cref="DiagnosticSessionService.AdvancePhaseAsync"/>
+    /// vers ClotureEtCapitalisation : celui-ci reste la transition auditable.
+    /// </summary>
+    public async Task<CapitalizationResult> CloseAndCapitalizeAsync(
+        Guid sessionId, string actor,
+        DateTimeOffset? debutIncident = null,
+        DateTimeOffset? finIncident = null,
+        string? rootCauseCode = null,
+        string? rootCauseLabel = null,
+        string? closedBy = null,
+        CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var session = await db.Sessions
+            .Include(s => s.Sources)
+            .Include(s => s.Findings)
+            .Include(s => s.Hypotheses.OrderBy(h => h.Rank))
+            .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+
+        if (session is null) return CapitalizationResult.Failed("Session de diagnostic introuvable.");
+        if (session.Phase != DiagnosticPhase.ClotureEtCapitalisation)
+            return CapitalizationResult.Failed(
+                "La session doit d'abord passer en phase Clôture et capitalisation (§3.10.1).");
+
+        var existeDeja = await db.CapitalizedIncidents
+            .AnyAsync(ci => ci.LinkedDiagnosticSessionId == sessionId, ct);
+        if (existeDeja)
+            return CapitalizationResult.Failed("Un incident capitalisé est déjà rattaché à cette session.");
+
+        var principale = session.Hypotheses.OrderBy(h => h.Rank).FirstOrDefault();
+        var debut = debutIncident
+            ?? session.WindowStart
+            ?? session.Sources.Where(s => s.Succeeded && s.EarliestEntryAt.HasValue)
+                              .Select(s => s.EarliestEntryAt!.Value)
+                              .DefaultIfEmpty(session.CreatedAt)
+                              .Min();
+        var fin = finIncident ?? DateTimeOffset.UtcNow;
+        var dureeMin = (long)Math.Round((fin - debut).TotalMinutes);
+        dureeMin = dureeMin < 0 ? 0 : dureeMin;
+
+        // --- Niveau de résolution N1 / N2 / Expert ------------------------
+        // FR-088 / SLA standard Navis :
+        //   N1 = simple, résoluble sans accès hors service (CauseCaracterisee
+        //        simple d'un seul domaine, périmètre unique, < 4 constats).
+        //   N2 = requiert un diagnostic de corrélation multi-sources ou
+        //        plusieurs domaines, mais pas d'escalade éditeur.
+        //   Expert = CauseConfirmee sur domaine critique (KahaDB, Cluster,
+        //            corruption), ou escalade effectuée, ou durée > 4h.
+        ResolutionSkillLevel niveau;
+        var domaines = session.Findings.Where(f => f.Domain != DiagnosticDomain.Indetermine)
+                                       .Select(f => f.Domain).Distinct().Count();
+        var estCritique =
+            session.Findings.Any(f => f.Severity == SignatureSeverity.Critique)
+            || new[] { DiagnosticDomain.ActiveMqKahaDb, DiagnosticDomain.N4Cluster,
+                       DiagnosticDomain.CenterStandby, DiagnosticDomain.BaseDeDonnees }
+                   .Contains(principale?.Domain ?? DiagnosticDomain.Indetermine);
+        var aEscalade = !string.IsNullOrWhiteSpace(session.EscalatedTo);
+        if (aEscalade || estCritique || dureeMin > 4 * 60
+            || session.Verdict == DiagnosticVerdict.CauseConfirmee && domaines > 1)
+            niveau = ResolutionSkillLevel.ExpertNavisEditeur;
+        else if (domaines >= 2 || dureeMin > 60)
+            niveau = ResolutionSkillLevel.N2Specialiste;
+        else
+            niveau = ResolutionSkillLevel.N1Support;
+
+        var codeCause = rootCauseCode ?? principale?.Domain.ToString() ?? "INCONNU";
+        var libelleCause = rootCauseLabel ?? principale?.Statement ?? session.VerdictExplanation ?? "";
+        if (libelleCause.Length > 1000) libelleCause = libelleCause[..1000];
+
+        var sopsCandidates = session.Findings
+            .Where(f => f.SignatureId is not null)
+            .Select(f => f.SignatureCode)
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct()
+            .ToList();
+
+        var incidentCapitalise = new CapitalizedIncident
+        {
+            ExternalReference = $"INC-{session.CreatedAt:yyyyMMdd}-{session.Id.ToString("N")[..6].ToUpperInvariant()}",
+            EnvironmentId = session.EnvironmentId,
+            DeclaredSeverity = session.Findings.Any(f => f.Severity == SignatureSeverity.Critique)
+                ? CriticalityLevel.Critique
+                : session.Findings.Any(f => f.Severity == SignatureSeverity.Erreur)
+                    ? CriticalityLevel.Elevee
+                    : CriticalityLevel.Moyenne,
+            InitialSymptom = session.Reason ?? session.Title,
+            RealIncidentStartedAt = debut,
+            RealIncidentEndedAt = fin,
+            TotalDurationMinutes = dureeMin,
+            DetectedBySentinelAt = session.CreatedAt,
+            MainRootCauseCode = codeCause,
+            MainRootCauseLabel = libelleCause,
+            CorrectiveActionsTaken = ConstruireActionsCorrectives(session),
+            LinkedDiagnosticSessionId = sessionId,
+            SOPsUsedListString = sopsCandidates.Count == 0 ? null : string.Join(";", sopsCandidates),
+            OperatorsInvolvedCount = CompterIntervenants(session, actor),
+            ResolutionSkillLevel = niveau,
+            ClosedBy = closedBy ?? actor,
+            ClosedAt = fin,
+            QuantifiedBusinessImpact = session.TicketReference is null
+                ? null
+                : $"Traitement depuis ticket {session.TicketReference}.",
+            LessonsAndCorrectives = ConstruireLecons(session, principale)
+        };
+
+        db.CapitalizedIncidents.Add(incidentCapitalise);
+
+        // --- Génération automatique d'un SOP Brouillon FR-088 ------------
+        Sop? sopGenere = null;
+        if (principale is not null
+            && !await db.Sops.AnyAsync(s => s.SourceDiagnosticSessionId == sessionId, ct))
+        {
+            var constatPrincipal = session.Findings
+                .OrderByDescending(f => f.Severity)
+                .ThenByDescending(f => f.OccurrenceCount)
+                .FirstOrDefault();
+
+            var codeSop = $"SOP-DIAG-{session.CreatedAt:yyyyMMdd}-{session.Id.ToString("N")[..4].ToUpperInvariant()}";
+            sopGenere = new Sop
+            {
+                EnvironmentId = session.EnvironmentId,
+                Code = codeSop,
+                Title = $"Résolution incident — {Tronquer(session.Title, 90)}",
+                Version = 1,
+                Status = LifecycleStatus.Brouillon,
+                Objective = principale.Statement,
+                Scope = "Couvre la cause caractérisée par le diagnostic automatique. "
+                      + "À valider manuellement avant toute réutilisation.",
+                Prerequisites = "Session de diagnostic analysée et revue par un N2 minimum. "
+                              + $"Version catalogue : {session.SignatureCatalogueVersionAtAnalysis ?? "N/A"}.",
+                Risks = "Procédure générée automatiquement : elle décrit ce qui a MARCHÉ ici, "
+                      + "pas ce qui est généralisable. Ne pas appliquer tel quel sur un autre site sans revue.",
+                Controls = "Après chaque étape, confirmer l'absence d'erreur Critique sur 5 min de journal.",
+                ExpectedOutcome = "Retour à un état stable : plus de signatures critiques, Bridge/XPS ACTIVE, "
+                                + "tous les membres du cluster présents.",
+                RollbackPlan = "Si les actions ci-dessous ne résolvent pas dans la fenêtre de 15 min, "
+                             + "revenir à l'état antérieur (restaurer snapshot si pris AVANT modification) "
+                             + "et escalader vers support Navis.",
+                EscalationPath = string.IsNullOrWhiteSpace(session.EscalatedTo)
+                    ? "Support Navis / Kaleris via portail client, référence ExternalReference."
+                    : $"Déjà escaladé vers : {session.EscalatedTo}.",
+                SourceDiagnosticSessionId = sessionId,
+                AppliesToVersion = session.Sources
+                    .Where(s => s.DetectedVersion is not null)
+                    .Select(s => s.DetectedVersion)
+                    .FirstOrDefault(),
+                Steps = ConstruireEtapesSop(session, principale, constatPrincipal).ToList()
+            };
+            sopGenere.Associations.Add(new SopAssociation
+            {
+                Kind = SopAssociationKind.SessionDiagnostic,
+                DiagnosticSessionId = sessionId
+            });
+            if (constatPrincipal?.SignatureId is not null)
+            {
+                sopGenere.Associations.Add(new SopAssociation
+                {
+                    Kind = SopAssociationKind.Signature,
+                    SignatureId = constatPrincipal.SignatureId.Value,
+                    SignatureCode = constatPrincipal.SignatureCode
+                });
+            }
+            db.Sops.Add(sopGenere);
+            incidentCapitalise.GeneratedSOPId = sopGenere.Id;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        // Métriques NFR-008 — distribution MTTR et niveau de résolution
+        metrics.RecordIncidentCapitalized(niveau, dureeMin, session.Verdict);
+
+        logger.LogInformation(
+            "Capitalisation P4.6 OK session {Session} → Incident {Incident}, SOP {Sop}, niveau {Niveau}, MTTR {Duree} min.",
+            session.Title, incidentCapitalise.ExternalReference,
+            sopGenere?.Code ?? "(aucun)", niveau, dureeMin);
+
+        return CapitalizationResult.Ok(
+            IncidentId: incidentCapitalise.Id,
+            IncidentExternalReference: incidentCapitalise.ExternalReference,
+            SopId: sopGenere?.Id,
+            SopCode: sopGenere?.Code,
+            MttrMinutes: dureeMin,
+            ResolutionLevel: niveau,
+            SignatureCatalogueVersion: session.SignatureCatalogueVersionAtAnalysis,
+            ActiveSignaturesCount: session.ActiveSignaturesCountAtAnalysis ?? 0);
+    }
+
+    private static string? ConstruireActionsCorrectives(DiagnosticSession s)
+    {
+        var parties = new List<string>();
+        if (s.Hypotheses.Count > 0)
+        {
+            var h = s.Hypotheses.OrderBy(x => x.Rank).First();
+            if (!string.IsNullOrWhiteSpace(h.Recommendation))
+                parties.Add($"Hypothèse #{h.Rank} : {h.Recommendation}");
+        }
+        foreach (var f in s.Findings.OrderByDescending(x => x.Severity)
+                                    .ThenByDescending(x => x.OccurrenceCount).Take(3))
+        {
+            if (!string.IsNullOrWhiteSpace(f.Remediation))
+                parties.Add($"{f.Title} : {f.Remediation}");
+        }
+        return parties.Count == 0 ? null : string.Join(" | ", parties);
+    }
+
+    private static string? ConstruireLecons(DiagnosticSession s, DiagnosticHypothesis? h)
+    {
+        var lignes = new List<string>();
+        if (h is not null)
+            lignes.Add($"Faisceau de preuves : {h.Evidence}");
+        if (!string.IsNullOrWhiteSpace(s.EscalatedTo))
+            lignes.Add($"Escalade : {s.EscalatedTo} le {s.EscalatedAt:dd/MM HH:mm} par {s.EscalatedBy ?? "—"}");
+        if (!string.IsNullOrWhiteSpace(s.Top10ChecklistNotes))
+            lignes.Add($"Notes checklist RG-0307 : {s.Top10ChecklistNotes}");
+        lignes.Add($"Version catalogue sig : {s.SignatureCatalogueVersionAtAnalysis ?? "N/A"}");
+        return lignes.Count == 0 ? null : string.Join(" ; ", lignes);
+    }
+
+    private static int CompterIntervenants(DiagnosticSession s, string actor)
+    {
+        var acteurs = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { actor };
+        if (!string.IsNullOrWhiteSpace(s.RequestedBy)) acteurs.Add(s.RequestedBy);
+        if (!string.IsNullOrWhiteSpace(s.EscalatedBy)) acteurs.Add(s.EscalatedBy);
+        return acteurs.Count;
+    }
+
+    private static IEnumerable<SopStep> ConstruireEtapesSop(
+        DiagnosticSession session, DiagnosticHypothesis principale, LogFinding? constatPrincipal)
+    {
+        yield return new SopStep
+        {
+            Order = 1,
+            Title = "Préparation et vérification périmètre",
+            Instruction = "Confirmer que l'incident reproduit exactement le diagnostic ci-dessus : "
+                        + $"« {principale.Statement} ». Vérifier l'horloge (NTP) et les roles actifs "
+                        + "Center/Standby AVANT toute action.",
+            ExpectedResult = "Aucun écart d'horloge > 1s ; un seul Center ACTIF."
+        };
+        if (constatPrincipal is not null)
+        {
+            yield return new SopStep
+            {
+                Order = 2,
+                Title = $"Appliquer la remédiation — {constatPrincipal.Title}",
+                Instruction = constatPrincipal.Remediation
+                    ?? "Appliquer la remédiation documentée dans la référence éditeur associée.",
+                ExpectedResult = "Disparition de la signature dans les 5 min suivant l'action."
+            };
+        }
+        yield return new SopStep
+        {
+            Order = 3,
+            Title = "Contrôle post-action : recollecte 30 min de logs",
+            Instruction = "Relancer une collecte ciblée sur le(s) composant(s) touché(s), fenêtre +30 min "
+                        + "après action. Confirmer l'absence d'anomalie Critique.",
+            ExpectedResult = "Verdict : soit RienDeConcluant, soit anomalies résiduelles sans signature convergente."
+        };
+        yield return new SopStep
+        {
+            Order = 4,
+            Title = "Validation service rendu et escalade si échec",
+            Instruction = "Si l'action a résolu : enregistrer la preuve. Sinon : escalader immédiatement "
+                        + "vers le support Navis/Kaleris avec l'ExternalReference de l'incident capitalisé.",
+            ExpectedResult = "Service rendu confirmé, ou ticket éditeur ouvert."
+        };
+    }
 }
 
 public sealed record SourceResult
@@ -935,4 +1268,47 @@ public sealed record SourceResult
         new() { Succeeded = true, SourceId = id, LineCount = lignes, FindingCount = constats, MaskedSecretCount = masques };
 
     public static SourceResult Failed(string error) => new() { Succeeded = false, Error = error };
+}
+
+/// <summary>
+/// P4.6 — Valeur de retour de <see cref="LogAnalysisService.CloseAndCapitalizeAsync"/> :
+/// résume l'incident capitalisé créé (ou un échec prévenu), son SOP Brouillon FR-088
+/// auto-généré, et les métriques clés (MTTR, niveau de résolution, version du
+/// catalogue de signatures au moment de la capitalisation).
+/// </summary>
+public sealed record CapitalizationResult
+{
+    public bool Succeeded { get; init; }
+    public Guid? IncidentId { get; init; }
+    public string? IncidentExternalReference { get; init; }
+    public Guid? SopId { get; init; }
+    public string? SopCode { get; init; }
+    public long MttrMinutes { get; init; }
+    public ResolutionSkillLevel? ResolutionLevel { get; init; }
+    public string? SignatureCatalogueVersion { get; init; }
+    public int ActiveSignaturesCount { get; init; }
+    public string? Error { get; init; }
+
+    public static CapitalizationResult Ok(
+        Guid IncidentId,
+        string IncidentExternalReference,
+        Guid? SopId,
+        string? SopCode,
+        long MttrMinutes,
+        ResolutionSkillLevel ResolutionLevel,
+        string? SignatureCatalogueVersion,
+        int ActiveSignaturesCount) => new()
+        {
+            Succeeded = true,
+            IncidentId = IncidentId,
+            IncidentExternalReference = IncidentExternalReference,
+            SopId = SopId,
+            SopCode = SopCode,
+            MttrMinutes = MttrMinutes,
+            ResolutionLevel = ResolutionLevel,
+            SignatureCatalogueVersion = SignatureCatalogueVersion,
+            ActiveSignaturesCount = ActiveSignaturesCount
+        };
+
+    public static CapitalizationResult Failed(string error) => new() { Succeeded = false, Error = error };
 }

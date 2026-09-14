@@ -11,11 +11,13 @@ public sealed class ControlExecutionUseCase(
     EnvironmentLockService locks,
     IAuditWriter auditWriter,
     ILogger<ControlExecutionUseCase> logger,
+    MeriseBusinessPolicyService? merisePolicies = null,
     OrchestrationEngine? engine = null,
     Notifications.OperationNotificationService? notifications = null,
     ApprovalMatrixService? approvalMatrix = null,
     Supervision.SupervisionService? supervision = null,
-    CredentialStore? credentials = null)
+    CredentialStore? credentials = null,
+    Palier2ApprovalService? palier2Approval = null)
 {
     private async Task ReveillerMoteurAsync(CancellationToken ct)
     {
@@ -71,6 +73,28 @@ public sealed class ControlExecutionUseCase(
         if (execution.PreflightAt is null)
             return "Les contrôles préalables n'ont pas été passés. "
                  + "Lancez le pré-check depuis l'écran de l'opération.";
+
+        if (execution.AutomationLevel == AutomationLevel.AutomatiqueBoutEnBout
+            && palier2Approval is not null
+            && !await palier2Approval.IsApprovedForEnv(execution.EnvironmentId, ct))
+        {
+            await auditWriter.WriteAsync(
+                AuditAction.TentativeNonAutorisee, AuditOutcome.Refuse, actor,
+                entityType: nameof(WorkflowExecution), entityId: execution.Id.ToString(),
+                entityLabel: $"{execution.WorkflowName} v{execution.WorkflowVersion}",
+                environmentId: execution.EnvironmentId,
+                reason: "[BLOCAGE PALIER2 NON APPROUVÉ] Lancement d'une exécution AutomatiqueBoutEnBout sur environnement non approuvé.",
+                correlationId: execution.CorrelationId, ct: ct);
+
+            logger.LogWarning(
+                "[BLOCAGE PALIER2 NON APPROUVÉ] StartAsync refusé pour {Correlation} sur Env {EnvCode} : niveau {Niveau} non autorisé.",
+                execution.CorrelationId, execution.EnvironmentCode, execution.AutomationLevel);
+
+            return "L'opération est positionnée en Palier 2 (AutomatiqueBoutEnBout), mais l'environnement "
+                 + $"« {execution.EnvironmentCode} » n'a pas été approuvé pour ce niveau d'automatisme. "
+                 + "Basculez l'opération en Palier 1 (validation humaine étape par étape) ou demandez à "
+                 + "un AdminN4 d'approuver le Palier 2 sur cet environnement.";
+        }
 
         if (execution.PreflightBlocked)
         {
@@ -380,6 +404,63 @@ public sealed class ControlExecutionUseCase(
             AuditAction.Contournement, AuditOutcome.Succes, actor,
             entityType: nameof(ExecutionStep), entityId: etape.Id.ToString(), entityLabel: etape.Name,
             environmentId: etape.Execution?.EnvironmentId, reason: reason,
+            correlationId: etape.Execution?.CorrelationId, ct: ct);
+
+        await ReveillerMoteurAsync(ct);
+        return null;
+    }
+
+    /// <summary>
+    /// RG-0407 : Arrêt forcé explicite d'une étape bloquée en StopPending.
+    /// JAMAIS AUTOMATIQUE. ADMIN N4 UNIQUEMENT.
+    ///
+    /// La signature rend le circuit impossible à appeler sans les 2
+    /// conditions : booléen explicite « isAdminN4 » (vérifié au niveau
+    /// supérieur : politique RBAC + revendication Admin N4) ET motif
+    /// obligatoire pour l'audit.
+    /// </summary>
+    public async Task<string?> ForceStopStepAsync(
+        Guid stepId, string actor, bool actorIsAdminN4, string reason,
+        bool triggeredAutomatically = false, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return "RG-0407 : un arrêt forcé (StepAction.ArretForce) exige un motif écrit, "
+                 + "pour l'audit post-incident. Un vide n'est pas une justification.";
+
+        var rgInterdit = merisePolicies?.ValidateForcedStopAuthorization(
+            StepAction.ArretForce, actorIsAdminN4, triggeredAutomatically);
+
+        if (rgInterdit is not null) return rgInterdit;
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var etape = await db.ExecutionSteps.Include(s => s.Execution)
+            .FirstOrDefaultAsync(s => s.Id == stepId, ct);
+        if (etape is null) return "Étape introuvable.";
+
+        if (etape.IsTerminal)
+            return $"RG-0407 : l'étape « {etape.Name} » est déjà terminée ({etape.State}). "
+                 + "Rien à arrêter de force.";
+
+        etape.State = ExecutionStepState.ForceStopped;
+        etape.Error = $"[RG-0407] Arrêt forcé décidé par {actor}.";
+        etape.ErrorType = StepErrorType.ComportementConnuStopPending;
+        etape.EndedAt = DateTimeOffset.UtcNow;
+        etape.ForcedStopBy = actor;
+        etape.ForcedStopReason = reason;
+
+        await db.SaveChangesAsync(ct);
+
+        logger.LogWarning(
+            "RG-0407 : étape « {Etape} » forcée en arrêt par {Acteur}. Motif : {Motif}",
+            etape.Name, actor, reason);
+
+        await auditWriter.WriteAsync(
+            AuditAction.ArretForce, AuditOutcome.Succes, actor,
+            entityType: nameof(ExecutionStep), entityId: etape.Id.ToString(),
+            entityLabel: etape.Name,
+            environmentId: etape.Execution?.EnvironmentId,
+            reason: reason,
             correlationId: etape.Execution?.CorrelationId, ct: ct);
 
         await ReveillerMoteurAsync(ct);
