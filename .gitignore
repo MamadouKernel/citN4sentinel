@@ -68,3 +68,10 @@ cles-protection/
 # machine sans Node peut ainsi compiler et executer l'application.
 node_modules/
 **/node_modules/
+
+# --- Graphify ---
+# Graphe de connaissances genere localement par la commande /graphify
+# (graph.html, graph.json, GRAPH_REPORT.md, sidecars). Artefact reconstructible
+# a la demande, volumineux : ne doit pas etre versionne.
+graphify-out/
+**/graphify-out/
