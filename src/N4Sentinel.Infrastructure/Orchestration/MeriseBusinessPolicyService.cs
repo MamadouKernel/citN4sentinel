@@ -79,14 +79,15 @@ public sealed class MeriseBusinessPolicyService(IDbContextFactory<N4SentinelDbCo
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
+        // EF Core ne sait pas traduire string.Equals(..., StringComparison) en SQL.
+        // On compare en Trim().ToLower() — traduisible (LTRIM/RTRIM + LOWER) et
+        // équivalent pour une unicité de nom insensible à la casse et aux espaces.
+        var cible = logicalName.Trim().ToLower();
         var doublon = await db.Components.IgnoreQueryFilters()
             .AnyAsync(c =>
                 c.EnvironmentId == environmentId
                 && c.Id != componentId
-                && string.Equals(
-                    c.LogicalName.Trim(),
-                    logicalName.Trim(),
-                    StringComparison.OrdinalIgnoreCase),
+                && c.LogicalName.Trim().ToLower() == cible,
                 ct);
 
         if (doublon)

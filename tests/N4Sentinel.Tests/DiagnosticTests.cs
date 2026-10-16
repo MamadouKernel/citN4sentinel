@@ -1379,8 +1379,10 @@ public sealed class DiagnosticTests : IAsyncLifetime
         var session = await _sessions.GetAsync(sessionId);
         Assert.NotNull(session);
         Assert.Equal(DiagnosticPhase.DiagnosticEtCorrelation, session!.Phase);
-        Assert.Equal(2, session.PhaseTransitions.Count);
-        Assert.Equal(DiagnosticPhase.QualificationEtCollecte, session.PhaseTransitions.First().Phase);
+        // P4.1 : la création sème déjà deux transitions (Détection puis
+        // Qualification), auxquelles s'ajoutent les deux avances explicites.
+        Assert.Equal(4, session.PhaseTransitions.Count);
+        Assert.Equal(DiagnosticPhase.DetectionEtEnregistrement, session.PhaseTransitions.First().Phase);
         Assert.Equal(DiagnosticPhase.DiagnosticEtCorrelation, session.PhaseTransitions.Last().Phase);
     }
 
@@ -1398,7 +1400,9 @@ public sealed class DiagnosticTests : IAsyncLifetime
 
         var session = await _sessions.GetAsync(sessionId);
         Assert.Equal(DiagnosticPhase.QualificationEtCollecte, session!.Phase);
-        Assert.Equal(2, session.PhaseTransitions.Count);
+        // P4.1 : deux transitions semées à la création + les deux avances (aller
+        // vers ChoixDuPlanDAction, puis retour vers Qualification).
+        Assert.Equal(4, session.PhaseTransitions.Count);
     }
 
     [SkippableFact]
@@ -1412,8 +1416,10 @@ public sealed class DiagnosticTests : IAsyncLifetime
         Assert.NotNull(erreur);
 
         var session = await _sessions.GetAsync(sessionId);
-        Assert.Equal(DiagnosticPhase.DetectionEtEnregistrement, session!.Phase);
-        Assert.Empty(session.PhaseTransitions);
+        // P4.1 : la création porte déjà la session en Qualification (avec ses deux
+        // transitions semées) ; la clôture refusée ne doit RIEN y changer.
+        Assert.Equal(DiagnosticPhase.QualificationEtCollecte, session!.Phase);
+        Assert.Equal(2, session.PhaseTransitions.Count);
     }
 
     [Fact(DisplayName = "§3.10.1 : un diagnostic analysé et inconcluant ne se clôture pas sans escalade déclarée")]

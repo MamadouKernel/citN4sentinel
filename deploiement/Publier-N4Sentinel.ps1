@@ -192,6 +192,10 @@ Copy-Item (Join-Path $PSScriptRoot 'Installer-N4Sentinel.ps1') $dossier -Force
 # outillage optionnel qu'on garde sur son poste.
 Copy-Item (Join-Path $PSScriptRoot 'Verifier-N4Sentinel.ps1') $dossier -Force
 
+# Orchestrateur SQLite tout-en-un : dossier de donnees, config SQLite,
+# installation du service, demarrage et verification en un seul appel.
+Copy-Item (Join-Path $PSScriptRoot 'Deployer-N4Sentinel-Sqlite.ps1') $dossier -Force
+
 # Les guides d'INSTALLATION voyagent avec le paquet. Celui qui installe est
 # devant la machine cible, souvent sans acces au depot : lui demander d'aller
 # chercher la procedure ailleurs, c'est garantir qu'il improvisera.

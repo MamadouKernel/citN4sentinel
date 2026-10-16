@@ -257,8 +257,13 @@ public sealed class DiagnosticSessionService(
     public async Task<DiagnosticSession?> GetAsync(Guid id, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        // AsSplitQuery : ces cinq Include de collections forment sinon un produit
+        // cartésien et, en AsNoTracking (pas de résolution d'identité), chaque
+        // collection est dupliquée par le cardinal des autres. Une requête par
+        // collection l'évite dès qu'une session a plusieurs Sources/Findings/etc.
         return await db.Sessions
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(s => s.Sources)
             .Include(s => s.Findings)
             .Include(s => s.Hypotheses.OrderBy(h => h.Rank))

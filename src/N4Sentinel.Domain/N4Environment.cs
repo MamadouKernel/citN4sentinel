@@ -36,7 +36,8 @@ public class N4Environment : AuditableEntity, ISoftDeletable
     /// un ecart d'horloge non identifie est une cause connue de faux
     /// diagnostics (statuts DISCONNECTED trompeurs).
     /// </summary>
-    public string TimeZoneId { get; set; } = "W. Central Africa Standard Time";
+    // Côte d'Ivoire (Abidjan) = GMT / UTC+00. IANA id, résolu sur Windows via ICU (.NET 6+).
+    public string TimeZoneId { get; set; } = "Africa/Abidjan";
 
     /// <summary>Niveau d'automatisation de cet environnement (Palier 1 ou Palier 2).</summary>
     public AutomationLevel AutomationLevel { get; set; } = AutomationLevel.SemiAutomatique;

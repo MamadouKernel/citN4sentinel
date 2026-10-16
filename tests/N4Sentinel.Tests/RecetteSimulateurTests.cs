@@ -114,7 +114,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             NullLogger<PreflightService>.Instance);
 
         _moteur = new OrchestrationEngine(
-            new PorteeDeTest(_factory, _verrous, _executeur, supervision),
+            new PorteeDeTest(_factory, _verrous, _executeur, supervision,
+                new Palier2ApprovalService(_factory, new AuditWriter(_factory))),
             new N4Sentinel.Infrastructure.Observability.MetricsService(),
             NullLogger<OrchestrationEngine>.Instance);
 
@@ -810,7 +811,8 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
         IDbContextFactory<N4SentinelDbContext> factory,
         EnvironmentLockService verrous,
         StepExecutor executeur,
-        SupervisionService supervision)
+        SupervisionService supervision,
+        Palier2ApprovalService palier2Approvals)
         : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
         public IServiceScope CreateScope() => this;
@@ -823,6 +825,7 @@ public sealed class RecetteSimulateurTests : IAsyncLifetime
             if (type == typeof(EnvironmentLockService)) return verrous;
             if (type == typeof(StepExecutor)) return executeur;
             if (type == typeof(SupervisionService)) return supervision;
+            if (type == typeof(Palier2ApprovalService)) return palier2Approvals;
             return null;
         }
     }

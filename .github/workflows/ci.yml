@@ -1,0 +1,59 @@
+name: CI
+
+# Build + tests sur push et pull request vers main.
+# Runner Windows : le produit cible Windows (service Windows, DPAPI, PowerShell SDK)
+# et les tests d'intégration exigent un vrai SQL Server (voir TestConnectionHelper).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    env:
+      # Les tests [SkippableFact] s'ignorent proprement si SQL Server est injoignable.
+      # On pointe vers l'instance SQLEXPRESS préinstallée sur le runner pour que les
+      # 29 suites d'intégration tournent RÉELLEMENT au lieu d'être silencieusement
+      # sautées (avertissement explicite dans TestConnectionHelper).
+      N4SENTINEL_TEST_DB: "Server=localhost\\SQLEXPRESS;Database=master;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Démarrer SQL Server Express
+        shell: pwsh
+        run: |
+          Set-Service -Name 'MSSQL$SQLEXPRESS' -StartupType Automatic
+          Start-Service -Name 'MSSQL$SQLEXPRESS'
+          # Attendre que l'instance accepte les connexions.
+          $deadline = (Get-Date).AddSeconds(60)
+          do {
+            Start-Sleep -Seconds 2
+            $ready = (sqlcmd -S 'localhost\SQLEXPRESS' -Q "SELECT 1" 2>$null) -ne $null
+          } until ($ready -or (Get-Date) -gt $deadline)
+          if (-not $ready) { throw "SQL Server Express n'a pas démarré dans le délai imparti." }
+
+      - name: Restaurer
+        run: dotnet restore N4Sentinel.slnx
+
+      - name: Compiler
+        run: dotnet build N4Sentinel.slnx -c Release --no-restore
+
+      - name: Tester
+        run: dotnet test N4Sentinel.slnx -c Release --no-build --logger "trx;LogFileName=tests.trx"
+
+      - name: Publier les résultats de test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultats-tests
+          path: "**/*.trx"
+          if-no-files-found: ignore
