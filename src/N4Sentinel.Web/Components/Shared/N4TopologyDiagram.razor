@@ -835,6 +835,25 @@
             dotStyle = "bg-slate-400";
             stateLabel = "Injoignable";
         }
+        else if (state == ComponentState.Degrade)
+        {
+            // Service en marche mais une preuve manque (journal illisible, ou
+            // service associe arrete) : la fonction n'est que partiellement
+            // rendue. Ni vert ni gris — un orange distinct du demarrage ambre.
+            bgGradient = "bg-gradient-to-b from-orange-600 to-orange-900";
+            borderStyle = "border-orange-400/80 shadow-orange-500/40";
+            textStyle = "text-white font-extrabold";
+            dotStyle = "bg-orange-300 animate-pulse";
+            stateLabel = "Dégradé";
+        }
+        else if (state == ComponentState.Maintenance)
+        {
+            bgGradient = "bg-gradient-to-b from-sky-700 to-sky-950";
+            borderStyle = "border-sky-400/70 shadow-sky-500/30";
+            textStyle = "text-white font-extrabold";
+            dotStyle = "bg-sky-300";
+            stateLabel = "Maintenance";
+        }
         else
         {
             bgGradient = "bg-gradient-to-b from-slate-750 to-slate-900";
