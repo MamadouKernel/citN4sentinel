@@ -179,6 +179,7 @@ public sealed class ReferentielTests : IAsyncLifetime
           "BridgeHost": "N4XPSBRIDGE01",
           "XPSHost": "N4XPSBRIDGE01",
           "ECN4Host": "N4ECN401",
+          "ECN4WebHost": "N4ECN4WEB01",
           "ServiceNames": {
             "Center": "Navis N4 Center Node",
             "Cluster": "Navis N4 Cluster Node",
@@ -210,9 +211,10 @@ public sealed class ReferentielTests : IAsyncLifetime
 
         Assert.True(rapport.Succeeded);
 
-        // Six hotes distincts pour sept references : Bridge et XPS partagent
-        // la meme machine et ne doivent compter qu'une fois.
-        Assert.Equal(6, rapport.ServersCreated);
+        // Sept hotes distincts pour huit references : Bridge et XPS partagent
+        // la meme machine et ne comptent qu'une fois ; ECN4 et ECN4Web ont
+        // chacun leur hote (N4ECN401 et N4ECN4WEB01).
+        Assert.Equal(7, rapport.ServersCreated);
 
         await using var db = _factory.CreateDbContext();
         var composants = await db.Components.Where(c => c.EnvironmentId == env.Id).ToListAsync();

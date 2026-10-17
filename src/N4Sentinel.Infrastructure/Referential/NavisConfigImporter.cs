@@ -61,7 +61,7 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
 
         // --- Serveurs, dedupliques ------------------------------------------
         var hostNames = new List<string?>
-            { config.CenterNode, config.StandbyNode, config.BridgeHost, config.XPSHost, config.ECN4Host };
+            { config.CenterNode, config.StandbyNode, config.BridgeHost, config.XPSHost, config.ECN4Host, config.ECN4WebHost };
         if (config.ClusterNodes is not null) hostNames.AddRange(config.ClusterNodes);
 
         var uniqueHosts = hostNames
