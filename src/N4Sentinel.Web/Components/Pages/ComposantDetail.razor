@@ -143,11 +143,20 @@ else
                         }
                     </dl>
 
-                    @if (!_c.Readiness.IsProvable)
+                    @if (string.IsNullOrWhiteSpace(_c.Readiness.LogPath))
                     {
                         <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
-                            Aucun marqueur n'est configuré : l'état de ce composant ne pourra jamais être
-                            prouvé, et aucune séquence ne pourra conclure à son sujet.
+                            Aucun chemin de journal n'est configuré : l'état de ce composant ne peut pas être
+                            prouvé par le journal, et aucune séquence ne pourra conclure à son sujet.
+                            <a href="@($"/admin/composants/{Id}/marqueurs")" class="underline font-semibold">Configurer le journal</a>
+                        </div>
+                    }
+                    else if (_c.Readiness.ReadyPatterns.Count == 0)
+                    {
+                        <div class="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 text-[11px] text-sky-300 leading-relaxed">
+                            Aucun marqueur explicite n'est configuré : l'état est déduit automatiquement du journal
+                            via le catalogue de signatures (statuts N4, échec de démarrage, Bridge WAITING…).
+                            Vous pouvez relever un marqueur dédié pour un signal encore plus précis.
                             <a href="@($"/admin/composants/{Id}/marqueurs")" class="underline font-semibold">Relever le marqueur</a>
                         </div>
                     }

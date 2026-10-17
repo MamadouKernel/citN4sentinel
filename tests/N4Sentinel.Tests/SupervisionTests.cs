@@ -661,6 +661,47 @@ public sealed class SupervisionTests : IAsyncLifetime
         Assert.Contains(snapshot.LogFindings, f => f.Code == "BRIDGE-NOT-ACTIVE");
     }
 
+    [Fact(DisplayName = "Avec SEULEMENT un chemin de journal (aucun ReadyPattern), le journal est lu et l'état déduit du catalogue")]
+    public async Task EvaluateComponentAsync_Lit_Le_Journal_Sans_ReadyPattern_Et_Deduit()
+    {
+        var envId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var compId = Guid.NewGuid();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Environments.Add(new N4Environment { Id = envId, Code = "PROD", Name = "Production" });
+            db.Servers.Add(new N4Server { Id = serverId, EnvironmentId = envId, HostName = "N4SRV01" });
+            db.Components.Add(new N4Component
+            {
+                Id = compId,
+                EnvironmentId = envId,
+                ServerId = serverId,
+                LogicalName = "Bridge Daemon",
+                Role = ComponentRole.BridgeDaemon,
+                WindowsServiceName = "NavisBridgeService",
+                ControlMode = ControlMode.Pilotable,
+                // UNIQUEMENT le chemin — aucun ReadyPattern saisi : IsProvable == false.
+                Readiness = new ReadinessProfile { LogPath = "C:\\Navis\\logs\\bridge.log" }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var fakeConnector = new FakeN4Connector
+        {
+            ServiceStatusToReturn = "Running",
+            LogTextToReturn = "2026-08-13 14:00:00 INFO [Bridge] Bridge is WAITING for Center Node container data"
+        };
+
+        var service = new SupervisionService(_factory, CreateTargetFactory(_factory), fakeConnector, NullLogger<SupervisionService>.Instance);
+        var snapshot = await service.EvaluateComponentAsync(compId);
+
+        // Le journal a bien été lu (chemin résolu) et le catalogue a tranché.
+        Assert.NotNull(snapshot.LogPathResolved);
+        Assert.Equal(ComponentState.Demarrage, snapshot.State);
+        Assert.Contains(snapshot.LogFindings, f => f.Code == "BRIDGE-NOT-ACTIVE");
+    }
+
     /// <summary>
     /// Fabrique un composant prouvable, l'évalue avec un service Running et le
     /// texte de journal fourni. Le ReadyPattern déclaré ne correspond jamais au

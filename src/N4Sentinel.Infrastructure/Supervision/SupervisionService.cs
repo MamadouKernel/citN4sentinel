@@ -205,7 +205,14 @@ public sealed class SupervisionService(
         }
 
         // 2. Preuve applicative (Readiness Log Proof)
-        if (component.Readiness.IsProvable)
+        //
+        // RG-0201 : il SUFFIT qu'un CHEMIN de journal soit configuré. On ne
+        // réclame plus un ReadyPattern saisi à la main (IsProvable) : Sentinel
+        // lit le journal et DÉDUIT l'état via le catalogue de signatures. Le
+        // ReadyPattern, quand il existe (Cluster/Center), reste un signal de
+        // plus — pas un prérequis. Un composant sans chemin de journal (base,
+        // AMQ, système externe) tombe dans le bloc « sans preuve » plus bas.
+        if (!string.IsNullOrWhiteSpace(component.Readiness.LogPath))
         {
             var logPath = component.Readiness.LogPath!;
             var deltaRes = await connector.ReadLogDeltaAsync(target, logPath, 0, 262_144, ct);
@@ -271,15 +278,15 @@ public sealed class SupervisionService(
                     {
                         snapshot.State = ComponentState.Disponible;
                         snapshot.LogProofStatus = LogProofState.Unprovable;
-                        snapshot.Verdict = $"Service actif depuis {FormaterDuree(duree)} ; marqueur de démarrage absent du journal courant (rotation) — considéré disponible.";
+                        snapshot.Verdict = $"Service actif depuis {FormaterDuree(duree)} ; aucune erreur ni signature décisive dans le journal courant — considéré disponible.";
                     }
                     else
                     {
                         snapshot.State = ComponentState.Demarrage;
                         snapshot.LogProofStatus = LogProofState.WaitingForProof;
                         snapshot.Verdict = age is { } d
-                            ? $"Service actif depuis {FormaterDuree(d)}, dans la fenêtre d'initialisation — attente du marqueur de démarrage."
-                            : "Service Windows actif, initialisation applicative en cours (attente du marqueur de journal).";
+                            ? $"Service actif depuis {FormaterDuree(d)}, dans la fenêtre d'initialisation — journal lu, aucune preuve de disponibilité encore écrite."
+                            : "Service Windows actif, initialisation applicative en cours (journal lu, aucune preuve encore écrite).";
                     }
                 }
 

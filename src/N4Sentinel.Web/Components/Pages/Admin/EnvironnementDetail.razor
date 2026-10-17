@@ -410,7 +410,11 @@ else
                                 <td class="py-3.5 px-4">
                                     @if (c.Readiness.IsProvable)
                                     {
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="@c.Readiness.LogPath">Configurée</span>
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="@c.Readiness.LogPath">Marqueur + journal</span>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(c.Readiness.LogPath))
+                                    {
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20" title="@c.Readiness.LogPath">Déduite du journal</span>
                                     }
                                     else
                                     {
