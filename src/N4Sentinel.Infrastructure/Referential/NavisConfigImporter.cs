@@ -133,8 +133,12 @@ public sealed class NavisConfigImporter(IDbContextFactory<N4SentinelDbContext> d
         AddComponent("ECN4 Daemon", ComponentRole.Ecn4,
             config.ServiceNames?.ECN4, config.ECN4Host, "ECN4", ++order);
 
+        // ECN4Web tourne sur SON PROPRE hote (ECN4WebHost), distinct de l'hote
+        // ECN4 (ECN4Host). Avant correction, ce composant reprenait config.ECN4Host :
+        // ECN4 et ECN4Web se retrouvaient sur le meme serveur, et le service
+        // "Navis ECN4web" etait declare absent la ou il n'a jamais ete installe.
         AddComponent("ECN4Web", ComponentRole.Ecn4Web,
-            config.ServiceNames?.ECN4Web, config.ECN4Host, "ECN4Web", ++order);
+            config.ServiceNames?.ECN4Web, config.ECN4WebHost, "ECN4Web", ++order);
 
         // La base de donnees est supervisee, jamais pilotee : N4 Sentinel n'a
         // pas vocation a demarrer ou arreter un serveur SQL.
@@ -280,6 +284,7 @@ internal sealed class NavisConfig
     public string? BridgeHost { get; set; }
     public string? XPSHost { get; set; }
     public string? ECN4Host { get; set; }
+    public string? ECN4WebHost { get; set; }
     public NavisServiceNames? ServiceNames { get; set; }
     public string? SharedFolder { get; set; }
     public string? DatabaseHost { get; set; }

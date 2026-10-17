@@ -28,16 +28,19 @@ public class N4Server : AuditableEntity, ISoftDeletable
     public string? OperatingSystem { get; set; }
 
     /// <summary>Port WinRM. 5985 en HTTP, 5986 en HTTPS.</summary>
-    public int WinRmPort { get; set; } = 5986;
+    public int WinRmPort { get; set; } = 5985;
 
     /// <summary>
-    /// Impose HTTPS pour la session WinRM (SEC-004). Vrai par défaut pour
-    /// toute nouvelle déclaration : un serveur en clair est une exception
-    /// assumée, pas le point de départ. Les serveurs déjà déclarés en base
+    /// Impose HTTPS pour la session WinRM (SEC-004). Défaut FAUX (HTTP/5985)
+    /// pour cet environnement : le parc N4 est sur un domaine Active Directory
+    /// isolé, où WinRM authentifie en Kerberos et chiffre déjà la charge utile
+    /// au niveau message même en HTTP ; HTTPS (5986) exigerait un certificat
+    /// serveur sur chaque nœud, absent ici. Un serveur en HTTPS reste possible
+    /// par fiche (cocher SSL + port 5986). Les serveurs déjà déclarés en base
     /// gardent la valeur qu'ils avaient — ce changement de défaut n'affecte
     /// que les fiches créées à partir de maintenant.
     /// </summary>
-    public bool UseSsl { get; set; } = true;
+    public bool UseSsl { get; set; } = false;
 
     public CriticalityLevel Criticality { get; set; } = CriticalityLevel.Moyenne;
 
