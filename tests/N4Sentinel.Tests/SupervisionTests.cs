@@ -611,6 +611,94 @@ public sealed class SupervisionTests : IAsyncLifetime
         Assert.Contains("Aucun Standby", assessment.StandbyUnavailableReason);
     }
 
+    // -----------------------------------------------------------------------
+    // RG-0201 : déduction de l'état par le CATALOGUE de signatures lu dans le
+    // journal, pas seulement par le ReadyPattern configuré.
+    // -----------------------------------------------------------------------
+
+    [Fact(DisplayName = "Un échec d'initialisation applicatif dans le journal rend le composant Indisponible (service Running)")]
+    public async Task EvaluateComponentAsync_Deduit_Indisponible_Sur_Echec_Demarrage()
+    {
+        var snapshot = await EvaluerAvecJournalAsync(
+            "2026-08-13 14:00:00 SEVERE [c.n.apex] Application startup aborted — Context initialization failed",
+            ComponentRole.Ecn4);
+
+        Assert.Equal(ComponentState.Indisponible, snapshot.State);
+        Assert.Equal(LogProofState.ErrorDetected, snapshot.LogProofStatus);
+        Assert.Contains(snapshot.LogFindings, f => f.Code == "APP-STARTUP-FAILED");
+    }
+
+    [Fact(DisplayName = "Un arrêt applicatif propre consigné alors que le service tourne passe le composant en Arret")]
+    public async Task EvaluateComponentAsync_Deduit_Arret_Sur_Arret_Propre()
+    {
+        var snapshot = await EvaluerAvecJournalAsync(
+            "2026-08-13 14:00:00 INFO [c.n.apex] N4 shutdown complete — all services stopped",
+            ComponentRole.Ecn4);
+
+        Assert.Equal(ComponentState.Arret, snapshot.State);
+    }
+
+    [Fact(DisplayName = "Un service en RECOVERING après incident est déclaré Degrade, pas Disponible")]
+    public async Task EvaluateComponentAsync_Deduit_Degrade_Sur_Recovering()
+    {
+        var snapshot = await EvaluerAvecJournalAsync(
+            "2026-08-13 14:00:00 WARN [c.n.apex] Node status changed to RECOVERING",
+            ComponentRole.CenterNode);
+
+        Assert.Equal(ComponentState.Degrade, snapshot.State);
+        Assert.Contains(snapshot.LogFindings, f => f.Code == "N4-STATUS-RECOVERING");
+    }
+
+    [Fact(DisplayName = "Un Bridge en WAITING/LOADING (pas encore ACTIVE) est déclaré en Demarrage")]
+    public async Task EvaluateComponentAsync_Deduit_Demarrage_Sur_Bridge_Waiting()
+    {
+        var snapshot = await EvaluerAvecJournalAsync(
+            "2026-08-13 14:00:00 INFO [Bridge] Bridge is WAITING for Center Node container data",
+            ComponentRole.BridgeDaemon);
+
+        Assert.Equal(ComponentState.Demarrage, snapshot.State);
+        Assert.Equal(LogProofState.WaitingForProof, snapshot.LogProofStatus);
+        Assert.Contains(snapshot.LogFindings, f => f.Code == "BRIDGE-NOT-ACTIVE");
+    }
+
+    /// <summary>
+    /// Fabrique un composant prouvable, l'évalue avec un service Running et le
+    /// texte de journal fourni. Le ReadyPattern déclaré ne correspond jamais au
+    /// texte : seul le catalogue peut trancher l'état.
+    /// </summary>
+    private async Task<ComponentHealthSnapshot> EvaluerAvecJournalAsync(string logText, ComponentRole role)
+    {
+        var envId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var compId = Guid.NewGuid();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Environments.Add(new N4Environment { Id = envId, Code = "PROD", Name = "Production" });
+            db.Servers.Add(new N4Server { Id = serverId, EnvironmentId = envId, HostName = "N4SRV01" });
+            db.Components.Add(new N4Component
+            {
+                Id = compId,
+                EnvironmentId = envId,
+                ServerId = serverId,
+                LogicalName = "Composant testé",
+                Role = role,
+                WindowsServiceName = "NavisService",
+                ControlMode = ControlMode.Pilotable,
+                Readiness = new ReadinessProfile
+                {
+                    LogPath = "C:\\Navis\\logs\\apex.log",
+                    ReadyPatterns = ["marqueur de démarrage jamais présent dans ces tests"]
+                }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var fakeConnector = new FakeN4Connector { ServiceStatusToReturn = "Running", LogTextToReturn = logText };
+        var service = new SupervisionService(_factory, CreateTargetFactory(_factory), fakeConnector, NullLogger<SupervisionService>.Instance);
+        return await service.EvaluateComponentAsync(compId);
+    }
+
     private static ConnectorTargetFactory CreateTargetFactory(IDbContextFactory<N4SentinelDbContext> dbFactory)
     {
         var tempKeyDir = Path.Combine(Path.GetTempPath(), $"n4sentinel_dp_{Guid.NewGuid():N}");

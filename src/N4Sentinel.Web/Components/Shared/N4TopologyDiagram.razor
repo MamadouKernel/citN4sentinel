@@ -1,4 +1,5 @@
 @using N4Sentinel.Domain
+@using N4Sentinel.Infrastructure.Supervision
 @using N4Sentinel.Web.State
 
 @inject ReferentialService Referential
@@ -476,6 +477,8 @@
                             <div class="text-slate-500 text-[11px]">Aucun disque relevé.</div>
                         }
                     </div>
+
+                    @RenderJournal()
                 }
             </div>
 
@@ -570,6 +573,12 @@
         public string ServiceName { get; set; } = string.Empty;
         public bool IsStatic { get; set; }
         public NodeVitals? Vitals { get; set; }
+
+        /// <summary>
+        /// RG-0201 : dernier instantané de supervision du composant, pour afficher
+        /// « Ce que dit le journal » (signatures reconnues) à côté des vitals.
+        /// </summary>
+        public ComponentHealthSnapshot? Health { get; set; }
     }
 
     protected override async Task OnInitializedAsync()
@@ -922,6 +931,80 @@
     };
 
     /// <summary>
+    /// RG-0201 : « Ce que dit le journal ». Les signatures du catalogue reconnues
+    /// au dernier relevé, à côté des vitals. Le texte du journal est rendu par
+    /// interpolation Razor, donc encodé — jamais interprété comme du balisage.
+    /// </summary>
+    private RenderFragment RenderJournal() => __builder =>
+    {
+        var findings = _activeTelemetry?.Health?.LogFindings;
+        var verdict = _activeTelemetry?.Health?.Verdict;
+
+        <div class="space-y-2">
+            <div class="text-slate-400 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                <i class="bi bi-journal-text text-theme-primary"></i> Ce que dit le journal
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(verdict))
+            {
+                <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 leading-relaxed">
+                    @verdict
+                </div>
+            }
+
+            @if (findings is { Count: > 0 })
+            {
+                <div class="space-y-2">
+                    @foreach (var f in findings)
+                    {
+                        <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="font-bold text-white text-[12px]">@f.Name</span>
+                                <span class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-extrabold border @PastilleSeverite(f.Severity)">
+                                    @f.Code
+                                </span>
+                            </div>
+                            <div class="font-mono text-[10px] text-slate-400 break-all bg-black/30 rounded-lg px-2 py-1 border border-slate-800/60">
+                                @f.SampleLine
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(f.Meaning))
+                            {
+                                <p class="text-[11px] text-slate-300 leading-relaxed">@f.Meaning</p>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(f.Remediation))
+                            {
+                                <p class="text-[11px] text-emerald-300/90 leading-relaxed flex items-start gap-1.5">
+                                    <i class="bi bi-wrench-adjustable mt-0.5 shrink-0"></i>
+                                    <span>@f.Remediation</span>
+                                </p>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(f.DocumentReference))
+                            {
+                                <p class="text-[10px] text-slate-500 italic">@f.DocumentReference</p>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="text-slate-500 text-[11px] leading-relaxed">
+                    Aucune signature reconnue dans le journal au dernier relevé. Ce n'est pas un certificat de
+                    bonne santé : la preuve peut simplement être hors du fragment lu (rotation).
+                </div>
+            }
+        </div>
+    };
+
+    private static string PastilleSeverite(SignatureSeverity s) => s switch
+    {
+        SignatureSeverity.Critique => "bg-rose-500/10 text-rose-300 border-rose-500/30",
+        SignatureSeverity.Erreur => "bg-orange-500/10 text-orange-300 border-orange-500/30",
+        SignatureSeverity.Avertissement => "bg-amber-500/10 text-amber-300 border-amber-500/30",
+        _ => "bg-slate-800 text-slate-400 border-slate-700"
+    };
+
+    /// <summary>
     /// Ouvre le modal et relève la vitalité réelle du serveur (FR-051). Le
     /// modal s'ouvre immédiatement en état de chargement : l'interrogation
     /// WinRM prend jusqu'à quelques secondes, elle ne doit pas bloquer le clic.
@@ -935,7 +1018,10 @@
             HostName = comp.Server?.HostName ?? "—",
             IpAddress = comp.Server?.IpAddress ?? "—",
             ServiceName = comp.WindowsServiceName ?? "—",
-            IsStatic = false
+            IsStatic = false,
+            // RG-0201 : les preuves du journal viennent du dernier relevé de
+            // supervision déjà en cache — aucun appel supplémentaire au serveur.
+            Health = SupervisionCache.GetSnapshot(comp.Id)
         };
         _showTelemetryModal = true;
         _loadingTelemetry = true;

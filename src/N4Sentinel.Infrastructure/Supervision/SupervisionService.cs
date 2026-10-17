@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using N4Sentinel.Domain;
 using N4Sentinel.Infrastructure.Connectors;
+using N4Sentinel.Infrastructure.Diagnostic;
 using N4Sentinel.Infrastructure.Persistence;
 
 namespace N4Sentinel.Infrastructure.Supervision;
@@ -225,9 +226,26 @@ public sealed class SupervisionService(
                     return snapshot;
                 }
 
-                // Évaluation du marqueur de démarrage
-                var readyMatch = FindMatch(text, component.Readiness.ReadyPatterns);
-                if (readyMatch is not null)
+                // RG-0201 : laisser le JOURNAL déduire l'état, pas seulement le
+                // ReadyPattern configuré. On passe le texte au catalogue de
+                // signatures de référence (celui tiré de la doc Kaleris) : les
+                // signatures reconnues sont jointes au snapshot pour l'affichage,
+                // et certaines (échec de démarrage, reprise, Bridge non ACTIVE…)
+                // déduisent l'état sans que l'exploitant ait rien à configurer.
+                // Les ErrorPatterns configurés ci-dessus restent prioritaires.
+                snapshot.LogFindings.AddRange(ReconnaitreSignatures(text, component.Role));
+
+                var etatDeduit = DeduireEtat(snapshot.LogFindings, text);
+                if (etatDeduit is { } deduit)
+                {
+                    snapshot.State = deduit.State;
+                    snapshot.LogProofStatus = deduit.Proof;
+                    snapshot.MatchedPattern = deduit.Sample;
+                    snapshot.Verdict = deduit.Verdict;
+                }
+                // Évaluation du marqueur de démarrage (logique historique, reprise
+                // quand aucune signature décisive n'a tranché l'état).
+                else if (FindMatch(text, component.Readiness.ReadyPatterns) is { } readyMatch)
                 {
                     snapshot.State = ComponentState.Disponible;
                     snapshot.LogProofStatus = LogProofState.Proved;
@@ -414,6 +432,107 @@ public sealed class SupervisionService(
         return snapshot;
     }
 
+    // Catalogue de référence (doc Kaleris), construit une seule fois. On lit la
+    // liste LIVRÉE plutôt que la base : la supervision reste déterministe et sans
+    // requête SQL par relevé, et les signatures de statut N4 sont stables. La
+    // base administrable sert au diagnostic approfondi (LogAnalysisService).
+    private static readonly IReadOnlyList<DiagnosticSignature> CatalogueReference =
+        SignatureCatalogue.Livrees();
+
+    // Arrêt applicatif PROPRE. Le catalogue ne documente que l'arrêt INCORRECT
+    // (SHUTDOWN-IMPROPER) ; un arrêt propre consigné alors que le service Windows
+    // tourne encore signale que l'application s'éteint d'elle-même -> Arret.
+    private static readonly List<string> ArretProprePatterns =
+    [
+        @"shutdown (?:complete|process complete|finished)",
+        @"stopped cleanly", @"clean shutdown", @"server stopped",
+        @"arr[eê]t (?:propre|termin[eé])"
+    ];
+
+    /// <summary>
+    /// Reconnaît dans le texte du journal les signatures du catalogue de
+    /// référence (au plus une occurrence par code, avec la ligne déclenchante).
+    /// Regex bornée par un timeout et expression invalide ignorée, comme
+    /// <see cref="FindMatch"/> — le relevé ne doit jamais être cassé par une
+    /// signature mal formée.
+    /// </summary>
+    private static List<LogSignatureFinding> ReconnaitreSignatures(string text, ComponentRole role)
+    {
+        var findings = new List<LogSignatureFinding>();
+        foreach (var sig in CatalogueReference)
+        {
+            if (sig.AppliesToRole is { } r && r != role) continue;
+            if (string.IsNullOrWhiteSpace(sig.Pattern)) continue;
+            try
+            {
+                var m = Regex.Match(text, sig.Pattern,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
+                if (!m.Success) continue;
+                findings.Add(new LogSignatureFinding(
+                    sig.Code, sig.Name, ExtraireLigne(text, m.Index),
+                    sig.Severity, sig.Meaning, sig.Remediation, sig.DocumentReference));
+            }
+            catch (RegexMatchTimeoutException) { /* texte pathologique : signature ignorée */ }
+            catch (ArgumentException) { /* expression invalide : signature ignorée */ }
+        }
+        return findings.OrderByDescending(f => f.Severity).ToList();
+    }
+
+    /// <summary>Ligne complète (bornée à 300 car.) contenant la position d'une occurrence.</summary>
+    private static string ExtraireLigne(string text, int index)
+    {
+        var pos = Math.Clamp(index, 0, Math.Max(0, text.Length - 1));
+        var debut = text.LastIndexOf('\n', pos) + 1;
+        var fin = text.IndexOf('\n', pos);
+        if (fin < 0) fin = text.Length;
+        var ligne = text[debut..fin].Trim();
+        return ligne.Length <= 300 ? ligne : ligne[..299] + "…";
+    }
+
+    /// <summary>
+    /// Déduit l'état du composant des signatures reconnues, selon la précédence
+    /// documentée (RG-0201). Retourne null quand aucune signature décisive n'est
+    /// présente : la logique du marqueur de démarrage reprend alors la main.
+    /// </summary>
+    private static (ComponentState State, LogProofState Proof, string Verdict, string Sample)? DeduireEtat(
+        List<LogSignatureFinding> findings, string text)
+    {
+        LogSignatureFinding? Sig(string code) => findings.FirstOrDefault(f => f.Code == code);
+
+        // (a) Échec d'initialisation caractérisé : le service peut afficher
+        // Running, seul le journal dit que rien n'a démarré -> Indisponible.
+        if (Sig("APP-STARTUP-FAILED") is { } echec)
+            return (ComponentState.Indisponible, LogProofState.ErrorDetected,
+                $"Échec d'initialisation applicative détecté dans le journal : « {echec.SampleLine} ».", echec.SampleLine);
+
+        // (b) Arrêt propre consigné alors que le service Windows tourne encore :
+        // l'application s'éteint d'elle-même -> Arret.
+        if (FindMatch(text, ArretProprePatterns) is { } arret)
+            return (ComponentState.Arret, LogProofState.Unprovable,
+                $"Arrêt applicatif propre consigné dans le journal : « {arret} » — composant arrêté côté application.", arret);
+
+        // (c) Reprise après incident -> Degrade : le service répond mais se
+        // remet d'une erreur ; la cause est à chercher avant cette ligne.
+        if (Sig("N4-STATUS-RECOVERING") is { } rec)
+            return (ComponentState.Degrade, LogProofState.Proved,
+                $"Service en reprise après incident (RECOVERING) : « {rec.SampleLine} ».", rec.SampleLine);
+
+        // (d) Bridge pas encore ACTIVE -> Demarrage : WAITING puis LOADING sont
+        // des étapes normales du démarrage du Bridge, pas une panne.
+        if (Sig("BRIDGE-NOT-ACTIVE") is { } bridge)
+            return (ComponentState.Demarrage, LogProofState.WaitingForProof,
+                $"Bridge pas encore ACTIVE (WAITING/LOADING) : « {bridge.SampleLine} ». XPS ne doit pas démarrer avant l'état ACTIVE.", bridge.SampleLine);
+
+        // (e) Battement de cœur perdu depuis plus de deux minutes -> Degrade.
+        // DISCONNECTED est volontairement laissé en simple preuve affichée : il
+        // est NORMAL pendant un démarrage et déclarerait un faux dégradé.
+        if (Sig("N4-STATUS-INACTIVE") is { } inact)
+            return (ComponentState.Degrade, LogProofState.Proved,
+                $"Nœud INACTIVE — battement de cœur perdu : « {inact.SampleLine} ».", inact.SampleLine);
+
+        return null;
+    }
+
     private static string? FindMatch(string text, List<string> patterns)
     {
         foreach (var pattern in patterns)
@@ -496,6 +615,14 @@ public sealed class ComponentHealthSnapshot
     public string? MatchedPattern { get; set; }
 
     /// <summary>
+    /// RG-0201 : ce que DIT le journal. Signatures du catalogue reconnues dans
+    /// le delta lu lors de ce relevé — preuves applicatives affichées à côté des
+    /// vitals (CPU/RAM/horloge) et base de la déduction d'état. Vide si rien n'a
+    /// été reconnu.
+    /// </summary>
+    public List<LogSignatureFinding> LogFindings { get; } = [];
+
+    /// <summary>
     /// FR-032/033. Null : non applicable (composant hors Center/Standby) ou
     /// non prouvable (aucun marqueur de role configure) — jamais suppose.
     /// Vrai/faux seulement quand un marqueur d'ActiveRolePatterns a ete
@@ -544,6 +671,21 @@ public sealed class ComponentHealthSnapshot
         Verdict = error
     };
 }
+
+/// <summary>
+/// Signature du catalogue reconnue dans le journal d'un composant lors d'un
+/// relevé LIVE (RG-0201). Immuable : c'est une preuve affichée, pas un état
+/// modifiable. <see cref="SampleLine"/> est le texte brut du journal, affiché
+/// ENCODÉ côté UI — jamais interprété comme du balisage.
+/// </summary>
+public sealed record LogSignatureFinding(
+    string Code,
+    string Name,
+    string SampleLine,
+    SignatureSeverity Severity,
+    string? Meaning,
+    string? Remediation,
+    string? DocumentReference);
 
 public enum LogProofState
 {
