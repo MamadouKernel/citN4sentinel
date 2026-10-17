@@ -120,6 +120,11 @@ public sealed class SupervisionService(
             WindowsServiceName = component.WindowsServiceName
         };
 
+        // Depuis quand le processus du service tourne : sert plus bas a
+        // distinguer un demarrage recent d'un service up de longue date dont le
+        // marqueur de demarrage a ete chasse du journal par la rotation.
+        DateTimeOffset? debutProcessus = null;
+
         // 1. Contrôle du Service Windows
         if (!string.IsNullOrWhiteSpace(component.WindowsServiceName))
         {
@@ -135,6 +140,7 @@ public sealed class SupervisionService(
                 snapshot.ServiceStatus = svcRes.Value.Status;
                 snapshot.ProcessId = svcRes.Value.ProcessId;
                 snapshot.WorkingSetBytes = svcRes.Value.WorkingSetBytes;
+                debutProcessus = svcRes.Value.ProcessStartTime;
             }
             else
             {
@@ -230,10 +236,33 @@ public sealed class SupervisionService(
                 }
                 else
                 {
-                    // Le service tourne mais la JVM n'a pas encore écrit son marqueur
-                    snapshot.State = ComponentState.Demarrage;
-                    snapshot.LogProofStatus = LogProofState.WaitingForProof;
-                    snapshot.Verdict = "Service Windows actif, initialisation applicative en cours (attente du marqueur de journal).";
+                    // Marqueur de demarrage absent du journal lisible. Deux cas
+                    // radicalement differents selon depuis quand le service tourne :
+                    //   - demarre il y a peu (dans la fenetre de preuve) : il
+                    //     initialise encore, on attend legitimement le marqueur
+                    //     -> Demarrage (ambre).
+                    //   - up depuis bien plus longtemps que la fenetre : le
+                    //     marqueur a ete ecrit une fois au demarrage puis chasse
+                    //     par la rotation du journal. Un service up depuis des
+                    //     jours n'est PAS « en cours de demarrage » -> Disponible,
+                    //     dit honnetement (preuve non rejouable, pas preuve absente).
+                    var fenetre = TimeSpan.FromSeconds(Math.Max(60, component.Readiness.LogReadyTimeoutSeconds));
+                    var age = debutProcessus is { } debut ? DateTimeOffset.UtcNow - debut : (TimeSpan?)null;
+
+                    if (age is { } duree && duree > fenetre)
+                    {
+                        snapshot.State = ComponentState.Disponible;
+                        snapshot.LogProofStatus = LogProofState.Unprovable;
+                        snapshot.Verdict = $"Service actif depuis {FormaterDuree(duree)} ; marqueur de démarrage absent du journal courant (rotation) — considéré disponible.";
+                    }
+                    else
+                    {
+                        snapshot.State = ComponentState.Demarrage;
+                        snapshot.LogProofStatus = LogProofState.WaitingForProof;
+                        snapshot.Verdict = age is { } d
+                            ? $"Service actif depuis {FormaterDuree(d)}, dans la fenêtre d'initialisation — attente du marqueur de démarrage."
+                            : "Service Windows actif, initialisation applicative en cours (attente du marqueur de journal).";
+                    }
                 }
 
                 // FR-032/033 : le service demarre ne dit pas qui detient le role
@@ -402,6 +431,12 @@ public sealed class SupervisionService(
         }
         return null;
     }
+
+    /// <summary>Durée lisible et courte : « 57 j », « 3 h », « 12 min ».</summary>
+    private static string FormaterDuree(TimeSpan d) =>
+        d.TotalDays >= 1 ? $"{(int)d.TotalDays} j"
+        : d.TotalHours >= 1 ? $"{(int)d.TotalHours} h"
+        : $"{Math.Max(1, (int)d.TotalMinutes)} min";
 
     private static async Task<bool> CheckTcpPortAsync(string host, int port, CancellationToken ct)
     {
