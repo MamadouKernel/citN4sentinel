@@ -55,12 +55,16 @@ public sealed class SchedulerTriggerBackgroundService(
 
                 foreach (var env in envs)
                 {
-                    var schedules = await db.ExecutionSchedules
-                        .Where(s => s.EnvironmentId == env.Id
-                                 && s.Status == ScheduleStatus.Actif
-                                 && (!s.ValidFrom.HasValue || s.ValidFrom.Value <= DateTimeOffset.UtcNow)
-                                 && (!s.ValidUntil.HasValue || s.ValidUntil.Value >= DateTimeOffset.UtcNow))
-                        .ToListAsync(stoppingToken);
+                    // SQLite ne traduit pas de maniere fiable les comparaisons de
+                    // DateTimeOffset nullable combinees en &&/||. On filtre le statut
+                    // (traduisible) en base, puis la fenetre de validite cote client.
+                    var maintenant = DateTimeOffset.UtcNow;
+                    var schedules = (await db.ExecutionSchedules
+                        .Where(s => s.EnvironmentId == env.Id && s.Status == ScheduleStatus.Actif)
+                        .ToListAsync(stoppingToken))
+                        .Where(s => (!s.ValidFrom.HasValue || s.ValidFrom.Value <= maintenant)
+                                 && (!s.ValidUntil.HasValue || s.ValidUntil.Value >= maintenant))
+                        .ToList();
 
                     foreach (var sched in schedules)
                     {

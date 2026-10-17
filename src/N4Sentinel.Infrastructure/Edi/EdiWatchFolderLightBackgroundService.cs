@@ -58,11 +58,17 @@ public sealed class EdiWatchFolderLightBackgroundService(
                 var diagSessions = sp.GetRequiredService<Diagnostic.DiagnosticSessionService>();
                 await using var db = await dbFactory.CreateDbContextAsync(stoppingToken);
 
-                var composantsEdi = await db.Components.AsNoTracking()
+                // SQLite ne sait pas traduire SharedFolder.IsConfigured (propriete
+                // calculee, non mappee a une colonne). On materialise avec un filtre
+                // traduisible (SharedFolder non nul), puis on affine IsConfigured cote
+                // client. Le volume de composants est petit : le cout est negligeable.
+                var composantsEdi = (await db.Components.AsNoTracking()
                     .Include(c => c.Server)
                     .Include(c => c.SharedFolder)
-                    .Where(c => c.SharedFolder != null && c.SharedFolder.IsConfigured)
-                    .ToListAsync(stoppingToken);
+                    .Where(c => c.SharedFolder != null)
+                    .ToListAsync(stoppingToken))
+                    .Where(c => c.SharedFolder!.IsConfigured)
+                    .ToList();
 
                 foreach (var compo in composantsEdi)
                 {
