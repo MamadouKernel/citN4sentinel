@@ -156,19 +156,27 @@ $cheminCles = Join-Path $DataDir 'cles-protection'
 
 $json = Get-Content $config -Raw | ConvertFrom-Json
 
+# @(...) -contains : robuste quand l'objet est vide. Sous PowerShell 5.1,
+# [pscustomobject]@{} sans propriete a un .PSObject.Properties.Name a $null, et
+# appeler .Contains() dessus leve « You cannot call a method on a null-valued
+# expression ». -contains sur un tableau force a vide fonctionne dans tous les cas.
 function Assurer-Objet($parent, $nom) {
-    if (-not $parent.PSObject.Properties.Name.Contains($nom) -or $null -eq $parent.$nom) {
+    if (-not (@($parent.PSObject.Properties.Name) -contains $nom) -or $null -eq $parent.$nom) {
         $parent | Add-Member -NotePropertyName $nom -NotePropertyValue ([pscustomobject]@{}) -Force
     }
     return $parent.$nom
 }
 function Definir($parent, $nom, $valeur) {
-    if ($parent.PSObject.Properties.Name.Contains($nom)) { $parent.$nom = $valeur }
+    if (@($parent.PSObject.Properties.Name) -contains $nom) { $parent.$nom = $valeur }
     else { $parent | Add-Member -NotePropertyName $nom -NotePropertyValue $valeur -Force }
 }
 
-$cs  = Assurer-Objet $json 'ConnectionStrings'
-Definir $cs 'N4Sentinel' ("Data Source={0}" -f $cheminBase)
+# SQLite : une seule chaine de connexion. On REMPLACE tout l'objet
+# ConnectionStrings au lieu d'y ajouter une cle : le gabarit SQL Server y laisse
+# sinon la cle 'N4Sentinel_AuthWindows' et des commentaires '//' qui portent
+# NOM_DU_SERVEUR_SQL / MOT_DE_PASSE_A_DEFINIR. Le garde-fou de Installer-N4Sentinel.ps1
+# scanne le fichier brut et refuserait l'installation tant que ces marqueurs restent.
+Definir $json 'ConnectionStrings' ([pscustomobject]@{ N4Sentinel = ("Data Source={0}" -f $cheminBase) })
 
 $n4  = Assurer-Objet $json 'N4Sentinel'
 $db  = Assurer-Objet $n4 'Database'
