@@ -57,6 +57,23 @@ else
                         <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.WindowsServiceName" placeholder="Navis N4 Cluster Node" />
                     </div>
 
+                    @* Serveur hote : reaffectable ici (l'import fixe le serveur,
+                       mais une erreur de cartographie doit se corriger sans tout
+                       reimporter). La liste est limitee aux serveurs de l'environnement. *@
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Serveur / Hôte</label>
+                        <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:ring-2 focus:ring-sky-500/50 focus:outline-none" @bind="_c.ServerId">
+                            <option value="">— Aucun serveur —</option>
+                            @foreach (var s in _serveurs)
+                            {
+                                <option value="@s.Id">@s.HostName</option>
+                            }
+                        </select>
+                        <div class="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
+                            Le serveur qui héberge ce composant. Réaffectez-le ici si l'import l'a rattaché au mauvais hôte.
+                        </div>
+                    </div>
+
                     @* Services associés — Day 1 modules 1.6/1.7, et table
                        « List of Known Services » du guide 3.8.25. *@
                     <div>
@@ -486,6 +503,7 @@ else
     private List<ComponentDependency> _dependances = [];
     private List<ComponentDependency> _dependants = [];
     private List<N4Component> _voisins = [];
+    private List<N4Server> _serveurs = [];
     private Guid _nouvelleDependance;
     private DependencyKind _natureDependance = DependencyKind.RequisAuDemarrage;
     private string? _erreurDependance;
@@ -509,6 +527,7 @@ else
         _dependances = await Referential.GetDependenciesAsync(Id);
         _dependants = await Referential.GetDependentsAsync(Id);
         _voisins = await Referential.GetComponentsAsync(_c.EnvironmentId);
+        _serveurs = await Referential.GetServersAsync(_c.EnvironmentId);
     }
 
     private async Task AjouterDependance()
