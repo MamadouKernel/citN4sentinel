@@ -196,6 +196,10 @@ Copy-Item (Join-Path $PSScriptRoot 'Verifier-N4Sentinel.ps1') $dossier -Force
 # installation du service, demarrage et verification en un seul appel.
 Copy-Item (Join-Path $PSScriptRoot 'Deployer-N4Sentinel-Sqlite.ps1') $dossier -Force
 
+# Sauvegarde coherente (base + trousseau) et planification automatique :
+# l'exploitant en a besoin des la mise en service, pas apres un incident.
+Copy-Item (Join-Path $PSScriptRoot 'Sauvegarder-N4Sentinel.ps1') $dossier -Force
+
 # Les guides d'INSTALLATION voyagent avec le paquet. Celui qui installe est
 # devant la machine cible, souvent sans acces au depot : lui demander d'aller
 # chercher la procedure ailleurs, c'est garantir qu'il improvisera.
