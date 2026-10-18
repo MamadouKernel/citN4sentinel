@@ -702,6 +702,16 @@ public sealed class SupervisionTests : IAsyncLifetime
         Assert.Contains(snapshot.LogFindings, f => f.Code == "BRIDGE-NOT-ACTIVE");
     }
 
+    [Fact(DisplayName = "Une ligne INFO de métriques JVM saine (Metaspace.committed) ne déclenche PAS MEM-OUT-OF-MEMORY")]
+    public async Task EvaluateComponentAsync_Ne_Signale_Pas_OOM_Sur_Ligne_Metrique_Metaspace()
+    {
+        var snapshot = await EvaluerAvecJournalAsync(
+            "2026-10-18 03:41:23,975 INFO | metrics-logger-reporter-1-thread-1 | [RdtShell:107] type=GAUGE, name=jvm-memory.pools.Metaspace.committed, value=25427968",
+            ComponentRole.Ecn4Web);
+
+        Assert.DoesNotContain(snapshot.LogFindings, f => f.Code == "MEM-OUT-OF-MEMORY");
+    }
+
     /// <summary>
     /// Fabrique un composant prouvable, l'évalue avec un service Running et le
     /// texte de journal fourni. Le ReadyPattern déclaré ne correspond jamais au

@@ -254,7 +254,11 @@ public sealed class SignatureCatalogue(
         {
             Code = "MEM-OUT-OF-MEMORY",
             Name = "Mémoire de la JVM épuisée",
-            Pattern = @"(?:java\.lang\.OutOfMemoryError|OutOfMemoryError|GC overhead limit exceeded|Java heap space|Metaspace)",
+            // NB : pas de « Metaspace » nu — il matchait des lignes INFO de
+            // metriques saines (ex. « jvm-memory.pools.Metaspace.committed »)
+            // et declenchait un faux « JVM epuisee ». L'OOM Metaspace reel est
+            // deja couvert par « OutOfMemoryError » (« OutOfMemoryError: Metaspace »).
+            Pattern = @"(?:java\.lang\.OutOfMemoryError|OutOfMemoryError|GC overhead limit exceeded|Java heap space)",
             Domain = DiagnosticDomain.Memoire,
             Severity = SignatureSeverity.Critique,
             Origin = SignatureOrigin.Editeur,
