@@ -3,12 +3,17 @@
 @using Microsoft.AspNetCore.Authorization
 @using N4Sentinel.Domain
 @using N4Sentinel.Infrastructure.Connectors
+@using N4Sentinel.Infrastructure.Orchestration
 @using N4Sentinel.Infrastructure.Referential
 @using N4Sentinel.Infrastructure.Supervision
 @attribute [Authorize(Policy = N4Policies.PeutConsulter)]
 @rendermode InteractiveServer
 @inject NodeVitalsService Vitals
 @inject ReferentialService Referential
+@inject AdHocOperationService AdHoc
+@inject ExecutionService Executions
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
 
 <PageTitle>Vitalité des nœuds — N4 Sentinel</PageTitle>
 
@@ -310,12 +315,80 @@
                                             </ul>
                                         </details>
                                     }
+
+                                    @if (maj.PendingCount > 0 && ComposantPilotable(n.ServerId) is not null)
+                                    {
+                                        <AuthorizeView Policy="@N4Policies.PeutExecuterActionUnitaire">
+                                            <button class="mt-2 px-3 py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-bold text-[11px] transition inline-flex items-center gap-1.5"
+                                                    @onclick="() => OuvrirInstallation(n.ServerId)">
+                                                <i class="bi bi-download"></i> Installer les mises à jour
+                                            </button>
+                                        </AuthorizeView>
+                                    }
                                 }
                             </div>
                         </div>
                     }
                 </div>
             }
+        </div>
+    }
+
+    @if (_majServeur is { } sid)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @onclick="FermerInstallation">
+            <div class="glass-card rounded-2xl border border-amber-500/30 max-w-lg w-full p-6 space-y-4 text-xs"
+                 @onclick:stopPropagation="true">
+                <div class="flex items-start gap-3">
+                    <i class="bi bi-exclamation-triangle-fill text-amber-400 text-xl mt-0.5"></i>
+                    <div>
+                        <h3 class="text-sm font-bold text-white">Installer les mises à jour Windows</h3>
+                        <p class="text-slate-400 mt-0.5">
+                            Serveur <strong class="text-white">@(_noeuds.FirstOrDefault(n => n.ServerId == sid)?.HostName)</strong>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 leading-relaxed">
+                    L'installation <strong>ne redémarre jamais</strong> le serveur. Si un redémarrage devient requis,
+                    il sera signalé mais <strong>non effectué</strong> : sur un serveur N4, le redémarrage doit respecter
+                    l'ordre d'arrêt Kaleris et passer par un workflow d'arrêt/redémarrage N4.
+                    L'opération passe par le moteur (verrou, pré-check, audit) et vous demandera une confirmation
+                    explicite avant d'émettre la commande.
+                </div>
+
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Portée</label>
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white" @bind="_majScope">
+                        <option value="@UpdateInstallScope.SecuriteEtCritiques">Sécurité et critiques uniquement (recommandé)</option>
+                        <option value="@UpdateInstallScope.Toutes">Toutes les mises à jour en attente</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">
+                        Motif <span class="text-rose-400">obligatoire</span>
+                    </label>
+                    <input class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                           placeholder="Pourquoi cette installation, maintenant." @bind="_majMotif" @bind:event="oninput" />
+                </div>
+
+                @if (_majMessage is not null)
+                {
+                    <div class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300">@_majMessage</div>
+                }
+
+                <div class="flex items-center justify-end gap-2 pt-1">
+                    <button class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition"
+                            @onclick="FermerInstallation">Annuler</button>
+                    <button class="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition disabled:opacity-40 inline-flex items-center gap-1.5"
+                            disabled="@(string.IsNullOrWhiteSpace(_majMotif) || _majEnCours)"
+                            @onclick="() => LancerInstallation(sid)">
+                        <i class="bi bi-arrow-right-circle"></i>
+                        @(_majEnCours ? "Préparation…" : "Préparer l'installation")
+                    </button>
+                </div>
+            </div>
         </div>
     }
 </div>
@@ -340,6 +413,18 @@
 
     private CancellationTokenSource? _boucle;
 
+    // Composants de l'environnement, chargés pour relier un serveur à un
+    // composant pilotable (une installation vise un hôte, mais le moteur cible
+    // un composant pour en résoudre l'hôte et l'identité).
+    private List<N4Component> _composants = [];
+
+    // État du panneau d'installation des mises à jour.
+    private Guid? _majServeur;
+    private UpdateInstallScope _majScope = UpdateInstallScope.SecuriteEtCritiques;
+    private string _majMotif = string.Empty;
+    private bool _majEnCours;
+    private string? _majMessage;
+
     protected override async Task OnInitializedAsync()
     {
         _environnements = await Referential.GetEnvironmentsAsync();
@@ -350,7 +435,9 @@
     {
         await ArreterBoucle();
 
-        if (_envId == Guid.Empty) { _noeuds = []; return; }
+        if (_envId == Guid.Empty) { _noeuds = []; _composants = []; return; }
+
+        _composants = await Referential.GetComponentsAsync(_envId);
 
         await Relever();
 
@@ -425,6 +512,64 @@
         finally
         {
             _misesAJourEnCours = false;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Installation des mises à jour
+    // -----------------------------------------------------------------------
+    /// <summary>Premier composant pilotable de ce serveur, ou null s'il n'en a aucun.</summary>
+    private N4Component? ComposantPilotable(Guid serverId) =>
+        _composants.FirstOrDefault(c => c.ServerId == serverId && c.CanBeControlled);
+
+    private void OuvrirInstallation(Guid serverId)
+    {
+        _majServeur = serverId;
+        _majScope = UpdateInstallScope.SecuriteEtCritiques;
+        _majMotif = string.Empty;
+        _majMessage = null;
+    }
+
+    private void FermerInstallation() => _majServeur = null;
+
+    /// <summary>
+    /// Construit le workflow jetable d'installation (sans redémarrage), le
+    /// prépare via le moteur — qui applique verrou, pré-check, approbation selon
+    /// l'environnement et confirmation explicite — puis route vers l'écran de
+    /// l'opération, exactement comme une opération ponctuelle.
+    /// </summary>
+    private async Task LancerInstallation(Guid serverId)
+    {
+        var composant = ComposantPilotable(serverId);
+        if (composant is null)
+        {
+            _majMessage = "Aucun composant pilotable n'est rattaché à ce serveur : "
+                        + "l'installation passe par le moteur, qui cible un composant pour en résoudre l'hôte.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_majMotif)) { _majMessage = "Le motif est obligatoire."; return; }
+
+        _majEnCours = true;
+        _majMessage = null;
+
+        try
+        {
+            var etat = await AuthProvider.GetAuthenticationStateAsync();
+            var acteur = etat.User.Identity?.Name ?? "inconnu";
+
+            var construction = await AdHoc.BuildUpdateInstallAsync(_envId, composant.Id, _majScope, acteur);
+            if (!construction.Succeeded) { _majMessage = construction.Error; return; }
+
+            var prep = await Executions.PrepareAsync(construction.WorkflowId, acteur, _majMotif.Trim());
+            if (!prep.Succeeded) { _majMessage = prep.Error; return; }
+
+            _majServeur = null;
+            Nav.NavigateTo($"/operations/{prep.ExecutionId}");
+        }
+        finally
+        {
+            _majEnCours = false;
         }
     }
 

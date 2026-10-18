@@ -663,6 +663,154 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         }, result.Duration);
     }
 
+    public async Task<ConnectorResult<UpdateInstallResult>> InstallUpdatesAsync(
+        ConnectorTarget target, UpdateInstallScope scope,
+        IReadOnlyCollection<string>? kbIds = null, CancellationToken ct = default)
+    {
+        // VOIE UNIQUE : l'API COM Windows Update. Le guide d'exploitation lit
+        // deja les MAJ par ce canal (GetPendingUpdatesAsync) ; l'installation le
+        // reutilise, ce qui evite d'exiger le module PSWindowsUpdate sur chaque
+        // serveur N4 et donne un controle fin : filtrage par portee, aucun
+        // redemarrage automatique, et un resultat par mise a jour.
+        // ponytail: COM seul; brancher PSWindowsUpdate si un site l'impose.
+        //
+        // AUCUN REDEMARRAGE N'EST EMIS. $installResult.RebootRequired n'est que
+        // signale : Install() ne redemarre pas de lui-meme. Le reboot reste un
+        // geste d'operateur, via le workflow d'arret/redemarrage N4.
+        const string script = """
+            param([string]$Scope, [string[]]$Kb)
+            try {
+                $session = New-Object -ComObject Microsoft.Update.Session
+                $chercheur = $session.CreateUpdateSearcher()
+                $resultat = $chercheur.Search("IsInstalled=0 and IsHidden=0")
+
+                $aInstaller = New-Object -ComObject Microsoft.Update.UpdateColl
+                for ($i = 0; $i -lt $resultat.Updates.Count; $i++) {
+                    $u = $resultat.Updates.Item($i)
+                    $garder = $false
+
+                    if ($Kb -and $Kb.Count -gt 0) {
+                        foreach ($id in $u.KBArticleIDs) {
+                            if (($Kb -contains "KB$id") -or ($Kb -contains "$id")) { $garder = $true; break }
+                        }
+                    } elseif ($Scope -eq 'Toutes') {
+                        $garder = $true
+                    } else {
+                        foreach ($cat in $u.Categories) {
+                            if ($cat.Name -match 'Securit|Security') { $garder = $true; break }
+                        }
+                        if ($u.MsrcSeverity -eq 'Critical') { $garder = $true }
+                    }
+
+                    if ($garder) {
+                        if (-not $u.EulaAccepted) { try { $u.AcceptEula() } catch { } }
+                        $null = $aInstaller.Add($u)
+                    }
+                }
+
+                if ($aInstaller.Count -eq 0) {
+                    [PSCustomObject]@{
+                        HostName = $env:COMPUTERNAME; Installes = 0; Echecs = 0; Redemarrage = $false
+                        TitresOk = @(); TitresKo = @(); Methode = 'COM'; Erreur = $null
+                    }
+                    return
+                }
+
+                $aTelecharger = New-Object -ComObject Microsoft.Update.UpdateColl
+                for ($i = 0; $i -lt $aInstaller.Count; $i++) {
+                    if (-not $aInstaller.Item($i).IsDownloaded) { $null = $aTelecharger.Add($aInstaller.Item($i)) }
+                }
+                if ($aTelecharger.Count -gt 0) {
+                    $telechargeur = $session.CreateUpdateDownloader()
+                    $telechargeur.Updates = $aTelecharger
+                    $null = $telechargeur.Download()
+                }
+
+                $installeur = $session.CreateUpdateInstaller()
+                $installeur.Updates = $aInstaller
+                $issue = $installeur.Install()
+
+                $ok = @(); $ko = @()
+                for ($i = 0; $i -lt $aInstaller.Count; $i++) {
+                    $titre = $aInstaller.Item($i).Title
+                    $rc = $issue.GetUpdateResult($i).ResultCode
+                    if ($rc -eq 2) { $ok += $titre } else { $ko += $titre }
+                }
+
+                [PSCustomObject]@{
+                    HostName = $env:COMPUTERNAME; Installes = $ok.Count; Echecs = $ko.Count
+                    Redemarrage = [bool]$issue.RebootRequired; TitresOk = $ok; TitresKo = $ko
+                    Methode = 'COM'; Erreur = $null
+                }
+            } catch {
+                [PSCustomObject]@{
+                    HostName = $env:COMPUTERNAME; Installes = -1; Echecs = 0; Redemarrage = $false
+                    TitresOk = @(); TitresKo = @(); Methode = 'COM'; Erreur = $_.Exception.Message
+                }
+            }
+            """;
+
+        logger.LogInformation(
+            "[{Hote}] Installation des mises a jour Windows (portee {Portee}) — operation lente, sans redemarrage.",
+            target.HostName, scope);
+
+        // Installation longue : telechargement + pose des paquets. On laisse un
+        // delai tres large, bien au-dela du releve.
+        var cibleLente = target with { Timeout = TimeSpan.FromMinutes(60) };
+
+        var result = await ExecuteAsync(cibleLente, script, new Dictionary<string, object?>
+        {
+            ["Scope"] = scope.ToString(),
+            ["Kb"] = kbIds?.ToArray() ?? []
+        }, ct);
+
+        if (!result.Succeeded)
+            return ConnectorResult<UpdateInstallResult>.Fail(
+                result.Failure, result.Error!, result.Duration, result.ExecutedCommand);
+
+        var o = result.Value!.FirstOrDefault();
+        if (o is null)
+            return ConnectorResult<UpdateInstallResult>.Fail(
+                ConnectorFailure.ErreurDistante, "Aucune reponse de l'agent Windows Update.",
+                result.Duration, result.ExecutedCommand);
+
+        var installes = GetNullableInt(o, "Installes") ?? -1;
+
+        if (installes < 0)
+        {
+            var detail = Get<string>(o, "Erreur");
+            return ConnectorResult<UpdateInstallResult>.Fail(
+                ConnectorFailure.AccesRefuse,
+                "L'installation des mises a jour n'a pas pu etre lancee a distance. "
+                + "L'objet COM Microsoft.Update.Session ne franchit pas une session WinRM sans "
+                + "delegation configuree (restriction du double saut). "
+                + "Lancez l'installation depuis le serveur lui-meme, ou configurez CredSSP."
+                + (detail is null ? string.Empty : $" Detail : {detail}"),
+                result.Duration, result.ExecutedCommand);
+        }
+
+        return ConnectorResult<UpdateInstallResult>.Ok(new UpdateInstallResult
+        {
+            HostName = Get<string>(o, "HostName") ?? target.HostName,
+            InstalledCount = installes,
+            FailedCount = GetNullableInt(o, "Echecs") ?? 0,
+            RebootRequired = GetNullableBool(o, "Redemarrage") ?? false,
+            InstalledTitles = LireTitres(o, "TitresOk"),
+            FailedTitles = LireTitres(o, "TitresKo"),
+            Method = Get<string>(o, "Methode")
+        }, result.Duration, result.ExecutedCommand);
+    }
+
+    /// <summary>Lit une liste de titres renvoyee par PowerShell, en tolerant une valeur scalaire ou nulle.</summary>
+    private static IReadOnlyList<string> LireTitres(PSObject o, string propriete)
+    {
+        var titres = new List<string>();
+        if (o.Properties[propriete]?.Value is IEnumerable<object> bruts)
+            foreach (var t in bruts)
+                if (t?.ToString() is { Length: > 0 } titre) titres.Add(titre);
+        return titres;
+    }
+
     public async Task<ConnectorResult<ServiceSnapshot>> ControlServiceAsync(
         ConnectorTarget target, string serviceName, ServiceControlAction action,
         CancellationToken ct = default)

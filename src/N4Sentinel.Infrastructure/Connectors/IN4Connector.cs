@@ -87,6 +87,36 @@ public interface IN4Connector
         ConnectorTarget target, CancellationToken ct = default);
 
     /// <summary>
+    /// INSTALLE les mises a jour Windows en attente. OPERATION MUTATIVE et LENTE
+    /// (plusieurs minutes).
+    ///
+    /// NE REDEMARRE JAMAIS LA MACHINE, par conception. L'installation est
+    /// deposee avec le redemarrage supprime ; si un redemarrage devient
+    /// necessaire, il est SIGNALE (<see cref="UpdateInstallResult.RebootRequired"/>)
+    /// mais jamais declenche ici. Decoupler l'installation du redemarrage est le
+    /// garde-fou central : sur un ecosysteme N4, un reboot doit respecter l'ordre
+    /// d'arret Kaleris (ECN4Web -> ECN4 -> XPS -> Bridge -> Standby -> Cluster ->
+    /// Center) sous peine de corruption KahaDB / split-brain. Le reboot reste donc
+    /// un geste d'operateur explicite, passant par le workflow d'arret/redemarrage
+    /// N4 - jamais un effet de bord d'une installation.
+    ///
+    /// Comme pour la lecture, l'objet COM Windows Update ne franchit pas toujours
+    /// une session WinRM (double saut) : l'echec est rendu comme un resultat, pas
+    /// comme une exception, avec un message qui dit quoi faire.
+    ///
+    /// Implementation par defaut : non prise en charge. Seul le connecteur reel
+    /// l'implemente ; les doublures de test et connecteurs partiels n'ont rien a
+    /// fournir tant qu'elles ne couvrent pas ce scenario.
+    /// </summary>
+    Task<ConnectorResult<UpdateInstallResult>> InstallUpdatesAsync(
+        ConnectorTarget target, UpdateInstallScope scope,
+        IReadOnlyCollection<string>? kbIds = null, CancellationToken ct = default)
+        => Task.FromResult(ConnectorResult<UpdateInstallResult>.Fail(
+            ConnectorFailure.ErreurDistante,
+            "L'installation des mises a jour n'est pas prise en charge par ce connecteur.",
+            TimeSpan.Zero));
+
+    /// <summary>
     /// SEULE OPERATION MUTATIVE DE L'INTERFACE. Demande a Windows de demarrer
     /// ou d'arreter un service, et retourne l'etat observe juste apres.
     ///
@@ -389,6 +419,49 @@ public sealed record UpdateSnapshot
 
     /// <summary>Date de la derniere installation reussie, si elle est connue.</summary>
     public DateTimeOffset? LastInstallationDate { get; init; }
+
+    public DateTimeOffset MeasuredAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>Portee d'une installation de mises a jour Windows.</summary>
+public enum UpdateInstallScope
+{
+    /// <summary>
+    /// Seules les mises a jour classees securite ou critiques. Choix par defaut
+    /// et le plus sur : on corrige les failles sans embarquer de changements
+    /// fonctionnels non sollicites.
+    /// </summary>
+    SecuriteEtCritiques = 0,
+
+    /// <summary>Toutes les mises a jour en attente, sans distinction.</summary>
+    Toutes = 1
+}
+
+/// <summary>
+/// Resultat d'une installation de mises a jour Windows.
+///
+/// AUCUN REDEMARRAGE N'A ETE DECLENCHE : <see cref="RebootRequired"/> dit
+/// seulement qu'un redemarrage est maintenant necessaire pour finaliser. Le
+/// declencher appartient a l'operateur, via le workflow d'arret/redemarrage N4.
+/// </summary>
+public sealed record UpdateInstallResult
+{
+    public required string HostName { get; init; }
+
+    public int InstalledCount { get; init; }
+    public int FailedCount { get; init; }
+
+    /// <summary>Un redemarrage est requis pour finaliser. Il n'a PAS ete fait.</summary>
+    public bool RebootRequired { get; init; }
+
+    /// <summary>Titres des mises a jour installees, pour la preuve d'etape.</summary>
+    public IReadOnlyList<string> InstalledTitles { get; init; } = [];
+
+    /// <summary>Titres des mises a jour en echec, avec leur cause quand elle est connue.</summary>
+    public IReadOnlyList<string> FailedTitles { get; init; } = [];
+
+    /// <summary>Methode employee (PSWindowsUpdate ou API COM), pour le diagnostic.</summary>
+    public string? Method { get; init; }
 
     public DateTimeOffset MeasuredAt { get; init; } = DateTimeOffset.UtcNow;
 }

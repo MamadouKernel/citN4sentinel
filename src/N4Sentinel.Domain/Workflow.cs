@@ -39,7 +39,15 @@ public enum StepAction
     Attendre = 5,
 
     /// <summary>Arrêt forcé explicite (FR-029B).</summary>
-    ArretForce = 6
+    ArretForce = 6,
+
+    /// <summary>
+    /// Installe les mises à jour Windows en attente sur l'hôte du composant.
+    /// MUTATIVE mais SANS redémarrage : un redémarrage requis est signalé, jamais
+    /// déclenché — il doit passer par le workflow d'arrêt/redémarrage N4 pour
+    /// respecter l'ordre Kaleris (voir <c>IN4Connector.InstallUpdatesAsync</c>).
+    /// </summary>
+    InstallerMiseAJour = 7
 }
 
 /// <summary>Conduite à tenir quand une étape n'aboutit pas.</summary>

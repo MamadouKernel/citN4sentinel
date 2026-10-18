@@ -44,6 +44,7 @@ public sealed class StepExecutor(
                 StepAction.Demarrer => await DemarrerAsync(step, isSimulation, progress, ct),
                 StepAction.Arreter => await ArreterAsync(step, isSimulation, progress, ct),
                 StepAction.Redemarrer => await RedemarrerAsync(step, isSimulation, progress, ct),
+                StepAction.InstallerMiseAJour => await InstallerAsync(step, isSimulation, progress, ct),
                 _ => StepOutcome.Failed($"Action « {step.Action} » non prise en charge.")
             };
 
@@ -443,6 +444,88 @@ public sealed class StepExecutor(
         };
     }
 
+    /// <summary>
+    /// Installe les mises à jour Windows en attente sur l'HÔTE du composant.
+    ///
+    /// NE REDÉMARRE JAMAIS. C'est le garde-fou central : un redémarrage requis
+    /// est signalé (avertissement explicite) mais jamais déclenché ici, car sur
+    /// un écosystème N4 un reboot doit suivre l'ordre d'arrêt Kaleris
+    /// (ECN4Web → ECN4 → XPS → Bridge → Standby → Cluster → Center) sous peine de
+    /// corruption KahaDB / split-brain. Le reboot reste donc un geste d'opérateur
+    /// passant par le workflow d'arrêt/redémarrage N4 — jamais un effet de bord.
+    ///
+    /// L'approbation, le verrou, la fenêtre d'intervention et la confirmation
+    /// explicite sont déjà assurés en amont par la préparation, le pré-check et le
+    /// moteur : cette étape ne s'exécute que lorsque tout cela a été franchi.
+    /// </summary>
+    private async Task<StepOutcome> InstallerAsync(
+        ExecutionStep step, bool isSimulation, IProgress<string> progress, CancellationToken ct)
+    {
+        var contexte = await ChargerAsync(step, ct);
+        if (contexte.Error is not null) return StepOutcome.Failed(contexte.Error);
+
+        var cible = contexte.Target!;
+        var portee = PorteeMajInstructions.Lire(step.Instruction);
+
+        if (isSimulation)
+            return StepOutcome.Succeeded(
+                $"[Simulation] Aucune commande émise. Les mises à jour Windows "
+                + $"({(portee == Connectors.UpdateInstallScope.Toutes ? "toutes" : "sécurité + critiques")}) "
+                + $"auraient été installées sur {cible.HostName}, SANS redémarrage.");
+
+        progress.Report(
+            $"Installation des mises à jour sur {cible.HostName}. "
+            + "Opération lente (plusieurs minutes) : téléchargement puis pose des paquets, sans redémarrage.");
+
+        var commande = await connector.InstallUpdatesAsync(cible, portee, kbIds: null, ct);
+
+        if (!commande.Succeeded)
+        {
+            await EcarterLeCompteSiRefusAsync(contexte, commande.Failure, ct);
+            return StepOutcome.Failed(
+                $"L'installation des mises à jour a échoué : {commande.Error}",
+                StepErrorType.CommandeRefusee, commande.ExecutedCommand);
+        }
+
+        var r = commande.Value!;
+        var bilan =
+            $"{r.InstalledCount} mise(s) à jour installée(s)"
+            + (r.FailedCount > 0 ? $", {r.FailedCount} en échec" : string.Empty)
+            + $" sur {r.HostName}.";
+
+        // Rien à faire : il n'y avait aucune mise à jour correspondant à la portée.
+        if (r is { InstalledCount: 0, FailedCount: 0 } && !r.RebootRequired)
+            return StepOutcome.Succeeded(
+                $"Aucune mise à jour à installer sur {r.HostName} pour la portée demandée.",
+                commande.ExecutedCommand);
+
+        // Un redémarrage est désormais requis : on le DIT, on ne le FAIT pas.
+        if (r.RebootRequired)
+            return StepOutcome.Warned(
+                $"{bilan} UN REDÉMARRAGE EST REQUIS pour finaliser — il n'a PAS été effectué. "
+                + "Sur un serveur N4, le redémarrage doit respecter l'ordre d'arrêt Kaleris : "
+                + "planifiez-le via un workflow d'arrêt/redémarrage N4, jamais en rebootant ce nœud directement."
+                + (r.FailedCount > 0 ? $" {r.FailedCount} mise(s) à jour sont restées en échec." : string.Empty),
+                commande.ExecutedCommand);
+
+        // Des échecs sans qu'aucune n'aboutisse : l'étape est en échec.
+        if (r is { InstalledCount: 0, FailedCount: > 0 })
+            return StepOutcome.Failed(
+                $"Aucune mise à jour n'a pu être installée sur {r.HostName} : {r.FailedCount} en échec. "
+                + (r.FailedTitles.Count > 0 ? $"Dont : {string.Join(" ; ", r.FailedTitles.Take(3))}." : string.Empty),
+                StepErrorType.Inconnu, commande.ExecutedCommand);
+
+        // Succès partiel : certaines posées, d'autres non. À confirmer.
+        if (r.FailedCount > 0)
+            return StepOutcome.Warned(
+                $"{bilan} Aucun redémarrage requis. "
+                + $"Les échecs sont à examiner : {string.Join(" ; ", r.FailedTitles.Take(3))}.",
+                commande.ExecutedCommand);
+
+        return StepOutcome.Succeeded(
+            $"{bilan} Aucun redémarrage requis.", commande.ExecutedCommand);
+    }
+
     // -----------------------------------------------------------------------
     // Garde-fou de séquence
     // -----------------------------------------------------------------------
@@ -727,7 +810,8 @@ public sealed class StepExecutor(
     /// n'ouvrent aucune session sous l'identite de quiconque.
     /// </summary>
     private static bool EstUnPilotage(StepAction action)
-        => action is StepAction.Demarrer or StepAction.Arreter or StepAction.Redemarrer;
+        => action is StepAction.Demarrer or StepAction.Arreter or StepAction.Redemarrer
+                  or StepAction.InstallerMiseAJour;
 
     /// <summary>
     /// Ecarte le compte employe si l'authentification a ete refusee.

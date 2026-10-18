@@ -174,6 +174,98 @@ public sealed class AdHocOperationService(
         return AdHocResult.Ok(workflow.Id, workflow.Name, etapes.Count);
     }
 
+    /// <summary>
+    /// Fabrique le workflow jetable d'une INSTALLATION de mises à jour Windows
+    /// sur l'hôte d'un composant.
+    ///
+    /// Comme toute opération ponctuelle, elle passe par le moteur, le verrou et
+    /// le pré-check — donc par l'approbation quand l'environnement l'impose
+    /// (Production), la fenêtre d'intervention et l'audit. On NE force PAS
+    /// d'approbation ni de double validation ici : la gouvernance est exactement
+    /// celle des autres opérations ponctuelles (un admin seul peut donc lancer
+    /// hors Production, la Production restant soumise à sa règle d'environnement).
+    ///
+    /// L'étape exige une confirmation explicite (RequiresConfirmation) : le
+    /// moteur s'arrête et attend le geste de l'opérateur avant d'émettre la
+    /// commande d'installation — le double-clic de sécurité réclamé côté UI.
+    ///
+    /// Rappel de conception : l'installation NE REDÉMARRE PAS. Un redémarrage
+    /// requis est signalé par l'étape, jamais déclenché — il doit passer par le
+    /// workflow d'arrêt/redémarrage N4 (ordre Kaleris).
+    /// </summary>
+    public async Task<AdHocResult> BuildUpdateInstallAsync(
+        Guid environmentId, Guid componentId, Connectors.UpdateInstallScope scope,
+        string actor, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var composant = await db.Components
+            .AsNoTracking()
+            .Include(c => c.Server)
+            .FirstOrDefaultAsync(c => c.Id == componentId && c.EnvironmentId == environmentId, ct);
+
+        if (composant is null)
+            return AdHocResult.Failed("Composant introuvable dans cet environnement.");
+
+        // Une installation vise un HÔTE : elle n'a de sens que sur un composant
+        // pilotable et validé, rattaché à un serveur joignable du référentiel.
+        if (!composant.CanBeControlled)
+            return AdHocResult.Failed(
+                $"« {composant.LogicalName} » n'est pas pilotable "
+                + $"(mode {composant.ControlMode}, état {composant.Status}) : "
+                + "aucune action, même d'installation, n'est envoyée à un composant en brouillon.");
+
+        if (composant.Server is null)
+            return AdHocResult.Failed($"Aucun serveur n'est rattaché à « {composant.LogicalName} ».");
+
+        var hote = composant.Server.HostName;
+
+        var workflow = new Workflow
+        {
+            EnvironmentId = environmentId,
+            Code = $"MAJ-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+            Name = $"Installer les mises à jour — {hote}",
+            Kind = WorkflowKind.OperationUnitaire,
+            Version = 1,
+            Status = LifecycleStatus.Valide,
+            Description = $"Installation des mises à jour Windows sur {hote}, construite par {actor}. "
+                        + "Sans redémarrage : un redémarrage requis sera signalé et devra passer par le "
+                        + "workflow d'arrêt/redémarrage N4."
+        };
+
+        db.Workflows.Add(workflow);
+        await db.SaveChangesAsync(ct);
+
+        var etape = new WorkflowStep
+        {
+            WorkflowId = workflow.Id,
+            Order = 1,
+            Name = $"Installer les mises à jour sur {hote} "
+                 + (scope == Connectors.UpdateInstallScope.Toutes ? "(toutes)" : "(sécurité + critiques)"),
+            Action = StepAction.InstallerMiseAJour,
+            ComponentId = composant.Id,
+            // La portée voyage dans Instruction : c'est le seul champ texte recopié
+            // tel quel sur l'ExecutionStep (PrepareExecutionUseCase), et il reste
+            // lisible par l'opérateur dans l'écran de confirmation.
+            Instruction = PorteeMajInstructions.Pour(scope),
+            RequiresConfirmation = true,
+            ExpectedSeconds = 600,
+            WarningThresholdSeconds = 1200,
+            TimeoutSeconds = 3900,
+            FailurePolicy = StepFailurePolicy.Bloquer,
+            CanRunInParallel = false
+        };
+
+        db.WorkflowSteps.Add(etape);
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "Installation de MAJ {Code} construite par {Acteur} pour {Hote} (portée {Portee}).",
+            workflow.Code, actor, hote, scope);
+
+        return AdHocResult.Ok(workflow.Id, workflow.Name, 1);
+    }
+
     private static List<WorkflowStep> ConstruireSimple(
         Guid workflowId, List<N4Component> composants, StepAction action)
     {
@@ -278,6 +370,37 @@ public sealed class AdHocOperationService(
         StepAction.Redemarrer => "Redémarrer",
         _ => "Contrôler"
     };
+}
+
+/// <summary>
+/// Phrases de portée d'une installation de MAJ, portées par l'étape
+/// (Instruction) et relues sans ambiguïté par le moteur.
+///
+/// Un seul point de vérité partagé entre le constructeur du workflow et
+/// l'exécuteur : la portée est décidée à la construction et retrouvée à
+/// l'exécution par comparaison de préfixe, jamais par analyse de langage. La
+/// phrase reste pleinement lisible par l'opérateur dans l'écran de confirmation.
+/// </summary>
+public static class PorteeMajInstructions
+{
+    public const string Securite =
+        "Portée : mises à jour de sécurité et critiques uniquement. "
+        + "Aucun redémarrage automatique — un redémarrage requis sera signalé et devra passer "
+        + "par le workflow d'arrêt/redémarrage N4 (ordre Kaleris).";
+
+    public const string Toutes =
+        "Portée : toutes les mises à jour en attente. "
+        + "Aucun redémarrage automatique — un redémarrage requis sera signalé et devra passer "
+        + "par le workflow d'arrêt/redémarrage N4 (ordre Kaleris).";
+
+    public static string Pour(Connectors.UpdateInstallScope scope) =>
+        scope == Connectors.UpdateInstallScope.Toutes ? Toutes : Securite;
+
+    /// <summary>Retrouve la portée depuis l'Instruction d'une étape (défaut : sécurité).</summary>
+    public static Connectors.UpdateInstallScope Lire(string? instruction) =>
+        instruction is not null && instruction.StartsWith("Portée : toutes", StringComparison.Ordinal)
+            ? Connectors.UpdateInstallScope.Toutes
+            : Connectors.UpdateInstallScope.SecuriteEtCritiques;
 }
 
 /// <summary>Forme de l'opération ponctuelle.</summary>
