@@ -8,7 +8,9 @@ public sealed class ApproveExecutionUseCase(
     IDbContextFactory<N4SentinelDbContext> dbFactory,
     MeriseBusinessPolicyService merisePolicies)
 {
-    public async Task<string?> ExecuteAsync(Guid executionId, string approvedBy, CancellationToken ct = default)
+    public async Task<string?> ExecuteAsync(
+        Guid executionId, string approvedBy,
+        bool approverIsSolutionAdmin = false, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -17,6 +19,36 @@ public sealed class ApproveExecutionUseCase(
 
         if (execution.Status != ExecutionStatus.EnAttenteApprobation)
             return $"Cette exécution est en état {execution.Status} : elle n'attend pas d'approbation.";
+
+        // L'ADMINISTRATEUR-SOLUTION N'A PAS DE LIMITE (décision d'exploitation,
+        // autorisée explicitement par l'exploitant).
+        //
+        // Ce compte détient déjà toutes les capacités ; son approbation lève
+        // l'opération en un seul geste — y compris sa PROPRE demande, et y
+        // compris quand une double approbation serait sinon exigée. Le contrôle
+        // à quatre yeux ne s'applique donc plus à ce rôle : c'est un choix
+        // assumé, pas un oubli.
+        //
+        // Ce qui demeure, et qui rend la trace exploitable : l'identité réelle
+        // de l'acteur est inscrite (ApprovedBy), horodatée, et la piste d'audit
+        // nomme qui a demandé ET approuvé. Pour rétablir une séparation stricte
+        // en Production, on crée un second compte approbateur — on ne bride pas
+        // celui-ci.
+        if (approverIsSolutionAdmin)
+        {
+            execution.ApprovedBy = approvedBy;
+            execution.ApprovedAt = DateTimeOffset.UtcNow;
+
+            if (execution.RequiresDoubleApproval && execution.SecondApprovedBy is null)
+            {
+                execution.SecondApprovedBy = approvedBy;
+                execution.SecondApprovedAt = DateTimeOffset.UtcNow;
+            }
+
+            execution.Status = ExecutionStatus.EnPreparation;
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
 
         if (string.Equals(execution.RequestedBy, approvedBy, StringComparison.OrdinalIgnoreCase))
             return "Le demandeur ne peut pas approuver sa propre opération. "

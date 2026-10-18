@@ -103,10 +103,12 @@ public sealed class ExecutionService(
     // -----------------------------------------------------------------------
     // Approbation et lancement
     // -----------------------------------------------------------------------
-    public Task<string?> ApproveAsync(Guid executionId, string approvedBy, CancellationToken ct = default)
+    public Task<string?> ApproveAsync(
+        Guid executionId, string approvedBy,
+        bool approverIsSolutionAdmin = false, CancellationToken ct = default)
     {
         if (approveUseCase is null) throw new InvalidOperationException("ApproveExecutionUseCase not configured.");
-        return approveUseCase.ExecuteAsync(executionId, approvedBy, ct);
+        return approveUseCase.ExecuteAsync(executionId, approvedBy, approverIsSolutionAdmin, ct);
     }
 
     /// <summary>

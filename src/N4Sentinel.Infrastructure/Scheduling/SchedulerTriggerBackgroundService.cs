@@ -149,7 +149,9 @@ public sealed class SchedulerTriggerBackgroundService(
 
                             if (sched.AutoApprove && executionId != Guid.Empty)
                             {
-                                var err = await executionService.ApproveAsync(executionId, requestedBy, stoppingToken);
+                                // Auto-approbation planifiée : par le demandeur configuré, sans
+                                // privilège admin (le flag reste false) — comportement inchangé.
+                                var err = await executionService.ApproveAsync(executionId, requestedBy, ct: stoppingToken);
                                 if (err is not null)
                                 {
                                     logger.LogWarning("[Planification {Code}] AutoApprove a échoué (continuera en attente) : {Err}",

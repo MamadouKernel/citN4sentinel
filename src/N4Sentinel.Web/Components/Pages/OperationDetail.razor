@@ -885,7 +885,15 @@ else
         return etat.User.Identity?.Name ?? "inconnu";
     }
 
-    private async Task Approuver() => await Executer(async a => await Executions.ApproveAsync(Id, a));
+    // L'Administrateur-Solution approuve sans limite (y compris sa propre
+    // opération) : on transmet son rôle au moteur, qui lève alors le contrôle
+    // à quatre yeux pour ce seul compte.
+    private async Task Approuver() => await Executer(async a =>
+    {
+        var etat = await AuthProvider.GetAuthenticationStateAsync();
+        var estAdminSolution = etat.User.IsInRole(N4Roles.AdministrateurSolution);
+        return await Executions.ApproveAsync(Id, a, estAdminSolution);
+    });
     private async Task ChoisirContinuite(CenterContinuityChoice choix) =>
         await Executer(async a => await Executions.SetContinuityChoiceAsync(Id, choix, a));
     private async Task Lancer() => await Executer(async a => await Executions.StartAsync(Id, a));
