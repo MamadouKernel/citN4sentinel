@@ -712,6 +712,42 @@ public sealed class SupervisionTests : IAsyncLifetime
         Assert.DoesNotContain(snapshot.LogFindings, f => f.Code == "MEM-OUT-OF-MEMORY");
     }
 
+    [Fact(DisplayName = "Une base sans agent WinRM mais avec un port est jugée par un contrôle TCP, pas déclarée Inconnu")]
+    public async Task EvaluateComponentAsync_Bascule_Sur_TCP_Quand_WinRM_Injoignable_Et_Port_Configure()
+    {
+        var envId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var compId = Guid.NewGuid();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Environments.Add(new N4Environment { Id = envId, Code = "PROD", Name = "Production" });
+            db.Servers.Add(new N4Server { Id = serverId, EnvironmentId = envId, HostName = "sql-inexistant.local" });
+            db.Components.Add(new N4Component
+            {
+                Id = compId,
+                EnvironmentId = envId,
+                ServerId = serverId,
+                LogicalName = "Base de données N4",
+                Role = ComponentRole.BaseDeDonnees,
+                WindowsServiceName = "MSSQLSERVER",
+                Port = 1433,
+                ControlMode = ControlMode.Pilotable
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // WinRM injoignable (cas d'un cluster SQL sans agent) + port configuré :
+        // l'hôte de test ne résout pas, donc le port TCP est « fermé » -> Indisponible,
+        // mais surtout PAS Inconnu, et le verdict cite le port TCP.
+        var fakeConnector = new FakeN4Connector { ServiceCallSucceeds = false };
+        var service = new SupervisionService(_factory, CreateTargetFactory(_factory), fakeConnector, NullLogger<SupervisionService>.Instance);
+        var snapshot = await service.EvaluateComponentAsync(compId);
+
+        Assert.NotEqual(ComponentState.Inconnu, snapshot.State);
+        Assert.Contains("TCP 1433", snapshot.Verdict);
+    }
+
     /// <summary>
     /// Fabrique un composant prouvable, l'évalue avec un service Running et le
     /// texte de journal fourni. Le ReadyPattern déclaré ne correspond jamais au
@@ -771,16 +807,22 @@ public sealed class SupervisionTests : IAsyncLifetime
         public string ServiceStatusToReturn { get; set; } = "Running";
         public string LogTextToReturn { get; set; } = string.Empty;
 
+        /// <summary>Faux WinRM injoignable (ex. serveur SQL sans agent) quand false.</summary>
+        public bool ServiceCallSucceeds { get; set; } = true;
+
         public Task<ConnectorResult<string>> PingAsync(ConnectorTarget target, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<string>.Ok("N4SRV01 (PowerShell 5.1)", TimeSpan.FromMilliseconds(10)));
 
         public Task<ConnectorResult<ServiceSnapshot>> GetServiceAsync(ConnectorTarget target, string serviceName, CancellationToken ct = default) =>
-            Task.FromResult(ConnectorResult<ServiceSnapshot>.Ok(new ServiceSnapshot
-            {
-                Name = serviceName,
-                Status = ServiceStatusToReturn,
-                ProcessId = ServiceStatusToReturn == "Running" ? 1234 : null
-            }, TimeSpan.FromMilliseconds(10)));
+            ServiceCallSucceeds
+                ? Task.FromResult(ConnectorResult<ServiceSnapshot>.Ok(new ServiceSnapshot
+                {
+                    Name = serviceName,
+                    Status = ServiceStatusToReturn,
+                    ProcessId = ServiceStatusToReturn == "Running" ? 1234 : null
+                }, TimeSpan.FromMilliseconds(10)))
+                : Task.FromResult(ConnectorResult<ServiceSnapshot>.Fail(
+                    ConnectorFailure.Injoignable, "WinRM injoignable (test).", TimeSpan.FromMilliseconds(10)));
 
         public Task<ConnectorResult<IReadOnlyList<ServiceSnapshot>>> GetServicesAsync(ConnectorTarget target, IReadOnlyCollection<string> serviceNames, CancellationToken ct = default) =>
             Task.FromResult(ConnectorResult<IReadOnlyList<ServiceSnapshot>>.Ok(

@@ -146,6 +146,24 @@ public sealed class SupervisionService(
             else
             {
                 snapshot.ServiceStatus = "Inaccessible";
+
+                // WinRM injoignable. Pour un composant SANS agent mais joignable
+                // par un port applicatif (typiquement un cluster SQL : on ne peut
+                // pas interroger son service Windows, mais on peut voir si SQL
+                // ÉCOUTE sur 1433), on bascule sur un contrôle TCP — le seul
+                // signal possible sans agent. Les vitals (CPU/RAM/disque) restent
+                // alors indisponibles, et le verdict le dit honnêtement.
+                if (component.Port is { } portTcp)
+                {
+                    var ouvert = await CheckTcpPortAsync(target.HostName, portTcp, ct);
+                    snapshot.State = ouvert ? ComponentState.Disponible : ComponentState.Indisponible;
+                    snapshot.LogProofStatus = LogProofState.Unprovable;
+                    snapshot.Verdict = ouvert
+                        ? $"Service en écoute sur le port TCP {portTcp} (agent WinRM indisponible — CPU/RAM/disque non relevés)."
+                        : $"Port TCP {portTcp} fermé ou filtré, et agent WinRM indisponible : {svcRes.Error}";
+                    return snapshot;
+                }
+
                 snapshot.State = ComponentState.Inconnu;
                 snapshot.Verdict = $"Échec d'interrogation du service : {svcRes.Error}";
                 return snapshot;
