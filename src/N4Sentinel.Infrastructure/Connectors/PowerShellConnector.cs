@@ -190,7 +190,7 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
                 Cpu = $cpu
                 TotalMemory = ($os.TotalVisibleMemorySize * 1KB)
                 FreeMemory = ($os.FreePhysicalMemory * 1KB)
-                Disks = $disques
+                Disks = @($disques)
             }
             """;
 
@@ -217,7 +217,11 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         }
 
         var disks = new List<DiskSnapshot>();
-        if (o.Properties["Disks"]?.Value is IEnumerable<object> bruts)
+        // Via WinRM, un tableau deserialise peut revenir en IEnumerable NON
+        // generique (ArrayList) et non en IEnumerable<object> : le test strict
+        // precedent laissait alors passer tous les disques (« Aucun disque
+        // releve »). On accepte toute enumeration, sauf une chaine.
+        if (o.Properties["Disks"]?.Value is System.Collections.IEnumerable bruts and not string)
         {
             foreach (var d in bruts)
             {
@@ -422,7 +426,7 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
                 PageFile = $file
                 SystemTime = (Get-Date)
                 LastBoot = $os.LastBootUpTime
-                Disks = $disques
+                Disks = @($disques)
             }
             """;
 
@@ -449,7 +453,11 @@ public sealed class PowerShellConnector(ILogger<PowerShellConnector> logger) : I
         }
 
         var disks = new List<DiskSnapshot>();
-        if (o.Properties["Disks"]?.Value is IEnumerable<object> bruts)
+        // Via WinRM, un tableau deserialise peut revenir en IEnumerable NON
+        // generique (ArrayList) et non en IEnumerable<object> : le test strict
+        // precedent laissait alors passer tous les disques (« Aucun disque
+        // releve »). On accepte toute enumeration, sauf une chaine.
+        if (o.Properties["Disks"]?.Value is System.Collections.IEnumerable bruts and not string)
         {
             foreach (var d in bruts)
             {
